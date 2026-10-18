@@ -28,10 +28,12 @@
 #                                    a path, or auto (the theme's own)
 #                   --4k | --no-4k   the 4K wallpapers (about 196 MB) or the standard ones
 #                   --pi-apps | --no-pi-apps
-#                                    Raspberry Pi's own panel and file manager, beside
-#                                    Debian's (Debian 13 and later), or Debian's
+#                                    Raspberry Pi's own panel and file manager: beside
+#                                    Debian's on Debian 13 and later, in place of
+#                                    Debian's on Debian 10 to 12; or Debian's
 #                   --login-screen | --no-login-screen
-#                                    the Raspberry Pi OS login screen style (LightDM), or none
+#                                    the Raspberry Pi OS login screen style (LightDM, installed
+#                                    where no other login manager is used), or none
 #                   --pi-greeter | --no-pi-greeter
 #                                    Raspberry Pi's own login box, which has no session
 #                                    chooser, or Debian's greeter in its style (default)
@@ -99,7 +101,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.7.0"
+readonly APP_VERSION="3.8.0"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -152,6 +154,13 @@ declare -rA DEP_RENAMES=(
 	[libatk1.0-0]="libatk1.0-0t64"
 	[libpng12-0]="libpng16-16t64 libpng16-16"
 	[gtk-update-icon-cache]="libgtk-3-bin"
+)
+# Dependencies of Raspberry Pi packages that only a Raspberry Pi needs; they
+# are left out. The battery plugin of Raspberry Pi OS 10 and 11 asks
+# raspi-config only whether it runs on a pi-top, and without it reads the
+# computer's own battery.
+declare -rA DEP_DROPS=(
+	[lxplug-ptbatt]="raspi-config"
 )
 
 # Cursor names that toolkits request, mapped to equivalents that may exist in
@@ -262,6 +271,8 @@ DEP_PKGS=()             # of those, offline, the ones installed only as dependen
 HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound, firmware), kept on uninstall
 ROOT_PKGS=()            # what is installed for its own sake, not as a dependency
 APT_PKGS=()             # installed by name from the APT sources
+USE_STACK=0             # 1 when Raspberry Pi's builds replace Debian's panel and file manager (PI_STACK)
+STACK_NAMES=()          # those packages, with the other installed ones of their sources
 declare -A PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
 declare -A IDX_LOADED=() IDX_FAILED=() IN_SET=()
 WORKDIR="" KEYRING="" DEP_INDEX="" BUILD_STAGE="" LOG_FILE="" REPO=""
@@ -508,8 +519,9 @@ theme_pkg() {
 icons_pkg() { case $1 in pixflat) echo pixflat-icons ;; pixtrix) echo pixtrix-icons ;; pix) echo rpd-icons ;; esac; }
 
 # Raspberry Pi OS packages for a release: every theme with its icons, fonts,
-# GTK 2 engines, wallpapers (every set the release publishes) and login screen
-# and, from Raspberry Pi OS 13, its own panel and file manager.
+# GTK 2 engines, wallpapers (every set the release publishes) and login screen,
+# and its own panel and file manager: from Raspberry Pi OS 13 its programs,
+# before that its builds of Debian's (see pi_stack).
 # Usage: rpi_pkgs SUITE ARCH [4K]
 rpi_pkgs() {
 	printf '%s\n' pixflat-theme pixtrix-theme pix-theme pixflat-icons pixtrix-icons rpd-icons \
@@ -521,7 +533,7 @@ rpi_pkgs() {
 		if (( ${3:-0} )); then index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper.*-4k$' || true
 		else index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper' | grep -v -- '-4k$' || true; fi
 	done | awk '!seen[$0]++'
-	if suite_ge "$1" trixie; then pi_apps "$1" "$2"; wayland_pkgs "$1" "$2"; fi
+	if suite_ge "$1" trixie; then pi_apps "$1" "$2"; wayland_pkgs "$1" "$2"; else pi_stack "$1" "$2"; fi
 }
 
 # Raspberry Pi's Wayland panel with every plugin Raspberry Pi OS installs (its
@@ -538,6 +550,18 @@ wayland_debs() { printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland
 # Debian packages of the X server, which the login screen always needs, with
 # Mesa's 3D drivers. Kept on uninstall.
 x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
+# Debian packages of the login screen: LightDM with Debian's greeter, which
+# takes the Raspberry Pi OS style, where no other display manager is in use,
+# and Debian's login artwork (desktop-base) behind it. Kept on uninstall, so
+# the computer keeps its login screen. ALL gives every one, for offline
+# repositories. Usage: login_debs [ALL]
+login_debs() {
+	(( O_LOGIN )) || [[ ${1:-0} == 1 ]] || return 0
+	if [[ ${1:-0} == 1 || -z $H_DM || $H_DM == lightdm ]]; then printf '%s\n' lightdm lightdm-gtk-greeter; fi
+	[[ $O_LOGIN_BG != debian && ${1:-0} != 1 ]] || echo desktop-base
+}
+# Succeed if LightDM is installed, or is about to be.
+with_lightdm() { [[ -n $(installed_version lightdm) ]] || login_debs | grep -qx lightdm; }
 
 # Raspberry Pi's own programs: its file manager, which draws the desktop and
 # opens folders, installed beside Debian's (see fm_coinstall); its Shutdown and
@@ -561,14 +585,77 @@ pi_apps() {
 panel_plugins() {
 	local f
 	f=$(pi_unpack "$PANEL_PKG" "$1" "$2" 2>/dev/null) && f+=/etc/xdg/lxpanel-pi/panels/panel && [[ -f $f ]] \
-		|| { printf '%s\n' smenu ejecter bluetooth volumepulse clock batt magnifier; return 0; }
-	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$PANEL_DROP|space|separator|launchbar|taskbar|tray" | awk '!seen[$0]++'
+		|| { printf '%s\n' smenu ejecter bluetooth volumepulse clock batt magnifier | _no_battery; return 0; }
+	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$PANEL_DROP|space|separator|launchbar|taskbar|tray" | awk '!seen[$0]++' | _no_battery
+}
+
+# The same for the panel of a Raspberry Pi OS release before 13, from its
+# raspberrypi-ui-mods. Usage: lx_panel_plugins SUITE ARCH
+lx_panel_plugins() {
+	local f
+	f=$(pi_unpack raspberrypi-ui-mods "$1" "$2" 2>/dev/null) && f+=/etc/xdg/lxpanel/LXDE-pi/panels/panel && [[ -f $f ]] \
+		|| { printf '%s\n' smenu ejecter bluetooth volumepulse batt magnifier | _no_battery; return 0; }
+	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$PANEL_DROP|space|separator|launchbar|taskbar|tray|menu|dclock" \
+		| awk '!seen[$0]++' | _no_battery
+}
+
+# Pass plugin types on, without the battery's where this computer has none
+# (except when building packages/, for any computer).
+_no_battery() { if [[ $O_MODE == download ]] || has_battery; then cat; else grep -vxE 'batt|ptbatt' || true; fi; }
+
+# Raspberry Pi OS's panel and file manager before Raspberry Pi OS 13: its
+# builds of Debian's (PI_STACK), those of any other package of the same
+# sources installed here, and the plugins its panel layout uses that
+# Raspberry Pi publishes (lxplug-*, the menu's as lxplug-menu).
+# Usage: pi_stack SUITE ARCH
+pi_stack() {
+	local t names
+	printf '%s\n' "${PI_STACK[@]}"
+	[[ $O_MODE == download ]] || stack_extras
+	names=$(index_names "$(rpi_aid)" "$1" "$2")
+	for t in $(lx_panel_plugins "$1" "$2"); do
+		t=lxplug-${t/#smenu/menu}
+		if grep -qxF "$t" <<<"$names"; then echo "$t"; fi
+	done
+}
+# Print the other installed packages of the sources of PI_STACK.
+stack_extras() {
+	dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${source:Package}\n' 2>/dev/null \
+		| awk -v re="^($PI_STACK_SRC)\$" '$1 ~ /^.i/ && $3 ~ re { print $2 }' \
+		| grep -vxF -f <(printf '%s\n' "${PI_STACK[@]}") || true
+}
+# Succeed if a .deb file is one of Raspberry Pi's builds of Debian's panel and
+# file manager (of PI_STACK's sources).
+stack_deb() {
+	local src
+	src=$(dpkg-deb -f "$1" Source)
+	src=${src%% *}
+	[[ ${src:-$(dpkg-deb -f "$1" Package)} =~ ^($PI_STACK_SRC)$ ]]
+}
+# Succeed if this computer has a battery of its own (not a mouse's or a
+# keyboard's).
+has_battery() {
+	local d
+	for d in /sys/class/power_supply/*; do
+		[[ $(cat "$d/type" 2>/dev/null) == Battery && $(cat "$d/scope" 2>/dev/null) != Device ]] && return 0
+	done
+	return 1
 }
 # Plugins of Raspberry Pi OS's panel that do not work on Debian: the updater
 # and power plugins need Raspberry Pi system tools or hardware; the network
-# plugin needs a Raspberry Pi rebuild of a Debian library (nm-applet shows the
-# same icons in the tray).
-readonly PANEL_DROP="updater|power|netman"
+# plugins need a Raspberry Pi rebuild of a Debian library or Raspberry Pi's
+# network settings (nm-applet shows the same icons in the tray).
+readonly PANEL_DROP="updater|power|netman|dhcpcdui"
+# The network plugins of Raspberry Pi OS's panels, whose place the tray takes.
+readonly PANEL_NET="netman|dhcpcdui"
+# Before Raspberry Pi OS 13, Raspberry Pi's panel and file manager are its own
+# builds of Debian's packages, under Debian's names; from Raspberry Pi OS 11
+# they use GTK 3, while Debian 11 and 12 build theirs, and their plugins, for
+# GTK 2, so the two cannot be mixed. With --pi-apps on Debian 10 to 12 these
+# replace Debian's, with any other package of their sources installed here;
+# --uninstall and --prepare-upgrade put Debian's back.
+readonly PI_STACK=(lxpanel lxpanel-data pcmanfm libfm4 libfm-gtk4 libfm-modules libfm-data libfm-gtk-data libfm-extra4)
+readonly PI_STACK_SRC="lxpanel|libfm|pcmanfm"
 # Debian panel applets that work in Raspberry Pi's panel.
 readonly DEBIAN_APPLETS="xkb weather volume thermal monitors deskno cpufreq"
 # The same for the Wayland panel, and the Raspberry Pi Connect and on-screen
@@ -626,7 +713,7 @@ tray_debs() {
 		if (( all )) || [[ -n $(installed_version pipewire) ]]; then echo libspa-0.2-bluetooth; fi
 		if [[ -n $(installed_version pulseaudio) ]]; then echo pulseaudio-module-bluetooth; fi
 		# Raspberry Pi's panel has its own Bluetooth plugin
-		suite_ge "$1" trixie || echo blueman
+		suite_ge "$1" trixie || (( USE_STACK )) || echo blueman
 	fi
 	printf '%s\n' debian-reference-common debian-reference-en
 }
@@ -1204,6 +1291,13 @@ resolve_pkg() {
 		index_load "$aid" "${x%/*}" "${x#*/}" || continue
 		while IFS= read -r line; do
 			IFS=$'\t' read -r v a f sha z d <<<"$line"
+			# shellcheck disable=SC2086  # a list of names
+			[[ -z ${DEP_DROPS[$pkg]:-} ]] || d=$(drop_deps "$d" ${DEP_DROPS[$pkg]})
+			# packages/ has Debian's panel and file manager beside Raspberry Pi's builds
+			if [[ $aid == local && $v == *+rpt* && $pkg =~ ^(lxpanel|pcmanfm|libfm) ]] && (( ! USE_STACK )); then continue; fi
+			# Raspberry Pi's builds of them, with their plugins and data, come
+			# from this release only: they belong together
+			if [[ $x != "$H_SUITE/$arch" && $pkg =~ ^(lxpanel|pcmanfm|libfm|lxplug-) && $pkg != *-pi ]]; then continue; fi
 			if [[ $aid == rpi && -z $H_RPI_ARCH ]]; then
 				# Another architecture's build: only what holds no compiled code
 				[[ $a == all ]] || (( data )) || continue
@@ -1235,9 +1329,26 @@ resolve_pkg() {
 
 # Print a Depends field without the Raspberry Pi GTK 2 engines, which hold
 # compiled code. Usage: no_engines DEPENDS
-no_engines() {
-	tr ',' '\n' <<<"$1" | grep -vE '^[[:space:]]*gtk2-engines-(pixflat|clearlookspix)([[:space:](]|$)' \
+no_engines() { drop_deps "$1" gtk2-engines-pixflat gtk2-engines-clearlookspix; }
+
+# Print a Depends field without the given packages. Usage: drop_deps DEPENDS NAME...
+drop_deps() {
+	local re
+	re=$(printf '%s|' "${@:2}" | sed 's/[.+]/\\&/g')
+	tr ',' '\n' <<<"$1" | grep -vE "^[[:space:]]*(${re%|})([[:space:](]|\$)" \
 		| sed 's/^[[:space:]]*//' | paste -sd, - | sed 's/,/, /g'
+}
+
+# Leave out the dependencies only a Raspberry Pi needs (DEP_DROPS). Prints the
+# path of the package to install.
+deps_drop() {
+	local deb=$1 drop
+	drop=${DEP_DROPS[$(dpkg-deb -f "$deb" Package)]:-}
+	[[ -n $drop ]] || { printf '%s\n' "$deb"; return 0; }
+	deb_unpack "$deb" debian
+	# shellcheck disable=SC2086  # a list of names
+	control_set Depends "$(drop_deps "$(dpkg-deb -f "$deb" Depends)" $drop)"
+	deb_pack
 }
 
 # Download a resolved package, verify it and print its local path. When
@@ -1484,15 +1595,18 @@ _debian_has() {
 
 # Raspberry Pi's packages must leave Debian's alone: none may replace, break,
 # conflict with or stand in for a Debian package (Raspberry Pi's file manager
-# is repacked first, see fm_coinstall), and none may change a file of
-# Debian's. A maintainer script that edits a file under /etc the package does
+# is repacked first, see fm_coinstall), except its builds of Debian's panel and
+# file manager that --pi-apps installs in their place (PI_STACK), and none may
+# change a file of Debian's. A maintainer script that edits a file under /etc the package does
 # not ship is left out where the package works without it: pi-greeter's only
 # lists the users in Debian's lightdm.conf, which this script's own LightDM
 # settings do. Any other such package is refused. Prints the path of the
 # package to install; fails for a refused one.
 scripts_coinstall() {
 	local deb=$1 dir=$WORKDIR/scripts s f n bad=""
-	for s in Replaces Breaks Conflicts Provides; do
+	# Raspberry Pi's builds of Debian's panel and file manager replace Debian's
+	# on purpose (see PI_STACK); their relations are Debian's own
+	stack_deb "$deb" || for s in Replaces Breaks Conflicts Provides; do
 		for n in $(dpkg-deb -f "$deb" "$s" | depnames); do
 			if _debian_has "$n"; then bad+="$s:$n "; fi
 		done
@@ -2022,6 +2136,12 @@ _openbox_keys() {
 			"C-A-B|$ctl command bluetooth menu" "C-A-M|$ctl command magnifier toggle"
 			"XF86AudioRaiseVolume|$ctl command volumepulse volu" "XF86AudioLowerVolume|$ctl command volumepulse vold"
 			"XF86AudioMute|$ctl command volumepulse mute")
+	elif (( S_PI_STACK )); then
+		# Raspberry Pi OS 10 to 12's keys, for its build of Debian's panel
+		keys=("Super_L|$ctl menu" "C-Escape|$ctl menu" "A-F2|$ctl run"
+			"C-A-B|$ctl command bluetooth menu" "C-A-M|$ctl command magnifier toggle"
+			"XF86AudioRaiseVolume|$ctl command volumepulse volu" "XF86AudioLowerVolume|$ctl command volumepulse vold"
+			"XF86AudioMute|$ctl command volumepulse mute")
 	else
 		keys=("Super_L|$ctl menu" "C-Escape|$ctl menu" "A-F2|$ctl run")
 	fi
@@ -2102,50 +2222,82 @@ _panel_tasks() {
 }
 
 # The Raspberry Pi OS panel for Debian's lxpanel: menu with the Debian logo,
-# launchers, taskbar, tray, volume, clock and battery. Pi-only plugins have no
+# launchers, taskbar, tray, volume, keyboard layout, clock and, with a
+# battery, the battery, with Raspberry Pi OS's spaces. Pi-only plugins have no
 # Debian counterpart; network and Bluetooth appear in the tray through
 # Debian's applets.
 _lxpanel_layout() {
-	local plugins='/usr/lib/*/lxpanel/plugins'
+	local plugins="$SYS_ROOT/usr/lib/*/lxpanel/plugins"
 	_panel_global point_at_menu=0
-	_panel_plugin menu "image=${S_LOGO:-start-here}" "system {" "}" "separator {" "}" \
+	_panel_plugin menu padding=4 "image=${S_LOGO:-start-here}" "system {" "}" "separator {" "}" \
 		"item {" "  image=system-run" "  command=run" "}" "separator {" "}" \
 		"item {" "  image=system-shutdown" "  command=logout" "}"
 	[[ $T_ERA == trixie ]] && _panel_plugin separator
 	_panel_tasks
 	_panel_plugin tray
 	if compgen -G "$plugins/volume.so" >/dev/null; then _panel_plugin space Size=2; _panel_plugin volume; fi
+	if compgen -G "$plugins/xkb.so" >/dev/null; then _panel_plugin space Size=2; _xkb_plugin; fi
 	_panel_plugin space Size=2
 	_panel_plugin dclock ClockFmt=%R 'TooltipFmt=%A %x' BoldFont=0 IconOnly=0 CenterText=1
-	if compgen -G "$plugins/batt.so" >/dev/null; then _panel_plugin space Size=2; _panel_plugin batt HideIfNoBattery=1; fi
+	if compgen -G "$plugins/batt.so" >/dev/null && has_battery; then _panel_plugin space Size=2; _panel_plugin batt HideIfNoBattery=1; fi
 }
 
 # Raspberry Pi OS's panel for Raspberry Pi's own panel program, as its
-# rpd-x-core of this release has it, so a new layout of a later release is
-# taken as it comes. Left out are the plugins that do not work on Debian
-# (PANEL_DROP) and those not installed; the tray takes the network plugin's
-# place, as nm-applet shows the network icon there. The launchers name the
-# browser, file manager and terminal installed here. Without that package,
+# rpd-x-core of this release has it (see _pi_layout). Without that package,
 # the Raspberry Pi OS 13 layout is written.
 _pi_panel_layout() {
-	local f t keep="" fm=pcmanfm.desktop
+	local f
 	f=$(pi_unpack "$PANEL_PKG" "$(config_suite)" "$(rpi_arch)" 2>/dev/null)/etc/xdg/lxpanel-pi/panels/panel
-	if [[ ! -f $f ]]; then _pi_panel_builtin; return 0; fi
+	if [[ -f $f ]]; then _pi_layout "$f" lxpanel-pi; else _pi_panel_builtin; fi
+}
+# The same before Raspberry Pi OS 13, for Raspberry Pi's build of Debian's
+# panel (PI_STACK), as its raspberrypi-ui-mods of this release has it.
+# Without that package, the panel of Debian's is written.
+_pi_stack_layout() {
+	local f
+	if f=$(_pi_stack_file etc/xdg/lxpanel/LXDE-pi/panels/panel); then _pi_layout "$f" lxpanel/plugins; else _lxpanel_layout; fi
+}
+# Print a file of this release's raspberrypi-ui-mods, Raspberry Pi OS's
+# settings before 13; fail if it is not there. Usage: _pi_stack_file PATH
+_pi_stack_file() {
+	local x
+	x=$(pi_unpack raspberrypi-ui-mods "$H_SUITE" "$(rpi_arch)" 2>/dev/null) && [[ -f $x/$1 ]] && printf '%s\n' "$x/$1"
+}
+
+# Print a Raspberry Pi OS panel layout as it comes, with its spaces and
+# separators, so a new layout of a later release is taken as it is. Left out
+# are the plugins that do not work on Debian (PANEL_DROP), those not installed
+# and, without a battery, the battery's; a space they leave doubled goes too.
+# The tray takes the network plugin's place, as nm-applet shows the network
+# icon there. The keyboard layout applet comes before the clock (Raspberry Pi
+# OS has none). The launchers name the browser, file manager and terminal
+# installed here. Usage: _pi_layout FILE PLUGIN-DIR (under /usr/lib/*/)
+_pi_layout() {
+	local f=$1 dir=$2 t keep="" fm=pcmanfm.desktop xkb="" nobatt=0
 	(( S_PI_FM )) && fm=pcmanfm-pi.desktop
 	while read -r t; do
-		if compgen -G "$SYS_ROOT/usr/lib/*/lxpanel-pi/$t.so" >/dev/null; then keep+="$t|"; fi
+		if compgen -G "$SYS_ROOT/usr/lib/*/$dir/$t.so" >/dev/null; then keep+="$t|"; fi
 	done < <(sed -n 's/^[[:space:]]*type=//p' "$f" | sort -u)
-	KEEP="${keep}space|separator|launchbar|taskbar|tray" DROP=$PANEL_DROP FM=$fm \
-	B=$(_browser_lx || true) \
+	# Debian's applet, which the generated package links into Raspberry Pi's panel
+	if compgen -G "$SYS_ROOT/usr/lib/*/$dir/xkb.so" >/dev/null || compgen -G "$SYS_ROOT/usr/lib/*/lxpanel/plugins/xkb.so" >/dev/null; then
+		xkb=$(_xkb_plugin)
+	fi
+	has_battery || nobatt=1
+	KEEP="${keep}space|separator|launchbar|taskbar|tray|menu|dclock" DROP=$PANEL_DROP NET=$PANEL_NET FM=$fm \
+	XKB=$xkb SPACE=$(_panel_plugin space Size=2) NOBATT=$nobatt B=$(_browser_lx || true) \
 	T=$(_launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop || true) awk '
+		function put(i) {
+			if (typ[i] == "space" && last == "space") return
+			out[++m] = blk[i]; last = typ[i]
+		}
 		depth == 0 && !/\{/ { if (n == 0) head = head $0 "\n"; next }
 		{
 			if (depth == 0) { n++; blk[n] = ""; typ[n] = "" }
 			if ($0 ~ /^[ \t]*type=/ && typ[n] == "") { typ[n] = $0; sub(/^[ \t]*type=/, "", typ[n]) }
 			if ($0 ~ /^[ \t]*id=/) {
 				id = $0; sub(/^[ \t]*id=/, "", id); r = ""
-				if (id == "x-www-browser.desktop") r = ENVIRON["B"]
-				else if (id == "x-terminal-emulator.desktop") r = ENVIRON["T"]
+				if (id == "x-www-browser.desktop" || id == "lxde-x-www-browser.desktop") r = ENVIRON["B"]
+				else if (id == "x-terminal-emulator.desktop" || id == "lxterminal.desktop") r = ENVIRON["T"]
 				else if (id == "pcmanfm.desktop") r = ENVIRON["FM"]
 				if (r != "") sub(/id=.*/, "id=" r)
 			}
@@ -2153,17 +2305,27 @@ _pi_panel_layout() {
 			depth += gsub(/\{/, "{") - gsub(/\}/, "}")
 		}
 		END {
-			keep = "^(" ENVIRON["KEEP"] ")$"; drop = "^(" ENVIRON["DROP"] ")$"
-			for (i = 1; i <= n; i++) { if (typ[i] == "tray") tray = i; if (typ[i] == "netman") net = i }
+			keep = "^(" ENVIRON["KEEP"] ")$"; drop = "^(" ENVIRON["DROP"] ")$"; netre = "^(" ENVIRON["NET"] ")$"
+			for (i = 1; i <= n; i++) { if (typ[i] == "tray") tray = i; if (typ[i] ~ netre && !net) net = i }
+			n++; typ[n] = "xkb"; blk[n] = ENVIRON["XKB"]; xkb = n
+			n++; typ[n] = "space"; blk[n] = ENVIRON["SPACE"]; sp = n
 			printf "%s", head
-			for (i = 1; i <= n; i++) {
-				if (i == net && tray) { printf "%s", blk[tray]; continue }
+			for (i = 1; i < xkb; i++) {
+				if (i == net && tray) { put(tray); continue }
 				if (i == tray && net) continue
 				if (typ[i] != "" && (typ[i] ~ drop || typ[i] !~ keep)) continue
-				printf "%s", blk[i]
+				if (ENVIRON["NOBATT"] == 1 && typ[i] ~ /^(batt|ptbatt)$/) continue
+				if (typ[i] ~ /^(dclock|clock)$/ && blk[xkb] != "") { put(sp); put(xkb); put(sp) }
+				put(i)
 			}
+			if (last == "space") m--   # no space at the end
+			for (i = 1; i <= m; i++) printf "%s", out[i]
 		}' "$f"
 }
+
+# The keyboard layout applet: the layouts of the system, each shown by its
+# short name (FR, US, ...), in the smallest size the applet has.
+_xkb_plugin() { _panel_plugin xkb DisplayType=1 FlagSize=1 PerWinLayout=0 NoResetOpt=0 KeepSysLayouts=1; }
 
 # The Raspberry Pi OS 13 panel (rpd-x-core), for when its package cannot be
 # read: the same plugins, in the same order.
@@ -2331,8 +2493,12 @@ _wallpaper_path() {
 # The session's lxsession profile: Raspberry Pi OS's desktop.conf, with the
 # chosen theme, and its autostart list. Usage: _session_profile XDG-DIR
 _session_profile() {
-	local dir=$1/lxsession/$S_PROFILE ctl=lxpanelctl
+	local dir=$1/lxsession/$S_PROFILE ctl=lxpanelctl images=1
 	(( S_PI_PANEL )) && ctl=lxpanelctl-pi
+	# Raspberry Pi's panels show icons in their menu whatever this says, and
+	# Raspberry Pi OS has menu images off; Debian's panel shows them only with
+	# it on
+	(( S_PI_PANEL || S_PI_STACK )) && images=0
 	{
 		printf '[Session]\nwindow_manager=%s/openbox\ndisable_autostart=no\npolkit/command=lxpolkit\n' "$SHARE"
 		printf 'clipboard/command=lxclipboard\nxsettings_manager/command=build-in\nproxy_manager/command=build-in\n'
@@ -2340,7 +2506,7 @@ _session_profile() {
 		printf 'quit_manager/image=/usr/share/lxde/images/logout-banner.png\nquit_manager/layout=top\n'
 		printf 'lock_manager/command=lxlock\nterminal_manager/command=x-terminal-emulator\nlauncher_manager/command=%s\n\n' "$ctl"
 		printf '[GTK]\nsNet/ThemeName=%s\nsNet/IconThemeName=%s\nsGtk/FontName=%s\n' "$T_GTK" "$T_ICONS" "$T_FONT"
-		printf 'iGtk/ToolbarStyle=3\niGtk/ButtonImages=0\niGtk/MenuImages=0\niGtk/CursorThemeSize=%s\n' "$T_CURSOR_SIZE"
+		printf 'iGtk/ToolbarStyle=3\niGtk/ButtonImages=0\niGtk/MenuImages=%s\niGtk/CursorThemeSize=%s\n' "$images" "$T_CURSOR_SIZE"
 		printf 'iXft/Antialias=1\niGtk/AutoMnemonics=1\niGtk/EnableMnemonics=1\nsGtk/ColorScheme=%s\n' "$(color_scheme)"
 		printf 'sGtk/CursorThemeName=%s\niGtk/ToolbarIconSize=3\nsGtk/IconSizes=gtk-large-toolbar=24,24\n' "$T_ICONS"
 		printf 'sNet/SoundThemeName=%s\niNet/EnableEventSounds=1\niNet/EnableInputFeedbackSounds=1\n' "$T_SOUND_THEME"
@@ -2359,7 +2525,7 @@ _session_profile() {
 # profile and for Raspberry Pi's, which reads the 'default' profile.
 # Usage: _session_files XDG-DIR
 _session_files() {
-	local xdg=$1 d i f
+	local xdg=$1 d i f src
 	for d in "$xdg/pcmanfm/$S_PROFILE" "$xdg/pcmanfm/default"; do
 		for i in 0 1; do
 			{
@@ -2370,20 +2536,25 @@ _session_files() {
 			} | _write "$d/desktop-items-$i.conf"
 		done
 		f=$d/pcmanfm.conf
-		_ini_set "$f" config bm_open_method 0
-		_ini_set "$f" volume mount_on_startup 0 mount_removable 0 autorun 0
+		if (( S_PI_STACK )) && [[ $d != */default ]] && src=$(_pi_stack_file etc/xdg/pcmanfm/LXDE-pi/pcmanfm.conf); then
+			# Raspberry Pi OS's own settings for its build, without its
+			# commands that Debian does not have (gksu, its appearance settings)
+			grep -vE '^(su_cmd|prefs_app)=' "$src" | _write "$f"
+		else
+			_ini_set "$f" config bm_open_method 0
+			_ini_set "$f" volume mount_on_startup 0 mount_removable 0 autorun 0
+			_ini_set "$f" ui always_show_tabs 0 max_tab_chars 32 win_width 640 win_height 480 splitter_pos 150 \
+				view_mode icon show_hidden 0 sort "name;ascending;" columns "name;size;mtime;" \
+				toolbar "newtab;navigation;home;" show_statusbar 1 pathbar_mode_buttons 0
+			[[ $d == */default ]] || _ini_set "$f" ui side_pane_mode places
+		fi
 		_ini_set "$f" desktop desktop_bg "$T_DESK_BG" desktop_fg "$T_DESK_FG" desktop_shadow "$T_DESK_SHADOW" \
 			show_wm_menu 0 wallpaper_mode crop wallpaper "$S_WALL"
-		_ini_set "$f" ui always_show_tabs 0 max_tab_chars 32 win_width 640 win_height 480 splitter_pos 150 \
-			view_mode icon show_hidden 0 sort "name;ascending;" columns "name;size;mtime;" \
-			toolbar "newtab;navigation;home;" show_statusbar 1 pathbar_mode_buttons 0
 		if [[ $d == */default ]]; then
 			# Raspberry Pi's file manager keeps in this file what Debian's keeps
 			# in libfm.conf: its own menus, side pane and icon sizes
 			_fm_shared_conf "$f"
 			_ini_set "$f" config terminal "x-terminal-emulator %s"
-		else
-			_ini_set "$f" ui side_pane_mode places
 		fi
 	done
 	# Debian's libfm.conf, with Raspberry Pi OS's values
@@ -2452,7 +2623,7 @@ _session_entries() {
 	# lxpolkit). A user can turn one on again in Desktop Session Settings.
 	local -a pats=(volumeicon pasystray pnmixer diodon clipit parcellite
 		polkit-gnome-authentication-agent polkit-mate xfce-polkit)
-	(( S_PI_PANEL )) && pats+=(blueman)
+	(( S_PI_PANEL || S_PI_STACK )) && pats+=(blueman)
 	for id in "${pats[@]}"; do
 		for f in /etc/xdg/autostart/"$id"*.desktop; do
 			[[ -f $f ]] || continue
@@ -3622,10 +3793,12 @@ session_vars() {
 	S_PROFILE=$(session_profile)
 	S_LOGO=$(_logo_path || true)
 	S_WALL=$(_wallpaper_path)
-	S_PI_PANEL=0 S_PI_FM=0
+	S_PI_PANEL=0 S_PI_FM=0 S_PI_STACK=0
 	if (( O_PI_APPS )); then
 		if [[ -x /usr/bin/lxpanel-pi ]]; then S_PI_PANEL=1; fi
 		if [[ -x /usr/bin/pcmanfm-pi ]]; then S_PI_FM=1; fi
+		# Raspberry Pi's builds in place of Debian's, before Debian 13
+		if (( ! S_PI_PANEL )) && _stack_installed; then S_PI_STACK=1; fi
 	fi
 	# Raspberry Pi's file manager uses its default profile, as on Raspberry Pi OS
 	S_FM_PROFILE=$S_PROFILE
@@ -3642,7 +3815,7 @@ session_build() {
 	_seed "$rc" "$SYS_ROOT"/etc/xdg/openbox/LXDE/rc.xml "$SYS_ROOT"/etc/xdg/openbox/rc.xml || die "Openbox's rc.xml is missing (install openbox)"
 	_openbox_rc "$rc"
 	_openbox_keys "$rc"
-	_lxpanel_layout | _write "$xdg/lxpanel/$S_PROFILE/panels/panel"
+	if (( S_PI_STACK )); then _pi_stack_layout; else _lxpanel_layout; fi | _write "$xdg/lxpanel/$S_PROFILE/panels/panel"
 	command -v pishutdown >/dev/null && printf '[Command]\nLogout=pishutdown\n' | _write "$xdg/lxpanel/$S_PROFILE/config"
 	(( S_PI_PANEL )) && _pi_panel_layout | _write "$xdg/lxpanel-pi/panels/panel"
 	_session_files "$xdg"
@@ -3815,12 +3988,20 @@ resolve_all() {
 		index_load rpi "$H_SUITE" "$(rpi_arch)" || die "cannot download the $H_SUITE package index from $RPI_ARCHIVE"
 		ok "Package index signature verified (Raspberry Pi Archive Signing Key)"
 	fi
+	# Before Debian 13, Raspberry Pi's panel and file manager replace Debian's
+	USE_STACK=0 STACK_NAMES=()
+	if (( O_PI_APPS )) && [[ -n $H_RPI_ARCH ]] && ! suite_ge "$H_SUITE" trixie; then
+		USE_STACK=1
+		mapfile -t STACK_NAMES < <(printf '%s\n' "${PI_STACK[@]}"; stack_extras)
+	fi
 	while read -r p; do
 		case $p in
-			pi-greeter) (( O_LOGIN && O_PI_GREETER )) && [[ -n $(installed_version lightdm) ]] || continue ;;
+			pi-greeter) (( O_LOGIN && O_PI_GREETER )) && with_lightdm || continue ;;
 			lxpanel-pi|lpplug-*|pplug-*|pishutdown|gui-runcmd|pcmanfm-pi) (( O_PI_APPS )) || continue ;;
+			lxplug-*) (( USE_STACK )) || continue ;;
 			wf-panel-pi|wfplug-*|pipanel|rpcc|sudopwd) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
 		esac
+		if [[ $p =~ ^(lxpanel|pcmanfm|libfm) && $p != lxpanel-pi && $p != pcmanfm-pi ]] && (( ! USE_STACK )); then continue; fi
 		wanted+=("$p")
 	done < <(rpi_pkgs "$H_SUITE" "$(rpi_arch)" "$O_4K")
 	[[ -n $REPO ]] || mapfile -t wanted < <(with_rpi_deps "$H_SUITE" "$(rpi_arch)" "${wanted[@]}")
@@ -3833,6 +4014,17 @@ resolve_all() {
 		elif [[ -n $H_RPI_ARCH ]]; then warn "$p is not available for $H_SUITE/$H_ARCH; skipping it"; fi
 	done
 	[[ " ${FETCH_PKGS[*]} " == *-theme\ * ]] || die "no theme packages are available for $H_SUITE/$H_ARCH"
+	# All of Raspberry Pi's builds, or none: a Debian package of the same
+	# sources that is left would not work with them
+	if (( USE_STACK )); then
+		for p in "${STACK_NAMES[@]}"; do
+			[[ " ${FETCH_PKGS[*]} " == *" $p "* ]] && continue
+			note "Debian's panel and file manager are used: Raspberry Pi OS has no build of $p for $H_SUITE/$H_ARCH."
+			USE_STACK=0 STACK_NAMES=()
+			mapfile -t FETCH_PKGS < <(printf '%s\n' "${FETCH_PKGS[@]}" | grep -vE '^(lxplug-.*|lxpanel|lxpanel-data|pcmanfm|libfm.*)$')
+			break
+		done
+	fi
 	if [[ $H_DISPLAY == wayland && " ${FETCH_PKGS[*]} " != *" wf-panel-pi "* ]]; then
 		H_DISPLAY=x11 H_DISPLAY_WHY="Raspberry Pi's Wayland panel or labwc is not available for $H_SUITE/$H_ARCH"
 		note "The session runs on X: $H_DISPLAY_WHY."
@@ -3846,9 +4038,13 @@ resolve_all() {
 	(( O_QT )) && helpers+=(qt5-gtk-platformtheme qt6-gtk-platformtheme)
 	# LightDM keeps each user's session choice in AccountsService; its greeter
 	# cannot read it otherwise from a private home folder
-	[[ -z $(installed_version lightdm) ]] || helpers+=(accountsservice)
-	# Hardware support: network and Bluetooth tools, sound and missing firmware
-	mapfile -t HW_PKGS < <(x11_debs; tray_debs "$H_SUITE" | grep -vE '^debian-reference'; audio_debs "$H_SUITE"; firmware_debs)
+	! with_lightdm || helpers+=(accountsservice)
+	if (( O_LOGIN )) && [[ -n $H_DM && $H_DM != lightdm ]]; then
+		note "The Raspberry Pi OS login screen needs LightDM; this computer uses $H_DM. To switch: sudo apt install lightdm lightdm-gtk-greeter && sudo dpkg-reconfigure lightdm, then run this again."
+	fi
+	# Hardware support: network and Bluetooth tools, sound, missing firmware,
+	# and the login screen
+	mapfile -t HW_PKGS < <(x11_debs; tray_debs "$H_SUITE" | grep -vE '^debian-reference'; audio_debs "$H_SUITE"; firmware_debs; login_debs)
 	for p in "${HW_PKGS[@]}"; do
 		if [[ $(pkg_category "$p") == firmware ]] && ! apt_has "$p"; then
 			note "$p holds firmware this computer needs: add 'non-free-firmware' (Debian 12 and later; 'non-free' before) to your APT sources, then run this again."
@@ -3859,7 +4055,7 @@ resolve_all() {
 	ROOT_PKGS=("${FETCH_PKGS[@]}" "${helpers[@]}")
 	APT_PKGS=()
 	for p in "${helpers[@]}"; do
-		[[ " ${APT_PKGS[*]} " == *" $p "* || -n $(installed_version "$p") ]] && continue
+		[[ " ${APT_PKGS[*]} " == *" $p "* || " ${FETCH_PKGS[*]} " == *" $p "* || -n $(installed_version "$p") ]] && continue
 		if [[ -n $REPO ]] || apt_has "$p"; then APT_PKGS+=("$p"); fi
 	done
 
@@ -3879,11 +4075,13 @@ resolve_all() {
 	for p in "${FETCH_PKGS[@]}" "${APT_PKGS[@]}"; do IN_SET[$p]=1; done
 }
 
-# A Raspberry Pi package must never replace a package from the APT sources.
-# Usage: _refuse_debian_names PACKAGE...
+# A Raspberry Pi package must never replace a package from the APT sources,
+# except its builds of Debian's panel and file manager (STACK_NAMES), which
+# --pi-apps installs in their place. Usage: _refuse_debian_names PACKAGE...
 _refuse_debian_names() {
 	local p
 	for p; do
+		[[ " ${STACK_NAMES[*]} " != *" $p "* ]] || continue
 		if [[ -n $(apt-cache madison "$p" 2>/dev/null) ]]; then
 			die "refusing to install $p from Raspberry Pi OS: your APT sources provide a package with that name"
 		fi
@@ -3911,9 +4109,9 @@ pkg_category() {
 		sound-theme-*)               echo sounds ;;
 		firmware-*|*-firmware)       echo firmware ;;
 		pipewire*|pulseaudio|wireplumber) echo sound ;;
-		pi-greeter)                  echo greeter ;;
+		pi-greeter|lightdm*|desktop-base) echo greeter ;;
 		pcmanfm-pi|pcmanfm|libfm*)   echo files ;;
-		lxpanel*|lpplug-*|pplug-*|wf-panel-pi|wfplug-*|rpcc|pipanel|sudopwd|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
+		lxpanel*|lpplug-*|pplug-*|lxplug-*|wf-panel-pi|wfplug-*|rpcc|pipanel|sudopwd|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
 		network-manager*|nm-connection-editor|wpasupplicant|iw|wireless-regdb|rfkill|bluez*|blueman|libspa-0.2-bluetooth|pulseaudio-module-bluetooth) echo network ;;
 		lxsession*|lxpolkit|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|dconf-cli|libglib2.0-bin) echo session ;;
 		xserver-*|x11-*|libgl1-mesa-dri) echo display ;;
@@ -3991,6 +4189,7 @@ with_rpi_deps() {
 		seen[$p]=1
 		echo "$p"
 		for n in $(index_candidates rpi "$suite" "$arch" "$p" | first_line | cut -f6 | depnames); do
+			[[ " ${DEP_DROPS[$p]:-} " != *" $n "* ]] || continue
 			[[ -z ${seen[$n]:-} ]] && grep -qxF "$n" <<<"$names" && ! _dep_ok "$n" && list+=("$n")
 		done
 	done
@@ -4016,6 +4215,7 @@ install_all() {
 		fi
 		f=$(download_pkg "$p")
 		if [[ -z $REPO ]]; then          # packages/ is adapted already
+			f=$(deps_drop "$f")
 			f=$(compat_fix "$f")
 			f=$(fm_coinstall "$f")
 			f=$(rpcc_session "$f")
@@ -4947,7 +5147,7 @@ download_mode() {
 		_index_names "$deb" >"$DEP_INDEX"
 		mapfile -t rpis < <({ rpi_pkgs "$suite" "$arch" 0; rpi_pkgs "$suite" "$arch" 1; } | awk '!seen[$0]++')
 		mapfile -t rpis < <(with_rpi_deps "$suite" "$arch" "${rpis[@]}")
-		mapfile -t debs < <({ x11_debs; session_debs; theme_debs "$suite"; tray_debs "$suite" 1; echo accountsservice
+		mapfile -t debs < <({ x11_debs; session_debs; theme_debs "$suite"; tray_debs "$suite" 1; login_debs 1; echo accountsservice
 			if suite_ge "$suite" trixie; then wayland_debs; fi; } | awk '!seen[$0]++')
 		for p in "${rpis[@]}" "${debs[@]}"; do IN_SET[$p]=1; done
 		idx=$stage/dists/$suite/main/binary-$arch
@@ -4957,6 +5157,7 @@ download_mode() {
 		for p in "${rpis[@]}"; do
 			if ! resolve_pkg "$p" rpi; then warn "$p is not available for $suite/$arch; left out"; continue; fi
 			f=$(download_pkg "$p")
+			f=$(deps_drop "$f")
 			f=$(compat_fix "$f")
 			f=$(fm_coinstall "$f")
 			f=$(rpcc_session "$f")
@@ -4990,8 +5191,12 @@ download_mode() {
 		done
 		# The packages the script asks for are always there: a minimal
 		# installation may lack what a desktop task brings
+		# (Debian's panel and file manager stay beside Raspberry Pi's builds of
+		# them, for --no-pi-apps)
 		mapfile -t debs < <({ printf '%s\n' "${debs[@]}"; _bundle_closure "$deb" "$deb.base" "${debs[@]}" -- "${got[@]}"; } \
-			| LC_ALL=C sort -u | while read -r p; do [[ " ${rpis[*]} " == *" $p "* ]] || echo "$p"; done)
+			| LC_ALL=C sort -u | while read -r p; do
+				[[ " ${rpis[*]} " != *" $p "* || ( $p =~ ^(lxpanel|pcmanfm|libfm) && $p != *-pi ) ]] && echo "$p"
+			done)
 		for p in "${debs[@]}"; do
 			# a package a release does not have (PipeWire before Debian 11)
 			if ! resolve_pkg "$p" debian; then warn "$p is not available in Debian $suite/$arch; left out"; continue; fi
@@ -5076,23 +5281,53 @@ prepare_upgrade() {
 		[[ -n $(installed_version "$p") ]] && grep -qxF "$p" "$SYS_DIR/installed-packages" && remove+=("$p")
 	done
 	step "Preparing for a Debian release upgrade"
-	if (( ${#remove[@]} == 0 )); then ok "Nothing to remove: no package of the look is tied to this Debian release"; return 0; fi
+	if (( ${#remove[@]} == 0 )) && ! _stack_installed; then ok "Nothing to remove: no package of the look is tied to this Debian release"; return 0; fi
 	log "  Removes, until the look is installed again after the upgrade:"
-	log "    ${remove[*]}"
+	(( ${#remove[@]} == 0 )) || log "    ${remove[*]}"
+	_stack_installed && log "    Raspberry Pi's builds of the panel and file manager (Debian's are installed again)"
 	log "  The themes, icons, fonts and wallpapers stay; the session uses Debian's"
 	log "  panel, file manager and login screen meanwhile."
 	ask "Continue" n || die "aborted"
 	prepare_root
 	take_run_lock
 	require_dpkg_ready
-	step "Removing the packages built for Debian $H_CODENAME"
-	mapfile -t remove < <(_safe_purge_set "${remove[@]}" || true)
-	(( ${#remove[@]} )) || die "APT would remove other packages with them; nothing was changed"
-	printf '%s\n' "${remove[@]}" | record_add "$SYS_DIR/removed-for-upgrade"
-	as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "${remove[@]}"
+	if (( ${#remove[@]} )); then
+		step "Removing the packages built for Debian $H_CODENAME"
+		mapfile -t remove < <(_safe_purge_set "${remove[@]}" || true)
+		(( ${#remove[@]} )) || die "APT would remove other packages with them; nothing was changed"
+		printf '%s\n' "${remove[@]}" | record_add "$SYS_DIR/removed-for-upgrade"
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "${remove[@]}"
+	fi
+	restore_debian_stack
 	set_theme "$(chosen_theme)"
 	install_pkg
 	ok "Ready. Upgrade Debian and reboot, then run: $(self_cmd)"
+}
+
+# Succeed if Raspberry Pi's build of Debian's panel is installed (PI_STACK).
+_stack_installed() { [[ $(installed_version lxpanel) == *+rpt* ]]; }
+
+# Put Debian's own builds of the panel and file manager back where Raspberry
+# Pi's replaced them (see PI_STACK), from the APT sources. Raspberry Pi's
+# panel plugins, which need its panel, are removed first.
+restore_debian_stack() {
+	local p v src
+	local -a args=() kept=() plugins=()
+	while read -r p v src; do
+		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC)$ ]] || continue
+		v=$(LC_ALL=C apt-cache madison "$p" 2>/dev/null | awk -F' *[|] *' 'NR == 1 { print $2 }')
+		if [[ -n $v ]]; then args+=("$p=$v"); else kept+=("$p"); fi
+	done < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version} ${source:Package}\n' 2>/dev/null | awk '$1 ~ /^.i/ { $1 = ""; print }')
+	(( ${#args[@]} )) || return 0
+	step "Putting Debian's panel and file manager back"
+	mapfile -t plugins < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'lxplug-*' 2>/dev/null | awk '$1 ~ /^.i/ { print $2 }')
+	if (( ${#plugins[@]} )); then as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "${plugins[@]}" >/dev/null || true; fi
+	if as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" --allow-downgrades "${args[@]}"; then
+		ok "Debian's ${args[*]%%=*} are installed again"
+	else
+		warn "APT could not put Debian's panel and file manager back; install them with: sudo apt install --allow-downgrades ${args[*]}"
+	fi
+	(( ${#kept[@]} == 0 )) || warn "your APT sources have no Debian version of ${kept[*]}; Raspberry Pi's build stays"
 }
 
 # Print the part of a package set that APT can purge without removing any
@@ -5135,6 +5370,7 @@ uninstall() {
 	step "What the uninstall removes"
 	log "  For everyone: the Raspberry Pi Desktop session, the login screen style and $APP_PKG"
 	(( ${#pkgs[@]} )) && log "  Packages this script installed: ${pkgs[*]}"
+	_stack_installed && log "  Raspberry Pi's panel and file manager: Debian's are installed again in their place"
 	log "  For $(id -un): the settings it changed and your Raspberry Pi Desktop settings; other users keep theirs."
 	log "  Packages you had before or installed later stay."
 	ask "Continue" n || die "aborted"
@@ -5205,6 +5441,7 @@ uninstall() {
 		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$p" >/dev/null
 		ok "Removed the Raspberry Pi Desktop session ($p)"
 	done
+	restore_debian_stack
 	if (( ${#pkgs[@]} )) && ask "Also remove the ${#pkgs[@]} packages this script installed" y; then
 		mapfile -t remove < <(_safe_purge_set "${pkgs[@]}" || true)
 		for p in "${pkgs[@]}"; do [[ " ${remove[*]} " == *" $p "* ]] || keep+=("$p"); done
@@ -5385,7 +5622,14 @@ print_plan() {
 	for p in "${FETCH_PKGS[@]}"; do _pkg_line "$p" "${PKG_VER[$p]}" "$(_pkg_status "$p")"; done
 	for p in "${APT_PKGS[@]}"; do _pkg_line "$p" "(APT)" "new, from your Debian sources"; done
 	[[ $O_DESKTOPS == none ]] || log "  Also         ${O_DESKTOPS//,/, } for $(id -un), with a backup of the settings it changes"
-	log "  Debian's own sessions and your settings in them are not changed."
+	if (( USE_STACK )); then
+		log "  Replaces     Debian's panel and file manager with Raspberry Pi OS's builds of"
+		log "               them (lxpanel, pcmanfm, libfm above), which Debian's LXDE session"
+		log "               then uses too. --uninstall puts Debian's back; --no-pi-apps keeps them."
+		log "  Your settings in Debian's own sessions are not changed."
+	else
+		log "  Debian's own sessions and your settings in them are not changed."
+	fi
 }
 
 # Print the closing summary.

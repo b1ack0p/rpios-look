@@ -5,12 +5,14 @@ Makes Debian look like Raspberry Pi OS, without breaking Debian.
 It installs the official Raspberry Pi OS themes, icons, cursors, fonts,
 wallpapers, panel, file manager and login screen style, and applies Raspberry
 Pi OS's desktop settings. Everything is added as a separate session on the
-login screen, **Raspberry Pi Desktop**. Debian's own sessions are not changed.
+login screen, **Raspberry Pi Desktop**. Your settings in Debian's own sessions
+are not changed; on Debian 10 to 12 they use Raspberry Pi OS's panel and file
+manager too, unless `--no-pi-apps` is given (see [Panel](#panel)).
 
 ![The Raspberry Pi Desktop session on Debian 13, with its menu open](screenshot/scr1.png)
 ![The Raspberry Pi Desktop session on Wayland, Debian 13](screenshot/scr2.png)
 ![The login screen](screenshot/scr3.png)
-![Debian 12 on a 32-bit PC, with Debian's own panel](screenshot/scr4.png)
+![Debian 12 on a 32-bit PC, with Debian's own panel (--no-pi-apps)](screenshot/scr4.png)
 
 ## Contents
 
@@ -42,8 +44,11 @@ login screen, **Raspberry Pi Desktop**. Debian's own sessions are not changed.
 - **Themes:** PiXflat, PiXnoir, PiXtrix, PiXonyx and PiX, all installed.
 - **Sessions:** *Raspberry Pi Desktop* on X, and on Wayland where the
   computer suits it.
-- **Panel and file manager:** Raspberry Pi's own on Debian 13 and later;
-  Debian's, in the same layout, on Debian 10 to 12.
+- **Panel and file manager:** Raspberry Pi OS's own, in its layout for
+  your Debian release: on Debian 13 and later beside Debian's, on Debian 10
+  to 12 in place of Debian's (see [Panel](#panel)).
+- **Login screen:** Raspberry Pi OS's style, with Debian's login artwork.
+  LightDM is installed where no other login manager is used.
 
 Differences from Raspberry Pi OS:
 
@@ -232,8 +237,42 @@ Right-click the panel to change its settings and applets:
 - **On X:** **Panel Settings** and **Add / Remove Panel Items**.
 - **On Wayland:** the panel's settings open in the **Control Centre**.
 
-On X, Raspberry Pi's panel (Debian 13 and later) offers its own applets and
-these Debian applets:
+### Layout
+
+The panel is Raspberry Pi OS's own layout for your Debian release (Raspberry
+Pi OS 10 to 13), with its spaces and separators: menu, launchers, taskbar,
+eject, Bluetooth, network, volume, clock, battery and magnifier. Differences:
+
+- The network icon is `nm-applet`'s, in the notification area, which takes
+  the network plugin's place; other programs' tray icons appear there too.
+- A **keyboard layout** applet sits before the clock. It shows the current
+  layout by its short name (`FR`, `US`, ...); right-click it to add layouts
+  and choose the key that switches them. Raspberry Pi OS has none.
+- The **battery** appears only on a computer with a battery.
+- The **microphone** and **Bluetooth** icons appear only when the computer
+  has a microphone or a Bluetooth adapter, as on Raspberry Pi OS.
+- Plugins that need Raspberry Pi hardware or tools (updater, power, network)
+  are left out.
+
+### Raspberry Pi's panel and file manager on Debian 10 to 12
+
+Before Raspberry Pi OS 13, Raspberry Pi's panel and file manager are its own
+builds of Debian's `lxpanel`, `pcmanfm` and `libfm`, under the same names.
+From Raspberry Pi OS 11 they use GTK 3, and Debian 11 and 12 build theirs
+for GTK 2, so the two cannot be mixed. With `--pi-apps` (the default), the
+script installs Raspberry Pi OS's builds for your release in place of
+Debian's, with Raspberry Pi's panel plugins (menu, eject, Bluetooth, volume,
+battery, magnifier). Debian's LXDE session then uses them too.
+
+- `--uninstall` and `--prepare-upgrade` install Debian's versions again.
+- `--no-pi-apps` keeps Debian's panel and file manager, in Raspberry Pi
+  OS's layout.
+- If Raspberry Pi has no build of a package of these sources that is
+  installed here (for example a `-dbg` package), Debian's are kept.
+
+### Applets
+
+On X, Raspberry Pi's panel offers its own applets and these Debian applets:
 
 | Applet | Purpose |
 |--------|---------|
@@ -246,9 +285,9 @@ these Debian applets:
 | CPU Frequency (`cpufreq`) | CPU frequency |
 
 Debian's network status and keyboard LED applets are not offered: they stop
-Raspberry Pi's panel. Programs with a tray icon appear in the notification
-area. With `--no-pi-apps`, the session uses Debian's panel, which offers all
-of Debian's applets.
+Raspberry Pi's panel on Debian 13. Programs with a tray icon appear in the
+notification area. With `--no-pi-apps`, the session uses Debian's panel,
+which offers all of Debian's applets.
 
 ## Install options
 
@@ -261,8 +300,8 @@ The installer remembers these options and reuses them on later runs.
 | `--wallpaper W` | A file in `/usr/share/rpd-wallpaper`, a path, or `auto`. | `auto` |
 | `--4k`, `--no-4k` | 4K wallpapers. | Off |
 | `--wayland`, `--no-wayland`, `--auto` | Display system (see [X or Wayland](#x-or-wayland)). | Auto |
-| `--pi-apps`, `--no-pi-apps` | Raspberry Pi's panel and file manager (Debian 13 and later). | On |
-| `--login-screen`, `--no-login-screen` | Raspberry Pi OS login screen style (LightDM). | On |
+| `--pi-apps`, `--no-pi-apps` | Raspberry Pi's panel and file manager; on Debian 10 to 12 in place of Debian's (see [Panel](#panel)). | On |
+| `--login-screen`, `--no-login-screen` | Raspberry Pi OS login screen style (LightDM, installed where no other login manager is used). | On |
 | `--pi-greeter`, `--no-pi-greeter` | Raspberry Pi's greeter, which has no session chooser. | Off |
 | `--login-background B` | `debian`, `raspios`, or a path to a picture. | `debian` |
 | `--qt`, `--no-qt` | Qt applications follow the theme. | Off |
@@ -291,8 +330,10 @@ Each package is verified against Raspberry Pi's signing key.
 | Wallpapers | `rpd-wallpaper`, `rpd-wallpaper-trixie`, or their 4K versions |
 | Login screen | `pi-greeter` (with LightDM) |
 | Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi` and its plugins |
+| Panel (Debian 10 to 12) | Raspberry Pi OS's `lxpanel` and `lxpanel-data`, in place of Debian's, and its plugins (`lxplug-*`) |
 | Settings (Wayland) | `rpcc` (Control Centre), `pipanel` (Appearance Settings), `sudopwd` |
 | File manager (Debian 13+) | `pcmanfm-pi`, installed beside Debian's |
+| File manager (Debian 10 to 12) | Raspberry Pi OS's `pcmanfm` and `libfm`, in place of Debian's |
 
 ### From Debian
 
@@ -312,8 +353,10 @@ Added only for hardware the computer has, and kept on uninstall:
 - **Wi-Fi:** NetworkManager, `wpasupplicant`, `iw`, `wireless-regdb`,
   `rfkill`, unless another network manager is installed. Interfaces in
   `/etc/network/interfaces` are not changed.
-- **Bluetooth:** BlueZ, `rfkill`, Bluetooth audio, and `blueman` on Debian
-  10 to 12.
+- **Bluetooth:** BlueZ, `rfkill`, Bluetooth audio, and `blueman` where
+  Debian's panel is used.
+- **Login screen:** LightDM and its GTK greeter where no other login manager
+  is used, and `desktop-base` for Debian's login artwork.
 - **Sound:** PipeWire (Debian 12 and later) or PulseAudio, if no sound
   server is installed.
 - **Firmware:** packages for firmware the kernel failed to load during this
@@ -330,7 +373,10 @@ Added only for hardware the computer has, and kept on uninstall:
 - **Windows:** the theme's Openbox frames, one desktop, and Raspberry Pi
   OS's keys: Super for the menu, Alt+F2 to run, Ctrl+Alt+T for a terminal,
   Ctrl+Shift+Escape for the task manager, Ctrl+Alt+Delete to shut down.
-- **Panel:** Raspberry Pi OS's layout at the top of the screen.
+- **Panel:** Raspberry Pi OS's layout at the top of the screen (see
+  [Panel](#panel)).
+- **File manager:** on Debian 10 to 12, Raspberry Pi OS's own settings for
+  its release (folder tree, thumbnails, window size).
 - **Menu:** Raspberry Pi OS's menu and categories, with Help, Preferences
   and Logout.
 - **Desktop and file manager:** Raspberry Pi OS's wallpaper, colours, font
@@ -340,10 +386,12 @@ Added only for hardware the computer has, and kept on uninstall:
 - **Wayland:** labwc with Raspberry Pi OS's window settings and keys, and
   Raspberry Pi's Wayland panel.
 
-**Login screen.** With LightDM, the greeter uses Raspberry Pi OS's colours,
-theme and font, with the Debian logo and Debian's login artwork
-(`--login-background raspios` uses Raspberry Pi OS's). Other login managers,
-such as GDM or SDDM, are not changed; the sessions are listed there too.
+**Login screen.** LightDM's greeter uses Raspberry Pi OS's colours, theme
+and font, with the Debian logo and Debian's login artwork
+(`--login-background raspios` uses Raspberry Pi OS's). Without a login
+manager, LightDM is installed. Other login managers, such as GDM or SDDM,
+are not changed; the sessions are listed there too, and the summary explains
+how to switch to LightDM.
 
 **Other desktops** (`--desktop`):
 
@@ -371,7 +419,8 @@ Installed packages are never downgraded. Debian packages are updated by
 
 1. Run `bash rpios-look.sh --prepare-upgrade`. It removes the Raspberry Pi
    packages that are built for one Debian release (panel, file manager,
-   greeter, GTK 2 engines). Themes, icons, fonts and wallpapers stay.
+   greeter, GTK 2 engines), and on Debian 10 to 12 installs Debian's panel
+   and file manager again. Themes, icons, fonts and wallpapers stay.
 2. Upgrade Debian and reboot.
 3. Run `bash rpios-look.sh`.
 
@@ -385,6 +434,8 @@ The script lists what it removes and asks first. It:
 
 - removes the Raspberry Pi Desktop sessions and restores Debian's login
   screen;
+- on Debian 10 to 12, installs Debian's panel and file manager again in
+  place of Raspberry Pi OS's;
 - after a second question, removes the packages it installed, except those
   other software needs and the hardware support (X server, network,
   Bluetooth, sound, firmware);
@@ -452,8 +503,14 @@ The script follows Debian's
 - **No extra package sources.** Only individual Raspberry Pi packages are
   installed, never a repository. A package is refused if it has the same
   name as a Debian package, replaces or conflicts with one, or changes
-  Debian's files. Packages with compiled code must match your Debian
-  release, and all their dependencies must come from Debian.
+  Debian's files. The one exception is Raspberry Pi OS's own builds of
+  Debian's panel and file manager on Debian 10 to 12, which `--pi-apps`
+  installs in place of Debian's: the plan names them, and `--uninstall`
+  and `--prepare-upgrade` install Debian's again (see [Panel](#panel)).
+  Packages with compiled code must match your Debian release, and all
+  their dependencies must come from Debian; dependencies that only a
+  Raspberry Pi needs (`raspi-config` for the Raspberry Pi OS 10 and 11
+  battery plugin) are left out.
 - **Debian packages come from your APT sources only.** Before installing,
   the script checks every package's origin. APT runs with `--no-remove`, so
   nothing is removed to make room.
