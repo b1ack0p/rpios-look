@@ -124,8 +124,6 @@ sudo, applies at once to the running session, and is kept for later logins.
 | `--icons NAME` | `pixflat`, `pixtrix`, `pix`, or any icon theme. |
 | `--window NAME` | Window frames: `pixflat`, `pixnoir`, `pixtrix`, `pixonyx`, `pix`, or any Openbox theme. `theme` makes them follow the theme again. |
 | `--font NAME` | `nunito`, `piboto`, `piboto-condensed`, `sans`, `serif`, `mono`, or any installed font family. |
-| `--font-style STYLE` | `regular`, `light`, `thin`, `extralight`, `medium`, `semibold`, `bold`, `extrabold`, `black`, with optional `italic`. |
-| `--font-size N` | Size in points. |
 | `--cursor NAME`, `--cursor-size N` | Cursor theme and size in pixels. |
 | `--accent COLOUR` | Highlight colour, for example `'#d6363c'`, or `default`. |
 | `--desktop-color COLOUR`, `--desktop-text COLOUR` | Desktop background and icon text colours. |
@@ -134,9 +132,9 @@ sudo, applies at once to the running session, and is kept for later logins.
 | `--show` | Show the current look. |
 | `--reset` | Return to the session's default look. |
 
-A font keeps its Raspberry Pi weight (Light for Nunito Sans and Piboto) and
-the current size unless `--font-style` or `--font-size` is given. Only styles
-the font has are accepted. Window titles use the same font.
+The font's style and size are set automatically to suit the theme, as in
+Raspberry Pi OS (for example, Nunito Sans Light 12). Window titles use the
+same font.
 
 ### Examples
 
@@ -144,8 +142,7 @@ the font has are accepted. Window titles use the same font.
 rpios-look-set --theme pixtrix
 rpios-look-set --dark
 rpios-look-set --theme pixflat --icons pixtrix --window pixnoir
-rpios-look-set --font piboto --font-size 11
-rpios-look-set --font nunito --font-style semibold
+rpios-look-set --font piboto
 rpios-look-set --accent '#2e7d32' --cursor-size 32
 rpios-look-set --reset
 ```
@@ -182,6 +179,22 @@ bash rpios-look.sh --auto-wayland   # let the script decide again
 ```
 
 To switch for one login only, choose the session on the login screen.
+
+### NVIDIA graphics
+
+The X session is used by default. Wayland with NVIDIA's own driver needs
+kernel modesetting, which Debian leaves off. If it is off, the script keeps
+X even with `--wayland`. To enable it:
+
+```bash
+printf 'options nvidia-drm modeset=1\noptions nvidia-current-drm modeset=1\n' \
+  | sudo tee /etc/modprobe.d/nvidia-modeset.conf
+sudo update-initramfs -u
+sudo reboot
+```
+
+Then run `bash rpios-look.sh --wayland`. Wayland on NVIDIA can show minor
+display glitches; `--no-wayland` returns to X.
 
 ## Panel
 

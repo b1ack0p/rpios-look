@@ -99,7 +99,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.4.0"
+readonly APP_VERSION="3.4.1"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -255,7 +255,7 @@ declare -A GIVEN=()     # remembered options given on this command line
 # Theme (T_*), host (H_*) and run state.
 H_ARCH="" H_ID="" H_LIKE="" H_CODENAME="" H_PRETTY="" H_SUITE="" H_RPI_ARCH=""
 # The computer (see detect_machine) and the display system chosen for it
-H_MODEL="" H_CPU="" H_MEM_MB=0 H_OLD_CPU=0 H_GPU="" H_GPU_DRV="" H_GPU_DRVS="" H_RENDER=0
+H_MODEL="" H_CPU="" H_MEM_MB=0 H_OLD_CPU=0 H_GPU="" H_GPU_DRV="" H_GPU_DRVS="" H_RENDER=0 H_KMS=0
 H_VIRT="" H_KERNEL="" H_EDITION="" H_DM="" H_DISPLAY="x11" H_DISPLAY_WHY=""
 FETCH_PKGS=()           # installed from verified .deb files
 DEP_PKGS=()             # of those, offline, the ones installed only as dependencies
@@ -754,6 +754,8 @@ detect_machine() {
 	if [[ -z $H_GPU_DRV && -d /sys/module/nvidia ]]; then H_GPU_DRV=nvidia H_GPU="NVIDIA"; fi
 	[[ -n $H_GPU_DRV ]] || H_GPU_DRV=$(awk '{ print $1 }' <<<"$H_GPU_DRVS")
 	H_RENDER=0; if compgen -G '/dev/dri/renderD*' >/dev/null; then H_RENDER=1; fi
+	# Display outputs exist only with kernel modesetting, which Wayland needs
+	H_KMS=0; if compgen -G '/sys/class/drm/card[0-9]*-*' >/dev/null; then H_KMS=1; fi
 	H_EDITION=""
 	for t in gnome kde xfce cinnamon mate lxqt lxde gnome-flashback; do
 		[[ -n $(installed_version "task-$t-desktop") ]] || continue
@@ -775,6 +777,12 @@ pick_display() {
 	local why=""
 	if ! suite_ge "$H_SUITE" trixie; then why="the Wayland session needs Debian 13 or later"
 	elif [[ $O_WAYLAND == 0 ]]; then why="--no-wayland"
+	elif (( ! H_KMS )) && [[ $H_GPU_DRV == nvidia ]]; then
+		why="NVIDIA's driver has kernel modesetting off, which Wayland needs"
+		[[ $O_WAYLAND != 1 ]] || note "Wayland cannot start: NVIDIA's driver has kernel modesetting off. See 'X or Wayland' in the README to enable it."
+	elif (( ! H_KMS )); then
+		why="the graphics have no kernel modesetting, which Wayland needs"
+		[[ $O_WAYLAND != 1 ]] || note "Wayland cannot start here: $why."
 	elif [[ $O_WAYLAND == 1 ]]; then H_DISPLAY=wayland H_DISPLAY_WHY="--wayland"; return 0
 	elif (( H_MEM_MB < 2000 )); then why="less than 2 GB of memory"
 	elif [[ $H_ARCH == i386 || $H_ARCH == armhf || $H_ARCH == armel ]]; then why="a 32-bit system"
@@ -2913,6 +2921,8 @@ fi
 # drawn in software
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 if [ -z "$(ls /dev/dri/renderD* 2>/dev/null)" ]; then export WLR_RENDERER=pixman; fi
+# NVIDIA's driver draws hardware cursors wrongly with wlroots
+if [ -d /sys/module/nvidia_drm ]; then export WLR_NO_HARDWARE_CURSORS=1; fi
 # Display settings start empty, as in Raspberry Pi OS
 if command -v kanshi >/dev/null && [ ! -e "$config/kanshi/config" ]; then
 	mkdir -p "$config/kanshi" && : >"$config/kanshi/config"
@@ -2977,12 +2987,8 @@ and other users are not changed.
                        titles: nunito (Nunito Sans, Raspberry Pi OS Trixie),
                        piboto (Raspberry Pi OS Bookworm), piboto-condensed,
                        sans, serif, mono (Debian's DejaVu fonts), or any
-                       installed font family. Its Raspberry Pi weight and the
-                       current size are kept unless given:
-  --font-style STYLE   regular, light, thin, extralight, medium, semibold,
-                       bold, extrabold or black, optionally with italic
-                       (e.g. "bold italic"); only those the font has
-  --font-size N        the font size in points (e.g. 11, 12, 14)
+                       installed font family; its style and size are set
+                       to suit the theme
   --list               the themes, icons, window frames and fonts installed
   --accent COLOUR      highlight colour, e.g. '#d6363c', or default
   --accent-text COLOUR text on the highlight colour (default: black or white,
@@ -3000,8 +3006,7 @@ and other users are not changed.
 
 Examples: rpios-look-set --theme pixonyx --accent '#2e7d32' --cursor-size 32
           rpios-look-set --theme pixtrix --icons pixflat --window pixnoir
-          rpios-look-set --font piboto --font-size 11
-          rpios-look-set --font nunito --font-style "semibold"
+          rpios-look-set --font piboto
 USAGE
 }
 die() { printf 'rpios-look-set: %s\n' "$*" >&2; exit 1; }
@@ -3323,7 +3328,9 @@ if [[ -n $font_name$font_style$font_size ]]; then
 		fi
 		[[ $fam != PibotoLt ]] || { fam=Piboto; [[ $font_style != regular ]] || font_style=light; }
 	fi
-	[[ -n $font_size ]] || font_size=$(grep -oE '[0-9]+(\.[0-9]+)?$' <<<"$cur")
+	# A new font takes the session's size; otherwise the current size is kept
+	[[ -n $font_name ]] && src=$(ini_get "$lxs_sys" GTK sGtk/FontName) || src=$cur
+	[[ -n $font_size ]] || font_size=$(grep -oE '[0-9]+(\.[0-9]+)?$' <<<"$src")
 	[[ -n $font_size ]] || font_size=12
 	[[ $font_size =~ ^[0-9]+(\.[0-9]+)?$ ]] && (( ${font_size%.*} >= 6 && ${font_size%.*} <= 48 )) || die "the font size is a number of points, 6 to 48"
 	words=$(pango_style "$font_style") || die "unknown font style '$font_style' (see --help)"
