@@ -20,7 +20,9 @@
 #               Safe to re-run.
 #
 # Options     : -t, --theme NAME     pixflat, pixnoir, pixtrix, pixonyx, pix or auto
-#                                    (auto: pixtrix on Debian 13 and later, else pixflat)
+#                                    (auto: pixtrix on Debian 13 and later, else pixflat);
+#                                    without it, every theme is installed and the
+#                                    install asks at the end which one to use
 #                   --icons NAME     pixflat, pixtrix, pix or auto (the theme's own)
 #                   --wallpaper W    a file in /usr/share/rpd-wallpaper (e.g. aurora),
 #                                    a path, or auto (the theme's own)
@@ -36,9 +38,12 @@
 #                   --login-background B
 #                                    the picture behind the login box: debian (Debian's
 #                                    own login artwork, default), raspios or a full path
-#                   --wayland | --no-wayland
-#                                    also the Raspberry Pi Desktop session on Wayland,
-#                                    as Raspberry Pi OS 13 has it (Debian 13 and later)
+#                   --wayland | --no-wayland | --auto-wayland
+#                                    the session on Wayland (labwc), as Raspberry Pi OS
+#                                    13 has it (Debian 13 and later), or on X (Openbox)
+#                                    only. Default (auto): Wayland where this computer
+#                                    suits it, X on older computers and older Debian.
+#                                    X is always installed: the login screen runs on it
 #                   --qt | --no-qt   Qt applications follow the theme in the session
 #               An install run saves the options above; later runs reuse them
 #               unless given again, e.g. --theme auto.
@@ -94,7 +99,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.2.0"
+readonly APP_VERSION="3.3.0"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -237,7 +242,7 @@ O_LOGIN=1               # the Raspberry Pi OS login screen, where LightDM is use
 O_PI_GREETER=0          # Raspberry Pi's own greeter, which has no session chooser
 O_LOGIN_BG="debian"     # the login screen's background: debian, raspios or a path
 O_QT=0
-O_WAYLAND=1             # also the Wayland session, where it can run
+O_WAYLAND=auto          # the Wayland session: auto (where the computer suits it), 1 or 0
 O_DESKTOPS="none"       # other desktops to give the look, for the running user
 O_BUNDLE=""             # --download: release/architecture pairs, empty = all
 O_LOG=1
@@ -249,9 +254,12 @@ declare -A GIVEN=()     # remembered options given on this command line
 
 # Theme (T_*), host (H_*) and run state.
 H_ARCH="" H_ID="" H_LIKE="" H_CODENAME="" H_PRETTY="" H_SUITE="" H_RPI_ARCH=""
+# The computer (see detect_machine) and the display system chosen for it
+H_MODEL="" H_CPU="" H_MEM_MB=0 H_OLD_CPU=0 H_GPU="" H_GPU_DRV="" H_GPU_DRVS="" H_RENDER=0
+H_VIRT="" H_KERNEL="" H_EDITION="" H_DM="" H_DISPLAY="x11" H_DISPLAY_WHY=""
 FETCH_PKGS=()           # installed from verified .deb files
 DEP_PKGS=()             # of those, offline, the ones installed only as dependencies
-HW_PKGS=()              # hardware support (network, Bluetooth, sound, firmware), kept on uninstall
+HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound, firmware), kept on uninstall
 ROOT_PKGS=()            # what is installed for its own sake, not as a dependency
 APT_PKGS=()             # installed by name from the APT sources
 declare -A PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
@@ -267,22 +275,22 @@ SYS_ROOT=""             # filesystem root the package builder reads themes from 
 # 2. Helpers: messages, questions, records, run lock
 ###############################################################################
 
-C_B="" C_D="" C_R="" C_G="" C_Y="" C_BL="" C_0=""
+C_B="" C_D="" C_R="" C_G="" C_Y="" C_C="" C_0=""
 
 # Enable colours when stderr is a terminal and NO_COLOR is unset.
 init_colors() {
 	if [[ -t 2 && -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
-		C_B=$'\e[1m' C_D=$'\e[2m' C_R=$'\e[31m' C_G=$'\e[32m' C_Y=$'\e[33m' C_BL=$'\e[34m' C_0=$'\e[0m'
+		C_B=$'\e[1m' C_D=$'\e[2m' C_R=$'\e[31m' C_G=$'\e[32m' C_Y=$'\e[33m' C_C=$'\e[1;96m' C_0=$'\e[0m'
 	fi
 }
 # Messages, all on stderr: plain, information, success, warning, fatal error,
 # section heading and verbose-only detail.
 log()   { printf '%s\n' "$*" >&2; }
-info()  { printf '%s::%s %s\n' "$C_BL" "$C_0" "$*" >&2; }
+info()  { printf '%s::%s %s\n' "$C_C" "$C_0" "$*" >&2; }
 ok()    { printf '%s✔%s %s\n' "$C_G" "$C_0" "$*" >&2; }
 warn()  { printf '%s!%s %s\n' "$C_Y" "$C_0" "$*" >&2; }
 die()   { printf '%s✘ error:%s %s\n' "$C_R" "$C_0" "$*" >&2; exit 1; }
-step()  { STEP=$(( STEP + 1 )); printf '\n%s==> %d.%s %s%s%s\n' "$C_BL" "$STEP" "$C_0" "$C_B" "$*" "$C_0" >&2; }
+step()  { STEP=$(( STEP + 1 )); printf '\n%s==> %d. %s%s\n' "$C_C" "$STEP" "$*" "$C_0" >&2; }
 debug() { if (( O_VERBOSE )); then printf '%s   %s%s\n' "$C_D" "$*" "$C_0" >&2; fi; }
 # A line for the summary at the end, and a warning now.
 note()  { warn "$*"; NOTES+=("$*"); }
@@ -305,7 +313,7 @@ ask() {
 	[[ $def == y ]] && hint="[Y/n]"
 	if (( O_YES )); then return 0; fi
 	if (( ! O_INTERACTIVE )); then [[ $def == y ]]; return; fi
-	read -r -p "$(printf '%s?%s %s %s ' "$C_BL" "$C_0" "$q" "$hint")" ans </dev/tty || ans=""
+	read -r -p "$(printf '%s?%s %s %s ' "$C_C" "$C_0" "$q" "$hint")" ans </dev/tty || ans=""
 	ans=${ans,,}
 	[[ -z $ans ]] && ans=$def
 	[[ $ans == y || $ans == yes ]]
@@ -384,7 +392,10 @@ set_option() {
 			[[ $2 =~ ^[A-Za-z0-9._/+-]+$ && $2 != *..* ]] || return 1
 			O_LOGIN_BG=$2 ;;
 		qt:[01]) O_QT=$2 ;;
-		wayland:[01]) O_WAYLAND=$2 ;;
+		wayland:auto|wayland:on) O_WAYLAND=${2/on/1} ;;
+		wayland:off|wayland:0) O_WAYLAND=0 ;;
+		# Saved by 3.2.0 and earlier, where the Wayland session was the default
+		wayland:1) O_WAYLAND=auto ;;
 		*) return 1 ;;
 	esac
 }
@@ -392,7 +403,7 @@ set_option() {
 # Print the remembered options as the options file holds them.
 option_lines() {
 	printf 'theme=%s\nicons=%s\nwallpaper=%s\n4k=%s\npi-apps=%s\nlogin-screen=%s\npi-greeter=%s\nlogin-background=%s\nqt=%s\nwayland=%s\n' \
-		"$O_THEME" "$O_ICONS" "$O_WALLPAPER" "$O_4K" "$O_PI_APPS" "$O_LOGIN" "$O_PI_GREETER" "$O_LOGIN_BG" "$O_QT" "$O_WAYLAND"
+		"$O_THEME" "$O_ICONS" "$O_WALLPAPER" "$O_4K" "$O_PI_APPS" "$O_LOGIN" "$O_PI_GREETER" "$O_LOGIN_BG" "$O_QT" "$(case $O_WAYLAND in 1) echo on ;; 0) echo off ;; *) echo auto ;; esac)"
 }
 
 # Save the options of this install run for later runs.
@@ -521,6 +532,11 @@ wayland_pkgs() {
 # Debian packages of the Wayland session: the compositor, wallpaper, display
 # settings, XSETTINGS for X applications, and Xwayland.
 wayland_debs() { printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland; }
+# Debian packages of the X server, which the session on X and the login screen
+# run on: the server with its input and video drivers, Mesa's 3D drivers (not
+# installed with the server when recommended packages are left out), and
+# xprop, which the session's start uses. Kept on uninstall, as hardware support.
+x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
 
 # Raspberry Pi's own programs: its file manager, which draws the desktop and
 # opens folders, installed beside Debian's (see fm_coinstall); its Shutdown and
@@ -701,6 +717,107 @@ detect_host() {
 	if [[ $H_ID != debian && " $H_LIKE " != *" debian "* && " $H_LIKE " != *" ubuntu "* ]]; then
 		warn "untested distribution '${H_PRETTY:-unknown}', continuing anyway"
 	fi
+	detect_machine
+}
+
+# Detect the computer: model, processor, memory, graphics with the kernel
+# driver in use and whether it has 3D acceleration (a render node), virtual
+# machine, kernel, the desktop editions installed and the display manager.
+detect_machine() {
+	local d drv slot name t
+	H_KERNEL=$(uname -r)
+	H_MODEL=$( { tr -d '\0' </proc/device-tree/model; } 2>/dev/null || true)
+	if [[ -z $H_MODEL && -r /sys/class/dmi/id/product_name ]]; then
+		H_MODEL=$(cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_version /sys/class/dmi/id/product_name 2>/dev/null \
+			| grep -viE '^(to be filled|system (product|manufacturer|version)|default string|not specified|none)?[[:space:]]*$' | awk '!seen[$0]++' | paste -sd' ' -)
+	fi
+	H_CPU=$(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | first_line)
+	[[ -n $H_CPU ]] || H_CPU=$(uname -m)
+	H_CPU="$(tr -s ' ' <<<"$H_CPU") ($(nproc 2>/dev/null || echo 1) cores)"
+	H_MEM_MB=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo)
+	# A PC processor without SSE4.2 is from before 2009
+	H_OLD_CPU=0
+	if [[ $H_ARCH == amd64 || $H_ARCH == i386 ]] && ! grep -qw sse4_2 /proc/cpuinfo; then H_OLD_CPU=1; fi
+	H_VIRT=$(systemd-detect-virt 2>/dev/null || true)
+	[[ -n $H_VIRT ]] || H_VIRT=none
+	# Graphics: each card's kernel driver; the first real one (not the boot
+	# framebuffer) names the graphics
+	H_GPU="" H_GPU_DRV="" H_GPU_DRVS=""
+	for d in /sys/class/drm/card[0-9]*; do
+		[[ ${d##*/} != *-* && -e $d/device/driver ]] || continue
+		drv=$(basename "$(readlink -f "$d/device/driver")")
+		H_GPU_DRVS+=" $drv"
+		[[ -z $H_GPU_DRV && $drv != simple-framebuffer && $drv != simpledrm && $drv != efi-framebuffer ]] || continue
+		H_GPU_DRV=$drv name=""
+		slot=$(sed -n 's/^PCI_SLOT_NAME=//p' "$d/device/uevent" 2>/dev/null)
+		if [[ -n $slot ]] && command -v lspci >/dev/null; then name=$(lspci -s "$slot" 2>/dev/null | cut -d: -f3- | sed 's/^ *//; s/ (rev [0-9a-f]*)$//'); fi
+		H_GPU=${name:-$drv}
+	done
+	# NVIDIA's own driver shows no card without its modesetting
+	if [[ -z $H_GPU_DRV && -d /sys/module/nvidia ]]; then H_GPU_DRV=nvidia H_GPU="NVIDIA"; fi
+	[[ -n $H_GPU_DRV ]] || H_GPU_DRV=$(awk '{ print $1 }' <<<"$H_GPU_DRVS")
+	H_RENDER=0; if compgen -G '/dev/dri/renderD*' >/dev/null; then H_RENDER=1; fi
+	H_EDITION=""
+	for t in gnome kde xfce cinnamon mate lxqt lxde gnome-flashback; do
+		[[ -n $(installed_version "task-$t-desktop") ]] || continue
+		case $t in gnome) name=GNOME ;; kde) name="KDE Plasma" ;; xfce) name=Xfce ;; lxqt) name=LXQt ;; lxde) name=LXDE ;;
+			gnome-flashback) name="GNOME Flashback" ;; *) name=${t^} ;; esac
+		H_EDITION+="${H_EDITION:+, }$name"
+	done
+	if [[ -z $H_EDITION ]]; then
+		H_EDITION=$(grep -hs '^Name=' /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop \
+			| grep -v 'Raspberry Pi Desktop' | sed 's/^Name=//' | sort -u | paste -sd, - | sed 's/,/, /g')
+	fi
+	H_DM=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null)" .service 2>/dev/null)
+	[[ -n $H_DM && $H_DM != display-manager ]] || H_DM=$(basename "$(cat /etc/X11/default-display-manager 2>/dev/null)" 2>/dev/null)
+}
+
+# Choose the display system of the Raspberry Pi Desktop session, as Raspberry
+# Pi OS 13 does for its own models: Wayland (labwc) on capable graphics, X
+# (Openbox) on older computers and older Debian releases. X is always there
+# too: the login screen runs on it. --wayland and --no-wayland decide instead.
+pick_display() {
+	local why=""
+	if ! suite_ge "$H_SUITE" trixie; then why="the Wayland session needs Debian 13 or later"
+	elif [[ $O_WAYLAND == 0 ]]; then why="--no-wayland"
+	elif [[ $O_WAYLAND == 1 ]]; then H_DISPLAY=wayland H_DISPLAY_WHY="--wayland"; return 0
+	elif (( H_MEM_MB < 2000 )); then why="less than 2 GB of memory"
+	elif [[ $H_ARCH == i386 || $H_ARCH == armhf || $H_ARCH == armel ]]; then why="a 32-bit system"
+	elif (( H_OLD_CPU )); then why="an older processor (without SSE4.2)"
+	elif [[ $H_GPU_DRV == nvidia ]]; then why="NVIDIA's own driver works best with X"
+	elif [[ $H_GPU_DRV == nouveau ]]; then why="the open NVIDIA driver (nouveau) is more reliable with X"
+	elif [[ -z $H_GPU_DRV ]]; then why="the graphics have no kernel driver"
+	elif (( ! H_RENDER )); then why="the graphics ($H_GPU_DRV) have no 3D acceleration"
+	else
+		case $H_GPU_DRV in
+			vc4) if [[ " $H_GPU_DRVS " == *" v3d "* ]]; then H_DISPLAY=wayland
+			     else why="Raspberry Pi 3 and earlier run X, as on Raspberry Pi OS"; fi ;;
+			radeon) why="older AMD graphics (radeon driver)" ;;
+			i915|xe|amdgpu|virtio_gpu|vmwgfx|v3d|msm|panfrost|panthor|lima|etnaviv|rockchip|rockchip-drm|mediatek-drm|meson|sun4i-drm|imx-drm)
+				H_DISPLAY=wayland ;;
+			*) why="the graphics ($H_GPU_DRV) are untested with Wayland" ;;
+		esac
+	fi
+	if [[ $H_DISPLAY == wayland ]]; then H_DISPLAY_WHY="$H_GPU_DRV graphics with 3D acceleration"
+	else H_DISPLAY=x11 H_DISPLAY_WHY=$why; fi
+}
+
+# Print the display system chosen, for messages.
+display_name() { if [[ $H_DISPLAY == wayland ]]; then echo "Wayland (labwc)"; else echo "X (Openbox)"; fi; }
+
+# Print what was found about this computer and the display system chosen.
+print_machine() {
+	local mem
+	mem=$(awk -v m="$H_MEM_MB" 'BEGIN { if (m >= 1024) printf "%.1f GB", m / 1024; else printf "%d MB", m }')
+	step "This computer"
+	[[ -z $H_MODEL ]] || log "  Model        $H_MODEL"
+	log "  Processor    $H_CPU"
+	log "  Memory       $mem"
+	log "  Graphics     ${H_GPU:-none found} (${H_GPU_DRV:-no driver}, $( (( H_RENDER )) && echo "3D acceleration" || echo "no 3D acceleration"))"
+	[[ $H_VIRT == none ]] || log "  Virtual      $H_VIRT"
+	log "  System       ${H_PRETTY:-unknown}, $H_ARCH, kernel $H_KERNEL"
+	log "  Desktop      ${H_EDITION:-none}${H_DM:+; login screen: $H_DM}"
+	log "  Display      $(display_name)${H_DISPLAY_WHY:+: $H_DISPLAY_WHY}"
 }
 
 # Print the major Debian version this system is or follows: from os-release,
@@ -1864,6 +1981,10 @@ _openbox_rc() {
 	fonts=$(_xml_fonts ActiveWindow InactiveWindow MenuHeader MenuItem ActiveOnScreenDisplay InactiveOnScreenDisplay)
 	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>yes</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$fonts")"
 	(( theme_only )) && return 0
+	# Debian's LXDE has no menu file of its own: Openbox's, found by name
+	if [[ ! -f /usr/share/lxde/openbox/menu.xml ]]; then
+		sed -i 's#<file>/usr/share/lxde/openbox/menu.xml</file>#<file>menu.xml</file>#' "$file"
+	fi
 	_xml_child "$file" desktops number 1
 	_xml_child "$file" focus focusDesktop yes
 	_xml_child "$file" placement monitor Any
@@ -2486,6 +2607,35 @@ old=${seen%.rpios-look}.raspios-look   # the name before
 if [ ! -e "$rc" ] || cmp -s "$rc" "$seen" 2>/dev/null; then
 	mkdir -p "$config/openbox" && cp "$share/openbox-rc.xml" "$rc" && cp "$share/openbox-rc.xml" "$seen"
 fi
+
+# The user's own copy of the session's profile, which the settings save in
+# full, keeps the programs' paths: those of the name before point nowhere,
+# and without its window manager the session has no window frames.
+lxs=$config/lxsession/$profile/desktop.conf
+for f in "$lxs" "$config/lxsession/$profile/autostart"; do
+	if [ -f "$f" ] && grep -q '/usr/share/raspios-look/' "$f"; then
+		sed -i --follow-symlinks 's#/usr/share/raspios-look/#/usr/share/rpios-look/#g' "$f"
+	fi
+done
+wm=$(sed -n 's/^window_manager=//p' "$lxs" 2>/dev/null | head -n1)
+if [ -n "$wm" ] && ! command -v "${wm%% *}" >/dev/null 2>&1; then
+	sed -i --follow-symlinks "s#^window_manager=.*#window_manager=$share/openbox#" "$lxs"
+fi
+
+# As in Raspberry Pi OS, the window frames follow the applications' theme,
+# also when another settings program changed only one of them; and Openbox's
+# menu is its own where LXDE's is missing. The copy of the defaults is kept
+# in step, so the user's file still counts as unchanged.
+theme=$(sed -n 's/^sNet\/ThemeName=//p' "$lxs" "$share/xdg/lxsession/$profile/desktop.conf" 2>/dev/null | head -n1)
+same=0; cmp -s "$rc" "$seen" 2>/dev/null && same=1
+case $theme in
+	PiX|PiXflat|PiXnoir|PiXtrix|PiXonyx)
+		sed -i --follow-symlinks "/<theme>/,/<\/theme>/ s|<name>PiX[a-z]*</name>|<name>$theme</name>|" "$rc" ;;
+esac
+if [ ! -f /usr/share/lxde/openbox/menu.xml ]; then
+	sed -i --follow-symlinks 's#<file>/usr/share/lxde/openbox/menu.xml</file>#<file>menu.xml</file>#' "$rc"
+fi
+[ "$same" = 0 ] || cp "$rc" "$seen"
 
 # Clean up after GDM (GDM sets the number of desktops to one)
 xprop -root -remove _NET_NUMBER_OF_DESKTOPS -remove _NET_DESKTOP_NAMES -remove _NET_CURRENT_DESKTOP 2>/dev/null
@@ -3172,7 +3322,7 @@ session_build() {
 	_session_programs "$root"
 	_session_command "$root"
 	_session_dconf "$root"
-	if (( O_WAYLAND )) && [[ -x /usr/bin/labwc && -x /usr/bin/wf-panel-pi ]]; then _session_wayland "$root"; fi
+	if [[ $H_DISPLAY == wayland && -x /usr/bin/labwc && -x /usr/bin/wf-panel-pi ]]; then _session_wayland "$root"; fi
 }
 
 # Succeed if Raspberry Pi's own greeter is installed and can run here.
@@ -3273,21 +3423,24 @@ greeter_conf() {
 # and later where AccountsService has no session for the user yet (it came
 # after); a session the user picks on the login screen is kept.
 choose_session() {
-	local user cur first=0
+	local user cur first=0 want=$SESSION_ID wl=/usr/share/wayland-sessions/$SESSION_ID-wayland.desktop
+	[[ $H_DISPLAY == wayland && -f $wl ]] && want=$SESSION_ID-wayland
 	_once session-chosen && first=1
 	user=/org/freedesktop/Accounts/User$(id -u)
 	if command -v busctl >/dev/null \
 		&& cur=$(busctl get-property org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User XSession 2>/dev/null); then
-		(( first )) || [[ $cur == 's ""' ]] || return 0
-		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetXSession s "$SESSION_ID" >/dev/null 2>&1 || true
-		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetSession s "$SESSION_ID" >/dev/null 2>&1 || true
+		# Chosen on the first install, or again when the Wayland session the
+		# user had is gone (this computer now runs the session on X)
+		(( first )) || [[ $cur == 's ""' ]] || { [[ $cur == "s \"$SESSION_ID-wayland\"" && ! -f $wl ]]; } || return 0
+		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetXSession s "$want" >/dev/null 2>&1 || true
+		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetSession s "$want" >/dev/null 2>&1 || true
 	else
 		(( first )) || return 0
-		_ini_set "$HOME/.dmrc" Desktop Session "$SESSION_ID"
+		_ini_set "$HOME/.dmrc" Desktop Session "$want"
 		chmod 0644 "$HOME/.dmrc"
 		if [[ -d /var/cache/lightdm ]]; then sys_write "/var/cache/lightdm/dmrc/$(id -un).dmrc" <"$HOME/.dmrc"; fi
 	fi
-	ok "Your next login uses the Raspberry Pi Desktop session; the login screen offers the others too"
+	ok "Your next login uses the Raspberry Pi Desktop session on $(display_name); the login screen offers the others too"
 }
 
 ###############################################################################
@@ -3331,7 +3484,7 @@ resolve_all() {
 		case $p in
 			pi-greeter) (( O_LOGIN && O_PI_GREETER )) && [[ -n $(installed_version lightdm) ]] || continue ;;
 			lxpanel-pi|lpplug-*|pplug-*|pishutdown|gui-runcmd|pcmanfm-pi) (( O_PI_APPS )) || continue ;;
-			wf-panel-pi|wfplug-*) (( O_WAYLAND )) && apt_has labwc || continue ;;
+			wf-panel-pi|wfplug-*) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
 		esac
 		wanted+=("$p")
 	done < <(rpi_pkgs "$H_SUITE" "$(rpi_arch)" "$O_4K")
@@ -3345,16 +3498,20 @@ resolve_all() {
 		elif [[ -n $H_RPI_ARCH ]]; then warn "$p is not available for $H_SUITE/$H_ARCH; skipping it"; fi
 	done
 	[[ " ${FETCH_PKGS[*]} " == *-theme\ * ]] || die "no theme packages are available for $H_SUITE/$H_ARCH"
+	if [[ $H_DISPLAY == wayland && " ${FETCH_PKGS[*]} " != *" wf-panel-pi "* ]]; then
+		H_DISPLAY=x11 H_DISPLAY_WHY="Raspberry Pi's Wayland panel or labwc is not available for $H_SUITE/$H_ARCH"
+		note "The session runs on X: $H_DISPLAY_WHY."
+	fi
 	_refuse_debian_names "${FETCH_PKGS[@]}"
 
 	mapfile -t helpers < <(session_debs; theme_debs "$H_SUITE"; tray_debs "$H_SUITE"
-		if (( O_WAYLAND )) && [[ " ${FETCH_PKGS[*]} " == *" wf-panel-pi "* ]]; then wayland_debs; fi)
+		if [[ $H_DISPLAY == wayland ]]; then wayland_debs; fi)
 	(( O_QT )) && helpers+=(qt5-gtk-platformtheme qt6-gtk-platformtheme)
 	# LightDM keeps each user's session choice in AccountsService; its greeter
 	# cannot read it otherwise from a private home folder
 	[[ -z $(installed_version lightdm) ]] || helpers+=(accountsservice)
 	# Hardware support: network and Bluetooth tools, sound and missing firmware
-	mapfile -t HW_PKGS < <(tray_debs "$H_SUITE" | grep -vE '^debian-reference'; audio_debs "$H_SUITE"; firmware_debs)
+	mapfile -t HW_PKGS < <(x11_debs; tray_debs "$H_SUITE" | grep -vE '^debian-reference'; audio_debs "$H_SUITE"; firmware_debs)
 	for p in "${HW_PKGS[@]}"; do
 		if [[ $(pkg_category "$p") == firmware ]] && ! apt_has "$p"; then
 			note "$p holds firmware this computer needs: add 'non-free-firmware' (Debian 12 and later; 'non-free' before) to your APT sources, then run this again."
@@ -3422,6 +3579,7 @@ pkg_category() {
 		lxpanel*|lpplug-*|pplug-*|wf-panel-pi|wfplug-*|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
 		network-manager*|nm-connection-editor|wpasupplicant|iw|wireless-regdb|rfkill|bluez*|blueman|libspa-0.2-bluetooth|pulseaudio-module-bluetooth) echo network ;;
 		lxsession*|lxpolkit|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|dconf-cli) echo session ;;
+		xserver-*|x11-*|libgl1-mesa-dri) echo display ;;
 		*icon-theme*|*-icons)        echo icons ;;
 		*-theme)                     echo themes ;;
 		fonts-*)                     echo fonts ;;
@@ -4445,7 +4603,7 @@ download_mode() {
 		_index_names "$deb" >"$DEP_INDEX"
 		mapfile -t rpis < <({ rpi_pkgs "$suite" "$arch" 0; rpi_pkgs "$suite" "$arch" 1; } | awk '!seen[$0]++')
 		mapfile -t rpis < <(with_rpi_deps "$suite" "$arch" "${rpis[@]}")
-		mapfile -t debs < <({ session_debs; theme_debs "$suite"; tray_debs "$suite" 1; echo accountsservice
+		mapfile -t debs < <({ x11_debs; session_debs; theme_debs "$suite"; tray_debs "$suite" 1; echo accountsservice
 			if suite_ge "$suite" trixie; then wayland_debs; fi; } | awk '!seen[$0]++')
 		for p in "${rpis[@]}" "${debs[@]}"; do IN_SET[$p]=1; done
 		idx=$stage/dists/$suite/main/binary-$arch
@@ -4747,7 +4905,9 @@ parse_args() {
 			--login-background) (( $# >= 2 )) || die "$opt needs a value"
 				set_option login-background "$2" || die "invalid login background '$2' (raspios, debian or a full path)"; GIVEN[login-background]=1; shift ;;
 			--qt|--no-qt)     set_option qt "$([[ $opt == --qt ]] && echo 1 || echo 0)"; GIVEN[qt]=1 ;;
-			--wayland|--no-wayland) set_option wayland "$([[ $opt == --wayland ]] && echo 1 || echo 0)"; GIVEN[wayland]=1 ;;
+			--wayland|--no-wayland|--auto-wayland)
+				case $opt in --wayland) val=on ;; --no-wayland) val=off ;; *) val=auto ;; esac
+				set_option wayland "$val"; GIVEN[wayland]=1 ;;
 			-d|--desktop)     (( $# >= 2 )) || die "$opt needs a value"; O_DESKTOPS=${2,,}; shift ;;
 			--bundle)         (( $# >= 2 )) || die "$opt needs a value"; O_BUNDLE=${2,,}; shift ;;
 			--no-log)         O_LOG=0 ;;
@@ -4815,22 +4975,46 @@ _menu() {
 	done
 }
 
-# On the first install, ask which look the session gets, unless --theme was
-# given. Later runs keep the saved choice; --theme changes it.
+# Every theme is installed; once they are, ask which one the session uses,
+# unless --theme was given. Enter keeps the current one (on the first
+# install, the default for this Debian release). Sets LOOK_CHOSEN.
+LOOK_CHOSEN=0
 choose_look() {
-	local id i def=1 dflt
-	local -a ids=(pixflat pixnoir pixtrix pixonyx pix) items=()
-	[[ -z ${GIVEN[theme]:-} && ! -f $SYS_DIR/options ]] && (( O_INTERACTIVE )) || return 0
-	dflt=$(default_theme)
-	step "Select the look"
-	for i in "${!ids[@]}"; do
-		set_theme "${ids[i]}"
-		items+=("$T_DESC")
-		[[ ${ids[i]} == "$dflt" ]] && def=$(( i + 1 ))
+	local i def=1 cur dflt
+	local -a ids=() items=()
+	[[ -z ${GIVEN[theme]:-} ]] && (( O_INTERACTIVE )) || return 0
+	cur=$(chosen_theme) dflt=$(default_theme)
+	for i in pixflat pixnoir pixtrix pixonyx pix; do
+		set_theme "$i"
+		[[ -f /usr/share/themes/$T_GTK/gtk-3.0/gtk.css ]] || continue
+		ids+=("$i") items+=("$T_DESC")
+		[[ $i == "$cur" ]] && def=${#ids[@]}
 	done
+	(( ${#ids[@]} > 1 )) || { set_theme "$cur"; return 0; }
+	step "Select the look"
+	log "  Every theme is installed; choose the one the session uses. You can change it"
+	log "  later with: $APP_NAME-set --theme NAME (for you), or by running this again."
 	_menu "Theme" "$def" "${items[@]}"
-	O_THEME=${ids[REPLY]}
+	O_THEME=${ids[REPLY]} LOOK_CHOSEN=1
 	if [[ $O_THEME == "$dflt" ]]; then O_THEME=auto; fi
+	set_theme "$(chosen_theme)"
+}
+
+# The user running this, who chose the look, gets it also where they had
+# chosen another theme in the session's settings (their own desktop.conf).
+# Other users keep their own choice.
+apply_user_look() {
+	local f cur
+	(( LOOK_CHOSEN )) || [[ -n ${GIVEN[theme]:-} ]] || return 0
+	f=${XDG_CONFIG_HOME:-$HOME/.config}/lxsession/$S_PROFILE/desktop.conf
+	[[ -f $f && -x /usr/bin/$APP_NAME-set ]] || return 0
+	cur=$(sed -n 's/^sNet\/ThemeName=//p' "$f" | first_line)
+	[[ -n $cur && $cur != "$T_GTK" ]] || return 0
+	if "/usr/bin/$APP_NAME-set" --theme "$(chosen_theme)" >/dev/null 2>&1; then
+		ok "$T_GTK replaces $cur, your own theme in the session"
+	else
+		warn "Could not set $T_GTK for you; run: $APP_NAME-set --theme $(chosen_theme)"
+	fi
 }
 
 # Summarise what an install will do.
@@ -4839,8 +5023,9 @@ print_plan() {
 	for p in "${FETCH_PKGS[@]}"; do [[ $(_pkg_status "$p") == "up to date" ]] || total=$(( total + ${PKG_SIZE[$p]:-0} )); done
 	[[ -n $REPO ]] && src="packages/"
 	step "Plan"
-	log "  Look         $T_DESC"
-	log "  Session      Raspberry Pi Desktop on the login screen, for every user"
+	log "  Looks        every theme; you choose the one to use at the end (now: ${T_DESC%% —*})"
+	log "  Session      Raspberry Pi Desktop on $(display_name), on the login screen for every user"
+	[[ $H_DISPLAY == wayland ]] && log "               and on X (Openbox), for when Wayland does not suit"
 	log "  Packages     from $src ($H_SUITE, $H_ARCH), up to $(human_size "$total") to download"
 	for p in "${FETCH_PKGS[@]}"; do _pkg_line "$p" "${PKG_VER[$p]}" "$(_pkg_status "$p")"; done
 	for p in "${APT_PKGS[@]}"; do _pkg_line "$p" "(APT)" "new, from your Debian sources"; done
@@ -4873,7 +5058,8 @@ install_mode() {
 	preflight_tools
 	[[ $O_MODE == offline && -z $H_RPI_ARCH ]] && die "an offline install needs amd64, arm64, armhf or i386; install online instead"
 	[[ -z $REPO ]] || verify_repo
-	choose_look
+	pick_display
+	print_machine
 	set_theme "$(chosen_theme)"
 	# Root rights first: reading the kernel log for missing firmware needs them
 	info "Administrator rights are needed (sudo)"
@@ -4891,11 +5077,13 @@ install_mode() {
 	record_packages_before
 	migrate_old
 	install_all
+	[[ $O_MODE == refresh ]] || choose_look
 	install_pkg
 	step "Setting up the login screen and the session for $(id -un)"
 	(( O_LOGIN && O_PI_GREETER )) && greeter_conf
 	_state_init
 	choose_session
+	apply_user_look
 	apply_desktops
 	reload_session
 	save_options

@@ -5,8 +5,9 @@ the official **PiXflat**, **PiXnoir**, **PiXtrix**, **PiXonyx** and **PiX**
 themes with their icons, cursors, fonts and wallpapers, Raspberry Pi's own
 panel, file manager and login screen, and Raspberry Pi OS's desktop settings.
 As on Raspberry Pi OS, it all comes as sessions on the login screen,
-**Raspberry Pi Desktop** (X) and, on Debian 13 and later, **Raspberry Pi
-Desktop on Wayland**, next to Debian's own sessions, which stay as they were.
+**Raspberry Pi Desktop** (X) and, on Debian 13 and later where the computer
+suits it, **Raspberry Pi Desktop on Wayland**, next to Debian's own
+sessions, which stay as they were.
 
 It works on Debian 10 to 13 and later (testing and unstable too), on 64-bit
 and 32-bit PCs (amd64, i386) and on ARM (arm64, armhf), on new machines and
@@ -23,8 +24,8 @@ Where it differs from Raspberry Pi OS:
 - The login screen is Debian's LightDM greeter in Raspberry Pi OS's style,
   which keeps the session chooser; Raspberry Pi's own greeter has none
   (`--pi-greeter` uses it anyway).
-- The X session is chosen for you; Raspberry Pi OS 13 starts Wayland by
-  default. Both are on the login screen.
+- Wayland or X is chosen for the computer, as Raspberry Pi OS chooses for its
+  own models (see [Wayland or X](#wayland-or-x)).
 - Raspberry Pi's panel, file manager and Wayland session are built for Debian
   13 and later. On Debian 10 to 12 the session uses Debian's panel and file
   manager, in the same layout.
@@ -43,11 +44,35 @@ Where it differs from Raspberry Pi OS:
    bash rpios-look.sh
    ```
 
-3. Choose the look, read the plan, answer `y`, and enter your password when
-   asked. The script asks at the terminal; without one every question takes
-   its default (`-y` answers yes).
-4. Log out. The login screen has **Raspberry Pi Desktop** chosen for you;
-   log in.
+3. Read what it found about the computer and the plan, answer `y`, and enter
+   your password when asked. Once every theme is installed, choose the look.
+   The script asks at the terminal; without one every question takes its
+   default (`-y` answers yes).
+4. Log out. The login screen has **Raspberry Pi Desktop** chosen for you, on
+   Wayland or X as suits the computer; log in.
+
+## Wayland or X
+
+Before installing, the script looks at the computer: model, processor,
+memory, graphics and the kernel driver in use, 3D acceleration, virtual
+machine, kernel, Debian release, the desktops installed and the login
+screen. As Raspberry Pi OS 13 does (Wayland on a Raspberry Pi 4 or 5, X on
+earlier models), the session runs on:
+
+- **Wayland (labwc)** on Debian 13 and later, with at least 2 GB of memory,
+  a 64-bit system and graphics with 3D acceleration whose driver runs labwc
+  well: Intel (`i915`, `xe`), AMD (`amdgpu`), Raspberry Pi 4 and 5, ARM
+  boards (`panfrost`, `lima`, `etnaviv`, ...), and virtual machines with 3D
+  (`virtio_gpu`, `vmwgfx`).
+- **X (Openbox)** everywhere else: Debian 10 to 12, older computers (less
+  than 2 GB, 32-bit, a PC processor without SSE4.2), graphics without 3D
+  acceleration, older AMD graphics (`radeon`), NVIDIA graphics (`nouveau` or
+  NVIDIA's own driver) and Raspberry Pi 3 and earlier.
+
+Only the chosen one's packages are installed, and the X server always is:
+the login screen runs on it, and the X session stays on the login screen
+for when Wayland does not suit. `--wayland` and `--no-wayland` decide
+instead; `--auto-wayland` goes back to the choice for the computer.
 
 Running it again is safe. To undo it, see [Uninstall](#uninstall).
 
@@ -87,8 +112,9 @@ Settings*, are kept in that user's files and win over the defaults.
 | `pixonyx` | dark, Raspberry Pi OS Trixie | Nunito Sans Light | sunrise |
 | `pix` | legacy, Raspberry Pi OS Buster/Bullseye | Piboto | fisherman |
 
-Every theme is installed; the first install asks which one the session
-uses. Change it later with, for example:
+Every theme is installed; at the end of the install, once they are, it asks
+which one the session uses (Enter keeps the current one). Change it later
+with, for example:
 
 ```bash
 bash rpios-look.sh --theme pixonyx
@@ -134,8 +160,8 @@ bash rpios-look.sh --theme pixnoir --icons pixtrix
 The script remembers these and uses them again on later runs until you give
 a new value.
 
-- **`--theme NAME`**: the look, from the table above, or `auto`. Default:
-  `auto`.
+- **`--theme NAME`**: the look, from the table above, or `auto`. Without
+  it, the install asks at the end. Default: `auto`.
 - **`--icons NAME`**: the icon set, `pixflat`, `pixtrix`, `pix` or `auto`
   (the theme's own). Default: `auto`.
 - **`--wallpaper W`**: a file in `/usr/share/rpd-wallpaper` (for example
@@ -155,8 +181,9 @@ a new value.
   (Debian's own login artwork, which follows Debian's active theme),
   `raspios` (Raspberry Pi OS's) or a full path to a picture. Default:
   `debian`.
-- **`--wayland`**, **`--no-wayland`**: also the Raspberry Pi Desktop session
-  on Wayland (Debian 13 and later). Default: on.
+- **`--wayland`**, **`--no-wayland`**, **`--auto-wayland`**: the session on
+  Wayland (Debian 13 and later), on X only, or as suits the computer (see
+  [Wayland or X](#wayland-or-x)). Default: as suits the computer.
 - **`--qt`**, **`--no-qt`**: Qt applications follow the theme in the session
   (installs Debian's Qt GTK platform themes). Default: off.
 
@@ -205,6 +232,9 @@ From Debian:
   `lxappearance`, `dconf-cli` and, with LightDM, `accountsservice`, where
   missing; for Wayland, `labwc`,
   `swaybg`, `kanshi`, `xsettingsd`, `wlr-randr` and `xwayland`.
+- **Display:** the X server (`xserver-xorg`), Mesa's 3D drivers
+  (`libgl1-mesa-dri`) and `x11-utils`, where missing. They are kept on
+  uninstall.
 - **For the themes:** `gtk2-engines-pixbuf`, `libgtk2.0-bin`,
   `gnome-icon-theme`, `adwaita-icon-theme-legacy` (Debian 13),
   `sound-theme-freedesktop`, and Liberation Mono (`fonts-liberation` or
@@ -245,9 +275,10 @@ be loaded into Raspberry Pi's panel, which is a separate program; with
 
 ### The session
 
-- **Login screen entries:** *Raspberry Pi Desktop* (X) and *Raspberry Pi
-  Desktop on Wayland*, next to Debian's sessions. The first install chooses
-  the X session for you; the login screen remembers what you pick. With
+- **Login screen entries:** *Raspberry Pi Desktop* (X) and, where the
+  computer suits it, *Raspberry Pi Desktop on Wayland*, next to Debian's
+  sessions. The first install chooses the one that suits the computer for
+  you; the login screen remembers what you pick. With
   LightDM, Debian's `accountsservice` is added where missing: LightDM keeps
   each user's choice there.
 - **Settings:** Raspberry Pi OS's own, from its configuration packages
@@ -339,7 +370,7 @@ For everyone:
 - After a second question, the packages the script installed are removed,
   with the dependencies only they used. A package that other software has
   come to need is kept; APT's own simulation decides. Hardware support
-  (network, Bluetooth, sound, firmware) is kept.
+  (X server, network, Bluetooth, sound, firmware) is kept.
 
 For you, the user running it: the settings `--desktop` changed are restored.
 
@@ -432,7 +463,9 @@ Nothing in the script names a release it has to know in advance:
   before that, pixflat-theme (2). An install under either name is taken over:
   its records carry over, the users who chose its session keep the Raspberry
   Pi Desktop session, and pixflat-theme 2 gives Debian's LXDE session its own
-  settings back.
+  settings back. Settings a user saved under the name before, which point at
+  its programs, are put right at their next login, so the window manager
+  starts and the window frames follow the theme.
 - **The script.** `rpios-look.sh` is one file in twelve numbered sections,
   listed at its top.
 
