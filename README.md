@@ -147,8 +147,8 @@ rpios-look-set --accent '#2e7d32' --cursor-size 32
 rpios-look-set --reset
 ```
 
-These settings apply to the session on X. The session on Wayland does not
-use them yet.
+These settings apply to both sessions, X and Wayland. As on Raspberry Pi OS,
+windows have rounded corners on X and square corners on Wayland.
 
 ## X or Wayland
 
@@ -209,11 +209,16 @@ change the default browser:
 sudo update-alternatives --config x-www-browser
 ```
 
-### Applets
+### Settings and applets
 
-Right-click the panel and choose **Add / Remove Panel Items** to add
-applets. Raspberry Pi's panel (Debian 13 and later) offers its own applets
-and these Debian applets:
+Right-click the panel to change its settings and applets:
+
+- **On X:** **Panel Settings** and **Add / Remove Panel Items**.
+- **On Wayland:** the panel's settings open in Raspberry Pi's **Control
+  Centre** (`rpcc`), installed with the Wayland session.
+
+On X, Raspberry Pi's panel (Debian 13 and later) offers its own applets and
+these Debian applets:
 
 | Applet | Purpose |
 |--------|---------|
@@ -270,7 +275,7 @@ Each package is verified against Raspberry Pi's signing key.
 | Fonts | `fonts-piboto`, `fonts-nunito-sans` |
 | Wallpapers | `rpd-wallpaper`, `rpd-wallpaper-trixie`, or their 4K versions |
 | Login screen | `pi-greeter` (with LightDM) |
-| Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi` and its plugins |
+| Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi`, its plugins and `rpcc` (Control Centre) |
 | File manager (Debian 13+) | `pcmanfm-pi`, installed beside Debian's |
 
 ### From Debian
