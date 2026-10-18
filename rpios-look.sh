@@ -99,7 +99,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.5.0"
+readonly APP_VERSION="3.6.0"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -525,8 +525,7 @@ rpi_pkgs() {
 # Raspberry Pi's Wayland panel with every plugin Raspberry Pi OS installs (its
 # rpd-wayland-core) that works on Debian. Usage: wayland_pkgs SUITE ARCH
 wayland_pkgs() {
-	# rpcc: the panel's settings (its right-click menu)
-	printf '%s\n' wf-panel-pi rpcc
+	echo wf-panel-pi
 	index_candidates "$(rpi_aid)" "$1" "$2" "$WAYLAND_PKG" 2>/dev/null | first_line | cut -f6 | depnames \
 		| grep '^wfplug-' | grep -vxE "wfplug-($WF_DROP)" || true
 }
@@ -545,7 +544,8 @@ x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
 # and its plugins stay installed beside it. Usage: pi_apps SUITE ARCH
 pi_apps() {
 	local t
-	printf '%s\n' pcmanfm-pi pishutdown gui-runcmd lxpanel-pi
+	# pipanel (Appearance Settings) runs in rpcc (Control Centre), with sudopwd
+	printf '%s\n' pcmanfm-pi pishutdown gui-runcmd lxpanel-pi pipanel rpcc sudopwd
 	{
 		for t in $(panel_plugins "$1" "$2"); do printf 'lpplug-%s\n' "${t/#smenu/menu}"; done
 		index_candidates "$(rpi_aid)" "$1" "$2" "$PANEL_PKG" 2>/dev/null | first_line | cut -f6 | depnames \
@@ -591,7 +591,7 @@ release_bound_pkgs() {
 # for the sessions' own settings. (Raspberry Pi OS also starts xcompmgr with
 # an option Debian's xcompmgr does not have, so no compositor runs there
 # either.)
-session_debs() { printf '%s\n' lxsession openbox lxpanel pcmanfm gvfs-backends gvfs-fuse lxappearance dconf-cli; }
+session_debs() { printf '%s\n' lxsession openbox lxpanel pcmanfm gvfs-backends gvfs-fuse lxappearance dconf-cli libglib2.0-bin; }
 
 # Debian packages the themes need: the GTK 2 pixmap engine and runtime, the
 # icon sets the Raspberry Pi sets inherit, the sound theme and the monospace
@@ -703,6 +703,8 @@ suite_ge() { (( $(suite_rank "$1") >= $(suite_rank "$2") )); }
 session_profile() { if suite_ge "$H_SUITE" trixie; then echo rpd-x; else echo LXDE-pi; fi; }
 # Print its application menu prefix.
 menu_prefix() { if suite_ge "$H_SUITE" trixie; then echo rpd-; else echo lxde-pi-; fi; }
+# The Openbox settings file, as Raspberry Pi OS names it.
+ob_file() { if suite_ge "$H_SUITE" trixie; then echo rpd-rc.xml; else echo lxde-pi-rc.xml; fi; }
 
 # Print a field of /etc/os-release.
 os_release() { sed -n "s/^$1=//p" /etc/os-release | first_line | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"; }
@@ -1460,14 +1462,14 @@ fm_coinstall() {
 	deb_pack
 }
 
-# Raspberry Pi's Control Centre sets up only the Wayland panel here: its menu
-# entry is shown in the Wayland session only.
+# Raspberry Pi's Control Centre sets up the Raspberry Pi Desktop session: its
+# menu entry is hidden, and the session shows its own copy.
 rpcc_session() {
 	local deb=$1 f
 	[[ $(dpkg-deb -f "$deb" Package) == rpcc ]] || { printf '%s\n' "$deb"; return 0; }
 	deb_unpack "$deb" session
 	f=$R_DIR/usr/share/applications/rpcc.desktop
-	if [[ -f $f ]]; then sed -i '/^OnlyShowIn=/d' "$f"; echo 'OnlyShowIn=labwc;' >>"$f"; fi
+	if [[ -f $f ]]; then sed -i '/^OnlyShowIn=/d; /^NoDisplay=/d' "$f"; echo 'NoDisplay=true' >>"$f"; fi
 	deb_pack
 }
 
@@ -2432,9 +2434,16 @@ _session_entries() {
 			_ini_set "$xdg/mimeapps.list" 'Default Applications' "$f" x-www-browser.desktop
 		done
 	fi
+	# The Control Centre, with Appearance Settings, as in Raspberry Pi OS;
+	# Debian's appearance settings stay for the session without it
+	f=/usr/share/applications/rpcc.desktop
+	[[ ! -f $f ]] || sed '/^NoDisplay=/d; /^OnlyShowIn=/d' "$f" | _write "$apps/rpcc.desktop"
 	f=$apps/lxappearance.desktop
 	[[ -f $f ]] || f=/usr/share/applications/lxappearance.desktop
-	[[ ! -f $f ]] || sed -E "s|^Exec=.*|Exec=$SHARE/appearance|; /^TryExec=/d" "$f" | _write "$apps/lxappearance.desktop"
+	if [[ -f $f ]]; then
+		sed -E "s|^Exec=.*|Exec=$SHARE/appearance|; /^TryExec=/d; /^NoDisplay=/d" "$f" \
+			| { cat; [[ ! -f /usr/share/applications/rpcc.desktop ]] || echo 'NoDisplay=true'; } | _write "$apps/lxappearance.desktop"
+	fi
 	# Clipboard managers and other volume applets, which Raspberry Pi OS does
 	# not have; Bluetooth's, where Raspberry Pi's panel has its own plugin; and
 	# a second authentication agent, which the session refuses (it runs
@@ -2588,12 +2597,23 @@ gtk4_colors() {
 # settings, which reload the panel on an icon theme change, as the panel does
 # not follow one by itself. Usage: _session_programs ROOT
 _session_programs() {
-	local root=$1 qt="" f
+	local root=$1 qt="" pcm="" f
 	(( O_QT )) && qt="export QT_QPA_PLATFORMTHEME=gtk3"
+	# Raspberry Pi's file manager is "pcmanfm" in the session, as on Raspberry
+	# Pi OS, where Appearance Settings call it by that name
+	if (( S_PI_FM )); then
+		# shellcheck disable=SC2016  # written as is, for session-env
+		pcm='export PATH="$share/bin:$PATH"'
+		printf '#!/bin/sh\nif command -v pcmanfm-pi >/dev/null; then exec pcmanfm-pi "$@"; fi\nexec /usr/bin/pcmanfm "$@"\n' | _write "$root$SHARE/bin/pcmanfm"
+		chmod 0755 "$root$SHARE/bin/pcmanfm"
+	fi
 	cat <<EOF | _write "$root$SHARE/session-env"
 # The settings both Raspberry Pi Desktop sessions start with, written by
 # $APP_NAME. They come first from $SHARE, in these sessions only.
 profile=$S_PROFILE
+# Raspberry Pi OS's names: Openbox's settings file, the file manager profile
+obfile=$(ob_file)
+fmprofile=$S_FM_PROFILE
 share=$SHARE
 config=\${XDG_CONFIG_HOME:-\$HOME/.config}
 # The user's own colours (rpios-look-set --accent), in these sessions only
@@ -2605,6 +2625,7 @@ export FONTCONFIG_FILE=\$share/fonts.conf
 [ ! -f "\$share/dconf/profile" ] || export DCONF_PROFILE=\$share/dconf/profile
 export SAL_USE_VCLPLUGIN=gtk3
 $qt
+$pcm
 
 # GTK 4 and libadwaita read colours only from the user's gtk-4.0/gtk.css:
 # the theme's colours are added there while the session runs.
@@ -2632,49 +2653,84 @@ mkdir -p "\${XDG_DESKTOP_DIR:-\$HOME/Desktop}"
 EOF
 	cat <<'EOF' >>"$root$SHARE/session-env"
 
-# The user's own look (rpios-look-set) for the Wayland session: labwc's
-# window frames, GSettings and XSETTINGS, from the files the X session reads.
+# Panels saved by earlier versions name a browser: use the generic
+# "Web Browser" launcher instead, once.
+web_browser() {
+	web=$share/data/applications/x-www-browser.desktop
+	[ -f "$web" ] && [ ! -e "$own/.web-browser" ] || return 0
+	b='firefox-esr|firefox|chromium|chromium-browser|lxde-x-www-browser'
+	for f in "$config/lxpanel-pi/panels/panel" "$config/lxpanel/$profile/panels/panel"; do
+		[ -f "$f" ] && sed -i --follow-symlinks -E "s#^([[:space:]]*id=)($b)\.desktop\$#\1$web#" "$f"
+	done
+	for f in "$config/wf-panel-pi.ini" "$config/wf-panel-pi/wf-panel-pi.ini"; do
+		[ -f "$f" ] && sed -i --follow-symlinks -E "/^launchers=/ s/(=| )($b)( |\$)/\1x-www-browser\3/" "$f"
+	done
+	mkdir -p "$own" && : >"$own/.web-browser"
+}
+
+# Desktop settings saved under the session's profile move to the file
+# manager's, once.
+fm_profile() {
+	[ "$fmprofile" != "$profile" ] && [ ! -e "$own/.fm-profile" ] || return 0
+	for f in "$config/pcmanfm/$profile"/desktop-items-*.conf; do
+		[ -f "$f" ] || continue
+		mkdir -p "$config/pcmanfm/$fmprofile"
+		[ -e "$config/pcmanfm/$fmprofile/${f##*/}" ] || cp "$f" "$config/pcmanfm/$fmprofile/"
+	done
+	mkdir -p "$own" && : >"$own/.fm-profile"
+}
+
+# XSETTINGS for X applications on Wayland, in the file Appearance Settings
+# writes.
+xsettings_file() {
+	xs=$config/xsettingsd/xsettingsd.conf
+	[ ! -f "$xs" ] || return 0
+	mkdir -p "${xs%/*}"
+	if [ -f "$own/xsettingsd.conf" ]; then mv -f "$own/xsettingsd.conf" "$xs"
+	else cp "$share/xsettingsd.conf" "$xs"; fi
+}
+
+# The user's look (rpios-look-set) for the Wayland session: labwc's theme and
+# title font, XSETTINGS and GSettings, written as Appearance Settings does.
 wayland_look() {
 	lxs=$config/lxsession/$profile/desktop.conf
-	lrc=$config/labwc/rc.xml mark='<!-- rpios-look -->'
-	xs=$own/xsettingsd.conf
-	if [ ! -f "$lxs" ]; then
-		if grep -qF "$mark" "$lrc" 2>/dev/null; then rm -f "$lrc"; fi
-		rm -f "$xs"
-		return 0
-	fi
+	[ -f "$lxs" ] || return 0
 	v() { sed -n "s|^$1=||p" "$lxs" | head -n1; }
 	theme=$(v sNet/ThemeName) icons=$(v sNet/IconThemeName) font=$(v sGtk/FontName)
 	cursor=$(v sGtk/CursorThemeName) csize=$(v iGtk/CursorThemeSize) scheme=$(v sGtk/ColorScheme)
 	case $theme in PiXnoir|PiXonyx) cs=prefer-dark ;; *) cs=default ;; esac
 	# Window frames and title font, as in the X session
-	ob=$config/openbox/$profile-rc.xml
+	ob=$config/openbox/$obfile
 	[ -f "$ob" ] || ob=$share/openbox-rc.xml
 	win=$(sed -n '/<theme>/,/<\/theme>/{/<font /,/<\/font>/b;s|.*<name>\([^<]*\)</name>.*|\1|p}' "$ob" | head -n1)
 	tfont=$(sed -n '/<theme>/,/<\/theme>/{/<font /,/<\/font>/{s|.*<name>\([^<]*\)</name>.*|\1|p}}' "$ob" | head -n1)
 	tsize=$(sed -n '/<theme>/,/<\/theme>/{/<font /,/<\/font>/{s|.*<size>\([^<]*\)</size>.*|\1|p}}' "$ob" | head -n1)
 	tweight=$(sed -n '/<theme>/,/<\/theme>/{/<font /,/<\/font>/{s|.*<weight>\([^<]*\)</weight>.*|\1|p}}' "$ob" | head -n1)
-	if [ ! -f "$lrc" ] || grep -qF "$mark" "$lrc"; then
+	# labwc: the theme's name and fonts in the user's rc.xml, other settings kept
+	lrc=$config/labwc/rc.xml
+	if [ ! -f "$lrc" ]; then
 		mkdir -p "${lrc%/*}"
-		{
-			printf '<?xml version="1.0"?>\n%s\n<labwc_config>\n  <theme>\n    <name>%s</name>\n' "$mark" "${win:-$theme}"
-			for p in ActiveWindow InactiveWindow OnScreenDisplay MenuItem; do
-				printf '    <font place="%s">\n      <name>%s</name>\n      <size>%s</size>\n      <weight>%s</weight>\n    </font>\n' \
-					"$p" "${tfont:-Piboto}" "${tsize:-12}" "${tweight:-Normal}"
-			done
-			printf '  </theme>\n</labwc_config>\n'
-		} >"$lrc"
+		printf '<?xml version="1.0"?>\n<labwc_config>\n  <theme>\n  </theme>\n</labwc_config>\n' >"$lrc"
 	fi
+	grep -q '<theme>' "$lrc" || sed -i 's|</labwc_config>|  <theme>\n  </theme>\n</labwc_config>|' "$lrc"
+	fonts=""
+	for p in ActiveWindow InactiveWindow OnScreenDisplay MenuItem; do
+		fonts="$fonts    <font place=\"$p\">\n      <name>${tfont:-Piboto}</name>\n      <size>${tsize:-12}</size>\n      <weight>${tweight:-Normal}</weight>\n    </font>\n"
+	done
+	N=${win:-$theme} F=$(printf "$fonts") awk '
+		/<theme>/ { t = 1; print; print "    <name>" ENVIRON["N"] "</name>"; next }
+		t && /<font[ >]/ { f = 1 }
+		t && f { if (/<\/font>/) f = 0; next }
+		t && /<name>/ { next }
+		t && /<\/theme>/ { print ENVIRON["F"]; t = 0 }
+		{ print }' "$lrc" >"$lrc.new" && mv -f "$lrc.new" "$lrc"
 	# X applications (Xwayland); values escaped for sed
-	mkdir -p "$own"
+	xsettings_file
 	e() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
-	theme=$(e "$theme") icons=$(e "$icons") cursor=$(e "$cursor") font=$(e "$font") scheme=$(e "$scheme")
-	sed -e "s|^Net/ThemeName .*|Net/ThemeName \"$theme\"|" -e "s|^Net/IconThemeName .*|Net/IconThemeName \"$icons\"|" \
-		-e "s|^Gtk/CursorThemeName .*|Gtk/CursorThemeName \"$cursor\"|" -e "s|^Gtk/CursorThemeSize .*|Gtk/CursorThemeSize ${csize:-24}|" \
-		-e "s|^Gtk/FontName .*|Gtk/FontName \"$font\"|" -e "s|^Gtk/ColorScheme .*|Gtk/ColorScheme \"$scheme\"|" \
-		"$share/xsettingsd.conf" >"$xs" 2>/dev/null || rm -f "$xs"
+	sed -i -e "s|^Net/ThemeName .*|Net/ThemeName \"$(e "$theme")\"|" -e "s|^Net/IconThemeName .*|Net/IconThemeName \"$(e "$icons")\"|" \
+		-e "s|^Gtk/CursorThemeName .*|Gtk/CursorThemeName \"$(e "$cursor")\"|" -e "s|^Gtk/CursorThemeSize .*|Gtk/CursorThemeSize ${csize:-24}|" \
+		-e "s|^Gtk/FontName .*|Gtk/FontName \"$(e "$font")\"|" -e "s|^Gtk/ColorScheme .*|Gtk/ColorScheme \"$(e "$scheme")\"|" "$xs"
 	# Wayland applications (GSettings, in the session's own database)
-	theme=$(v sNet/ThemeName) icons=$(v sNet/IconThemeName) font=$(v sGtk/FontName) cursor=$(v sGtk/CursorThemeName)
 	if command -v dconf >/dev/null; then
 		for kv in "gtk-theme='$theme'" "icon-theme='$icons'" "cursor-theme='$cursor'" "cursor-size=${csize:-24}" \
 			"font-name='$font'" "document-font-name='$font'" "color-scheme='$cs'"; do
@@ -2691,9 +2747,13 @@ export XDG_CURRENT_DESKTOP=LXDE
 
 # Openbox reads the user's own file only. It gets the session's defaults,
 # also after the look changes, until the user changes it.
-rc=$config/openbox/$profile-rc.xml seen=$config/openbox/.$profile-rc.xml.rpios-look
-old=${seen%.rpios-look}.raspios-look   # the name before
-[ ! -e "$old" ] || mv -f "$old" "$seen"
+rc=$config/openbox/$obfile seen=$config/openbox/.$obfile.rpios-look
+# Settings saved under earlier names
+o=$config/openbox/$profile-rc.xml
+if [ -f "$o" ] && [ ! -L "$o" ] && [ ! -e "$rc" ]; then
+	mv -f "$o" "$rc" && ln -s "$obfile" "$o"
+	for m in rpios-look raspios-look; do [ ! -e "$config/openbox/.${o##*/}.$m" ] || mv -f "$config/openbox/.${o##*/}.$m" "$seen"; done
+fi
 if [ ! -e "$rc" ] || cmp -s "$rc" "$seen" 2>/dev/null; then
 	mkdir -p "$config/openbox" && cp "$share/openbox-rc.xml" "$rc" && cp "$share/openbox-rc.xml" "$seen"
 fi
@@ -2734,11 +2794,13 @@ if command -v dbus-launch >/dev/null && [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
 	fi
 fi
 
+web_browser
+fm_profile
 gtk4_on
 /usr/bin/lxsession -s "$profile" -e LXDE
 gtk4_off
 EOF
-	printf '#!/bin/sh\nexec openbox --config-file "${XDG_CONFIG_HOME:-$HOME/.config}/openbox/%s-rc.xml" "$@"\n' "$S_PROFILE" \
+	printf '#!/bin/sh\nexec openbox --config-file "${XDG_CONFIG_HOME:-$HOME/.config}/openbox/%s" "$@"\n' "$(ob_file)" \
 		| _write "$root$SHARE/openbox"
 	{
 		printf '#!/bin/sh\n'
@@ -2747,7 +2809,7 @@ EOF
 	} | _write "$root$SHARE/panel"
 	{
 		printf '#!/bin/sh\n# The desktop: wallpaper and icons.\n'
-		(( S_PI_FM )) && printf 'if command -v pcmanfm-pi >/dev/null; then exec pcmanfm-pi --desktop --profile %s; fi\n' "$S_PROFILE"
+		(( S_PI_FM )) && printf 'if command -v pcmanfm-pi >/dev/null; then exec pcmanfm-pi --desktop --profile %s; fi\n' "$S_FM_PROFILE"
 		# Debian's file manager draws no desktop on Wayland
 		printf 'if [ -n "$WAYLAND_DISPLAY" ]; then exec swaybg -m fill -c "%s" -i "%s"; fi\n' "#${T_DESK_BG:1:2}${T_DESK_BG:5:2}${T_DESK_BG:9:2}" "$S_WALL"
 		printf 'exec pcmanfm --desktop --profile %s\n' "$S_PROFILE"
@@ -2934,7 +2996,7 @@ _session_wayland() {
 		command -v kanshi >/dev/null && printf 'kanshi &\n'
 		# shellcheck disable=SC2016  # written as is, for the autostart file
 		command -v xsettingsd >/dev/null \
-			&& printf 'f=${XDG_DATA_HOME:-$HOME/.local/share}/%s/xsettingsd.conf; [ -f "$f" ] || f=%s/xsettingsd.conf\nxsettingsd -c "$f" &\n' "$APP_NAME" "$SHARE"
+			&& printf 'xsettingsd -c "${XDG_CONFIG_HOME:-$HOME/.config}/xsettingsd/xsettingsd.conf" &\n'
 		printf 'lxsession-xdg-autostart\n'
 	} | _write "$xdg/labwc/autostart"
 	{
@@ -2997,7 +3059,9 @@ if command -v kanshi >/dev/null && [ ! -e "$config/kanshi/config" ]; then
 	mkdir -p "$config/kanshi" && : >"$config/kanshi/config"
 fi
 
-wayland_look
+web_browser
+fm_profile
+xsettings_file
 gtk4_on
 /usr/bin/labwc -m
 gtk4_off
@@ -3024,14 +3088,14 @@ _session_command() {
 	local root=$1
 	{
 		printf '#!/bin/bash\n# The look of the Raspberry Pi Desktop session for you, written by %s %s.\n' "$APP_NAME" "$APP_VERSION"
-		printf 'APP=%s PROFILE=%s SHARE=%s\n' "$APP_NAME" "$S_PROFILE" "$SHARE"
+		printf 'APP=%s PROFILE=%s SHARE=%s OBFILE=%s FMPROFILE=%s\n' "$APP_NAME" "$S_PROFILE" "$SHARE" "$(ob_file)" "$S_FM_PROFILE"
 		cat <<'EOF'
 set -u
 config=${XDG_CONFIG_HOME:-$HOME/.config}
 own=${XDG_DATA_HOME:-$HOME/.local/share}/$APP
 lxs=$config/lxsession/$PROFILE/desktop.conf lxs_sys=$SHARE/xdg/lxsession/$PROFILE/desktop.conf
-fm=$config/pcmanfm/$PROFILE fm_sys=$SHARE/xdg/pcmanfm/$PROFILE
-obrc=$config/openbox/$PROFILE-rc.xml
+fm=$config/pcmanfm/$FMPROFILE fm_sys=$SHARE/xdg/pcmanfm/$FMPROFILE
+obrc=$config/openbox/$OBFILE
 PI_THEMES="PiXflat PiXnoir PiXtrix PiXonyx PiX"
 
 usage() {
@@ -3430,6 +3494,14 @@ fi
 if [[ -n $mode ]]; then [[ $mode =~ ^(crop|fit|stretch|center|tile|color)$ ]] || die "the wallpaper mode is crop, fit, stretch, center, tile or color"; fi
 if [[ -n $accent_fg && -z $accent ]]; then accent=$(accent_now) || die "set --accent too"; fi
 
+# Settings saved under earlier names (the session's start does the same)
+o=$config/openbox/$PROFILE-rc.xml
+if [[ -f $o && ! -L $o && ! -e $obrc ]]; then
+	mv -f "$o" "$obrc" && ln -s "$OBFILE" "$o"
+	[[ ! -e ${o%/*}/.${o##*/}.$APP ]] || mv -f "${o%/*}/.${o##*/}.$APP" "${obrc%/*}/.$OBFILE.$APP"
+fi
+(cd / && . "$SHARE/session-env" && fm_profile) >/dev/null 2>&1 || true
+
 # The user's files
 seed "$lxs" "$lxs_sys"
 for i in 0 1; do [[ ! -f $fm_sys/desktop-items-$i.conf ]] || seed "$fm/desktop-items-$i.conf" "$fm_sys/desktop-items-$i.conf"; done
@@ -3443,7 +3515,7 @@ if (( reset )); then
 	rm -rf "$own/themes" "$own/gtk4"
 	reset_desktop
 	# Openbox follows the session's look again
-	mkdir -p "${obrc%/*}" && cp "$SHARE/openbox-rc.xml" "$obrc" && cp "$SHARE/openbox-rc.xml" "${obrc%/*}/.$PROFILE-rc.xml.$APP"
+	mkdir -p "${obrc%/*}" && cp "$SHARE/openbox-rc.xml" "$obrc" && cp "$SHARE/openbox-rc.xml" "${obrc%/*}/.$OBFILE.$APP"
 fi
 # A chosen window frame is remembered; a new theme resets it.
 if [[ -n $window || -n $theme ]] || (( reset )); then rm -f "$own/window"; fi
@@ -3480,18 +3552,8 @@ if [[ -n $wl ]]; then
 		. "$SHARE/session-env"
 		wayland_look; gtk4_on
 		kill -HUP "$wl"
-		# X applications: xsettingsd again, with the user's settings
-		x=$(pgrep -u "$(id -u)" -x xsettingsd | head -n1)
-		if [[ -n $x ]]; then kill "$x"; sleep 0.5; fi
-		# Xwayland's display, from the session's programs
-		d=""
-		for c in $(pgrep -u "$(id -u)" -x 'wf-panel-pi|pcmanfm-pi|pcmanfm|swaybg|kanshi'); do
-			d=$(tr '\0' '\n' </proc/"$c"/environ 2>/dev/null | sed -n 's/^DISPLAY=//p')
-			[[ -z $d ]] || break
-		done
-		if [[ -n $d && -f $own/xsettingsd.conf ]]; then
-			DISPLAY=$d setsid -f xsettingsd -c "$own/xsettingsd.conf" 9<&-
-		fi
+		# X applications: xsettingsd reads its file again
+		pkill -HUP -u "$(id -u)" -x xsettingsd
 	) >/dev/null 2>&1 || true
 fi
 # The running session on X: lxsession passes the theme, icons, cursor, font
@@ -3515,13 +3577,13 @@ fi
 if running openbox; then openbox --reconfigure 2>/dev/null || true; fi
 if [[ -n $dbg$dfg$wall$mode$font || $reset == 1 ]]; then
 	if running pcmanfm-pi; then
-		pcmanfm-pi --profile "$PROFILE" --reconfigure >/dev/null 2>&1 || true
+		pcmanfm-pi --profile "$FMPROFILE" --reconfigure >/dev/null 2>&1 || true
 	elif running pcmanfm; then
 		# Debian's file manager reads its settings again only at login; it
 		# takes a new wallpaper at once, and then saves all its settings
 		if [[ -n $wall$mode || $reset == 1 ]]; then
 			f=$fm/desktop-items-0.conf
-			pcmanfm --profile "$PROFILE" --set-wallpaper "$(ini_get "$f" '*' wallpaper)" \
+			pcmanfm --profile "$FMPROFILE" --set-wallpaper "$(ini_get "$f" '*' wallpaper)" \
 				--wallpaper-mode "$(ini_get "$f" '*' wallpaper_mode)" >/dev/null 2>&1 || true
 			sleep 1
 			if (( reset )); then reset_desktop; else write_desktop; fi
@@ -3557,6 +3619,9 @@ session_vars() {
 		if [[ -x /usr/bin/lxpanel-pi ]]; then S_PI_PANEL=1; fi
 		if [[ -x /usr/bin/pcmanfm-pi ]]; then S_PI_FM=1; fi
 	fi
+	# Raspberry Pi's file manager uses its default profile, as on Raspberry Pi OS
+	S_FM_PROFILE=$S_PROFILE
+	if (( S_PI_FM )); then S_FM_PROFILE=default; fi
 }
 
 # Write the whole session into the package root: profile, Openbox, panels,
@@ -3745,8 +3810,8 @@ resolve_all() {
 	while read -r p; do
 		case $p in
 			pi-greeter) (( O_LOGIN && O_PI_GREETER )) && [[ -n $(installed_version lightdm) ]] || continue ;;
-			lxpanel-pi|lpplug-*|pplug-*|pishutdown|gui-runcmd|pcmanfm-pi) (( O_PI_APPS )) || continue ;;
-			wf-panel-pi|wfplug-*|rpcc) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
+			lxpanel-pi|lpplug-*|pplug-*|pishutdown|gui-runcmd|pcmanfm-pi|pipanel|rpcc|sudopwd) (( O_PI_APPS )) || continue ;;
+			wf-panel-pi|wfplug-*) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
 		esac
 		wanted+=("$p")
 	done < <(rpi_pkgs "$H_SUITE" "$(rpi_arch)" "$O_4K")
@@ -3838,9 +3903,9 @@ pkg_category() {
 		pipewire*|pulseaudio|wireplumber) echo sound ;;
 		pi-greeter)                  echo greeter ;;
 		pcmanfm-pi|pcmanfm|libfm*)   echo files ;;
-		lxpanel*|lpplug-*|pplug-*|wf-panel-pi|wfplug-*|rpcc|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
+		lxpanel*|lpplug-*|pplug-*|wf-panel-pi|wfplug-*|rpcc|pipanel|sudopwd|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
 		network-manager*|nm-connection-editor|wpasupplicant|iw|wireless-regdb|rfkill|bluez*|blueman|libspa-0.2-bluetooth|pulseaudio-module-bluetooth) echo network ;;
-		lxsession*|lxpolkit|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|dconf-cli) echo session ;;
+		lxsession*|lxpolkit|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|dconf-cli|libglib2.0-bin) echo session ;;
 		xserver-*|x11-*|libgl1-mesa-dri) echo display ;;
 		*icon-theme*|*-icons)        echo icons ;;
 		*-theme)                     echo themes ;;
@@ -5097,20 +5162,22 @@ uninstall() {
 	restore_user "$(_st "$PREV_NAME")"
 	restore_user "$(_st "$OLD_NAME")"
 	f=${XDG_CONFIG_HOME:-$HOME/.config}
-	for p in rpd-x LXDE-pi; do
-		rc=$f/openbox/$p-rc.xml seen=$f/openbox/.$p-rc.xml.$APP_NAME
-		[[ -f $seen ]] || seen=$f/openbox/.$p-rc.xml.$PREV_NAME
+	for p in rpd-rc.xml lxde-pi-rc.xml rpd-x-rc.xml LXDE-pi-rc.xml; do
+		rc=$f/openbox/$p seen=$f/openbox/.$p.$APP_NAME
+		[[ -f $seen ]] || seen=$f/openbox/.$p.$PREV_NAME
 		[[ -f $seen ]] || continue
 		cmp -s "$rc" "$seen" && rm -f -- "$rc"
 		rm -f -- "$seen"
 	done
+	# Links left by renamed Openbox files
+	for p in rpd-x-rc.xml LXDE-pi-rc.xml; do [[ ! -L $f/openbox/$p || -e $f/openbox/$p ]] || rm -f -- "$f/openbox/$p"; done
 	for p in "$APP_NAME" "$PREV_NAME"; do
 		[[ -f $f/gtk-4.0/gtk.css ]] && sed -i --follow-symlinks "/^\/\* >>> $p >>> \*\/\$/,/^\/\* <<< $p <<< \*\/\$/d" "$f/gtk-4.0/gtk.css"
 	done
 	# The highlight colour of rpios-look-set, which only the session read
 	rm -rf -- "${XDG_DATA_HOME:-$HOME/.local/share}/$APP_NAME"
-	# The session's own GSettings database and its labwc settings
-	rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/dconf/${APP_NAME//-/}"
+	# The session's own GSettings database, XSETTINGS and labwc settings
+	rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/dconf/${APP_NAME//-/}" "${XDG_CONFIG_HOME:-$HOME/.config}/xsettingsd/xsettingsd.conf"
 	if grep -qF '<!-- rpios-look -->' "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/rc.xml" 2>/dev/null; then
 		rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/labwc/rc.xml"
 	fi

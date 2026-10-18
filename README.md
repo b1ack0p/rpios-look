@@ -19,7 +19,7 @@ login screen, **Raspberry Pi Desktop**. Debian's own sessions are not changed.
 3. [Installation](#installation)
 4. [Commands](#commands)
 5. [Themes](#themes)
-6. [Changing the look: rpios-look-set](#changing-the-look-rpios-look-set)
+6. [Changing the look](#changing-the-look)
 7. [X or Wayland](#x-or-wayland)
 8. [Panel](#panel)
 9. [Install options](#install-options)
@@ -110,12 +110,22 @@ bash rpios-look.sh --theme pixonyx
 bash rpios-look.sh --theme auto      # the default for your Debian release
 ```
 
-## Changing the look: rpios-look-set
+## Changing the look
 
-`rpios-look-set` changes the look for the current user only. It needs no
-sudo, applies at once to the running session, and is kept for later logins.
+The look can be changed for the current user in two ways. Both change the
+X and Wayland sessions, apply at once, and are kept for later logins.
 
-### Options
+### Appearance Settings
+
+On Debian 13 and later, open **Preferences > Control Centre**, as on
+Raspberry Pi OS. Its **Defaults**, **Desktop**, **Taskbar** and **Theme**
+pages are Raspberry Pi OS's own Appearance Settings (`pipanel`).
+
+### rpios-look-set
+
+`rpios-look-set` changes the look from the command line. It needs no sudo.
+
+#### Options
 
 | Option | Values |
 |--------|--------|
@@ -136,7 +146,7 @@ The font's style and size are set automatically to suit the theme, as in
 Raspberry Pi OS (for example, Nunito Sans Light 12). Window titles use the
 same font.
 
-### Examples
+#### Examples
 
 ```bash
 rpios-look-set --theme pixtrix
@@ -214,8 +224,7 @@ sudo update-alternatives --config x-www-browser
 Right-click the panel to change its settings and applets:
 
 - **On X:** **Panel Settings** and **Add / Remove Panel Items**.
-- **On Wayland:** the panel's settings open in Raspberry Pi's **Control
-  Centre** (`rpcc`), installed with the Wayland session.
+- **On Wayland:** the panel's settings open in the **Control Centre**.
 
 On X, Raspberry Pi's panel (Debian 13 and later) offers its own applets and
 these Debian applets:
@@ -275,7 +284,8 @@ Each package is verified against Raspberry Pi's signing key.
 | Fonts | `fonts-piboto`, `fonts-nunito-sans` |
 | Wallpapers | `rpd-wallpaper`, `rpd-wallpaper-trixie`, or their 4K versions |
 | Login screen | `pi-greeter` (with LightDM) |
-| Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi`, its plugins and `rpcc` (Control Centre) |
+| Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi` and its plugins |
+| Settings (Debian 13+) | `rpcc` (Control Centre), `pipanel` (Appearance Settings), `sudopwd` |
 | File manager (Debian 13+) | `pcmanfm-pi`, installed beside Debian's |
 
 ### From Debian
@@ -284,7 +294,7 @@ Only missing packages are installed.
 
 | Kind | Packages |
 |------|----------|
-| Session | `lxsession`, `openbox`, `lxpanel`, `pcmanfm`, `lxappearance`, `dconf-cli`, `accountsservice` (with LightDM) |
+| Session | `lxsession`, `openbox`, `lxpanel`, `pcmanfm`, `lxappearance`, `dconf-cli`, `libglib2.0-bin`, `accountsservice` (with LightDM) |
 | Display | `xserver-xorg`, `libgl1-mesa-dri`, `x11-utils`; for Wayland, `labwc`, `swaybg`, `kanshi`, `xsettingsd`, `wlr-randr`, `xwayland` |
 | Themes | `gtk2-engines-pixbuf`, `libgtk2.0-bin`, `gnome-icon-theme`, `adwaita-icon-theme-legacy` (Debian 13), `sound-theme-freedesktop`, Liberation Mono |
 | Help menu | `debian-reference` |
@@ -406,6 +416,10 @@ kept.
 - **Session:** like Raspberry Pi OS, the session is an LXDE profile
   (`rpd-x`, or `LXDE-pi` before Debian 13). Its settings are in
   `/usr/share/rpios-look`, which only this session reads.
+- **Raspberry Pi OS's file names:** your settings use the same files as on
+  Raspberry Pi OS, for example `~/.config/openbox/rpd-rc.xml` and
+  `~/.config/labwc/rc.xml`, so its own settings programs work unchanged.
+  Settings saved by earlier versions are moved at the next login.
 - **Generated package:** everything the script writes outside your home
   folder is in one package, `rpios-look-debian`, so dpkg tracks and removes
   it. It holds the session, the login screen style, the icon sets with the
