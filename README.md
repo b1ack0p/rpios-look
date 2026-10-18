@@ -112,14 +112,20 @@ bash rpios-look.sh --theme auto      # the default for your Debian release
 
 ## Changing the look
 
-The look can be changed for the current user in two ways. Both change the
-X and Wayland sessions, apply at once, and are kept for later logins.
+The look is changed for the current user only. Changes apply at once and
+are kept for later logins.
 
-### Appearance Settings
+| Session | In the menu | Themes |
+|---------|-------------|--------|
+| X | **Preferences > Customize Look and Feel** | All installed themes |
+| Wayland | **Preferences > Control Centre** | Light (PiXtrix) or Dark (PiXonyx), as on Raspberry Pi OS 13 |
+| Both | `rpios-look-set` (command line) | All installed themes |
 
-On Debian 13 and later, open **Preferences > Control Centre**, as on
-Raspberry Pi OS. Its **Defaults**, **Desktop**, **Taskbar** and **Theme**
-pages are Raspberry Pi OS's own Appearance Settings (`pipanel`).
+### Control Centre (Wayland)
+
+The Control Centre is Raspberry Pi OS 13's own Appearance Settings
+(`pipanel`), with **Defaults**, **Desktop**, **Taskbar** and **Theme** pages.
+It is installed with the Wayland session.
 
 ### rpios-look-set
 
@@ -171,8 +177,8 @@ Pi OS, it selects:
 
 | Display system | When |
 |----------------|------|
-| **Wayland (labwc)** | Debian 13 or later, at least 2 GB of memory, a 64-bit system, and 3D graphics with a supported driver: Intel (`i915`, `xe`), AMD (`amdgpu`), Raspberry Pi 4 and 5, ARM boards (`panfrost`, `lima`, `etnaviv` and others), virtual machines with 3D (`virtio_gpu`, `vmwgfx`). |
-| **X (Openbox)** | All other cases: Debian 10 to 12, less than 2 GB of memory, 32-bit systems, PC processors without SSE4.2, graphics without 3D acceleration, older AMD graphics (`radeon`), NVIDIA graphics, Raspberry Pi 3 and earlier. |
+| **Wayland (labwc)** | Debian 13 or later, and either a Raspberry Pi (any model, as on Raspberry Pi OS) or a computer with at least 2 GB of memory, a 64-bit system, and 3D graphics with a supported driver: Intel (`i915`, `xe`), AMD (`amdgpu`), ARM boards (`panfrost`, `lima`, `etnaviv` and others), virtual machines with 3D (`virtio_gpu`, `vmwgfx`). |
+| **X (Openbox)** | All other cases: Debian 10 to 12, less than 2 GB of memory, 32-bit systems, PC processors without SSE4.2, graphics without 3D acceleration or kernel modesetting, older AMD graphics (`radeon`), NVIDIA graphics. |
 
 Only the Wayland packages are optional. The X server is always installed,
 because the login screen runs on it, and the X session is always available.
@@ -185,7 +191,7 @@ your next login uses it.
 ```bash
 bash rpios-look.sh --wayland        # use Wayland
 bash rpios-look.sh --no-wayland     # use X only
-bash rpios-look.sh --auto-wayland   # let the script decide again
+bash rpios-look.sh --auto           # let the script decide again
 ```
 
 To switch for one login only, choose the session on the login screen.
@@ -254,7 +260,7 @@ The installer remembers these options and reuses them on later runs.
 | `--icons NAME` | `pixflat`, `pixtrix`, `pix` or `auto`. | `auto` |
 | `--wallpaper W` | A file in `/usr/share/rpd-wallpaper`, a path, or `auto`. | `auto` |
 | `--4k`, `--no-4k` | 4K wallpapers. | Off |
-| `--wayland`, `--no-wayland`, `--auto-wayland` | Display system (see [X or Wayland](#x-or-wayland)). | Auto |
+| `--wayland`, `--no-wayland`, `--auto` | Display system (see [X or Wayland](#x-or-wayland)). | Auto |
 | `--pi-apps`, `--no-pi-apps` | Raspberry Pi's panel and file manager (Debian 13 and later). | On |
 | `--login-screen`, `--no-login-screen` | Raspberry Pi OS login screen style (LightDM). | On |
 | `--pi-greeter`, `--no-pi-greeter` | Raspberry Pi's greeter, which has no session chooser. | Off |
@@ -285,7 +291,7 @@ Each package is verified against Raspberry Pi's signing key.
 | Wallpapers | `rpd-wallpaper`, `rpd-wallpaper-trixie`, or their 4K versions |
 | Login screen | `pi-greeter` (with LightDM) |
 | Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi` and its plugins |
-| Settings (Debian 13+) | `rpcc` (Control Centre), `pipanel` (Appearance Settings), `sudopwd` |
+| Settings (Wayland) | `rpcc` (Control Centre), `pipanel` (Appearance Settings), `sudopwd` |
 | File manager (Debian 13+) | `pcmanfm-pi`, installed beside Debian's |
 
 ### From Debian
@@ -382,9 +388,14 @@ The script lists what it removes and asks first. It:
 - after a second question, removes the packages it installed, except those
   other software needs and the hardware support (X server, network,
   Bluetooth, sound, firmware);
-- restores the settings that `--desktop` changed for you.
+- restores the settings that `--desktop` changed for you;
+- removes your Raspberry Pi Desktop settings (theme, panel, desktop), which
+  no other session reads.
 
 Packages installed before the script, or later, are never removed.
+
+A fresh install detects the computer again: it does not reuse the options
+or settings of an earlier install.
 
 ## Offline installation
 
