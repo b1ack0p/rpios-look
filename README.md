@@ -1,563 +1,437 @@
 # rpios-look
 
-Makes Debian look like Raspberry Pi OS, without breaking Debian. It brings
-the official **PiXflat**, **PiXnoir**, **PiXtrix**, **PiXonyx** and **PiX**
-themes with their icons, cursors, fonts and wallpapers, Raspberry Pi's own
-panel, file manager and login screen, and Raspberry Pi OS's desktop settings.
-As on Raspberry Pi OS, it all comes as sessions on the login screen,
-**Raspberry Pi Desktop** (X) and, on Debian 13 and later where the computer
-suits it, **Raspberry Pi Desktop on Wayland**, next to Debian's own
-sessions, which stay as they were.
+Makes Debian look like Raspberry Pi OS, without breaking Debian.
 
-It works on Debian 10 to 13 and later (testing and unstable too), on 64-bit
-and 32-bit PCs (amd64, i386) and on ARM (arm64, armhf), on new machines and
-old ones such as 32-bit laptops. Other architectures get the themes, icons,
-fonts and wallpapers.
-
-Where it differs from Raspberry Pi OS:
-
-- The **Debian logo** is shown wherever Raspberry Pi OS shows the Raspberry
-  Pi logo: on the menu button and the login screen.
-- Raspberry Pi's system tools are left out: raspi-config, the updater, the
-  power and network plugins of the panel. The network icon in the panel
-  comes from Debian's nm-applet instead, where NetworkManager is installed.
-- The login screen is Debian's LightDM greeter in Raspberry Pi OS's style,
-  which keeps the session chooser; Raspberry Pi's own greeter has none
-  (`--pi-greeter` uses it anyway).
-- Wayland or X is chosen for the computer, as Raspberry Pi OS chooses for its
-  own models (see [Wayland or X](#wayland-or-x)).
-- Raspberry Pi's panel, file manager and Wayland session are built for Debian
-  13 and later. On Debian 10 to 12 the session uses Debian's panel and file
-  manager, in the same layout.
+It installs the official Raspberry Pi OS themes, icons, cursors, fonts,
+wallpapers, panel, file manager and login screen style, and applies Raspberry
+Pi OS's desktop settings. Everything is added as a separate session on the
+login screen, **Raspberry Pi Desktop**. Debian's own sessions are not changed.
 
 ![The Raspberry Pi Desktop session on Debian 13, with its menu open](screenshot/scr1.png)
 ![The Raspberry Pi Desktop session on Wayland, Debian 13](screenshot/scr2.png)
 ![The login screen](screenshot/scr3.png)
 ![Debian 12 on a 32-bit PC, with Debian's own panel](screenshot/scr4.png)
 
-## Quick start
+## Contents
 
-1. Download `rpios-look.sh` (or clone this repository).
-2. Open a terminal in its folder and run:
+1. [Overview](#overview)
+2. [Requirements](#requirements)
+3. [Installation](#installation)
+4. [Commands](#commands)
+5. [Themes](#themes)
+6. [Changing the look: rpios-look-set](#changing-the-look-rpios-look-set)
+7. [X or Wayland](#x-or-wayland)
+8. [Panel](#panel)
+9. [Install options](#install-options)
+10. [What is installed](#what-is-installed)
+11. [The session](#the-session)
+12. [Updating](#updating)
+13. [Upgrading Debian](#upgrading-debian)
+14. [Uninstalling](#uninstalling)
+15. [Offline installation](#offline-installation)
+16. [Troubleshooting](#troubleshooting)
+17. [How it works](#how-it-works)
+18. [Keeping Debian safe](#keeping-debian-safe)
+19. [Credits and licence](#credits-and-licence)
+
+## Overview
+
+- **Supported systems:** Debian 10 to 13 and later, including testing,
+  unstable and derivatives, on amd64, i386, arm64 and armhf. Other
+  architectures get the themes, icons, fonts and wallpapers only.
+- **Themes:** PiXflat, PiXnoir, PiXtrix, PiXonyx and PiX, all installed.
+- **Sessions:** *Raspberry Pi Desktop* on X, and on Wayland where the
+  computer suits it.
+- **Panel and file manager:** Raspberry Pi's own on Debian 13 and later;
+  Debian's, in the same layout, on Debian 10 to 12.
+
+Differences from Raspberry Pi OS:
+
+- The **Debian logo** replaces the Raspberry Pi logo on the menu button and
+  the login screen.
+- Raspberry Pi's system tools are left out: raspi-config, the updater, and
+  the panel's power and network plugins. The network icon comes from
+  Debian's `nm-applet`.
+- The login screen is Debian's LightDM greeter in Raspberry Pi OS's style,
+  with a session chooser. `--pi-greeter` uses Raspberry Pi's greeter instead.
+
+## Requirements
+
+- Debian 10 (buster) or later, or a derivative.
+- A normal user account with sudo rights. Do not run the script as root.
+- Internet access, except for an [offline installation](#offline-installation).
+- About 80 MB of disk space (about 200 MB more for the 4K wallpapers).
+
+## Installation
+
+1. Download `rpios-look.sh`, or clone this repository.
+2. In a terminal, in the script's folder, run:
 
    ```bash
    bash rpios-look.sh
    ```
 
-3. Read what it found about the computer and the plan, answer `y`, and enter
-   your password when asked. Once every theme is installed, choose the look.
-   The script asks at the terminal; without one every question takes its
-   default (`-y` answers yes).
-4. Log out. The login screen has **Raspberry Pi Desktop** chosen for you, on
-   Wayland or X as suits the computer; log in.
+3. Review the detected computer and the plan, answer `y`, and enter your
+   password when asked.
+4. When the packages are installed, choose a theme. Press Enter to keep the
+   default.
+5. Log out. **Raspberry Pi Desktop** is selected on the login screen. Log in.
 
-## Wayland or X
+Running the script again is safe. Without a terminal, or with `-y`, every
+question takes its default answer.
 
-Before installing, the script looks at the computer: model, processor,
-memory, graphics and the kernel driver in use, 3D acceleration, virtual
-machine, kernel, Debian release, the desktops installed and the login
-screen. As Raspberry Pi OS 13 does (Wayland on a Raspberry Pi 4 or 5, X on
-earlier models), the session runs on:
+## Commands
 
-- **Wayland (labwc)** on Debian 13 and later, with at least 2 GB of memory,
-  a 64-bit system and graphics with 3D acceleration whose driver runs labwc
-  well: Intel (`i915`, `xe`), AMD (`amdgpu`), Raspberry Pi 4 and 5, ARM
-  boards (`panfrost`, `lima`, `etnaviv`, ...), and virtual machines with 3D
-  (`virtio_gpu`, `vmwgfx`).
-- **X (Openbox)** everywhere else: Debian 10 to 12, older computers (less
-  than 2 GB, 32-bit, a PC processor without SSE4.2), graphics without 3D
-  acceleration, older AMD graphics (`radeon`), NVIDIA graphics (`nouveau` or
-  NVIDIA's own driver) and Raspberry Pi 3 and earlier.
-
-Only the chosen one's packages are installed, and the X server always is:
-the login screen runs on it, and the X session stays on the login screen
-for when Wayland does not suit. `--wayland` and `--no-wayland` decide
-instead; `--auto-wayland` goes back to the choice for the computer.
-
-Running it again is safe. To undo it, see [Uninstall](#uninstall).
-
-## Requirements
-
-- Debian 10 (buster) or later, or a derivative.
-- A normal user account with sudo rights. Do not run it as root.
-- Internet access, except for an [offline install](#offline-install).
-- About 80 MB of disk space (the wallpapers are most of it; 4K ones, about
-  200 MB more).
-
-## Usage
-
-```bash
-bash rpios-look.sh                   # install or update
-bash rpios-look.sh --refresh         # list updates, then ask
-bash rpios-look.sh --uninstall       # undo the look
-bash rpios-look.sh --prepare-upgrade # before a Debian upgrade
-bash rpios-look.sh --download        # fill packages/ (offline)
-bash rpios-look.sh --offline         # install from packages/
-bash rpios-look.sh --help            # commands and options
-```
-
-The session is added for every user. Anyone can switch on the login
-screen; it remembers the choice. The look appears only in the Raspberry Pi
-Desktop session: Debian's LXDE, Xfce, GNOME and other sessions keep their own
-settings. Settings a user makes in the session, for example in *Appearance
-Settings*, are kept in that user's files and win over the defaults.
+| Command | Action |
+|---------|--------|
+| `bash rpios-look.sh` | Install or update |
+| `bash rpios-look.sh --refresh` | List available updates, then ask to apply them |
+| `bash rpios-look.sh --uninstall` | Remove the look |
+| `bash rpios-look.sh --prepare-upgrade` | Prepare for a Debian release upgrade |
+| `bash rpios-look.sh --download` | Build `packages/` for an offline installation |
+| `bash rpios-look.sh --offline` | Install from `packages/` |
+| `bash rpios-look.sh --help` | Show all commands and options |
 
 ## Themes
 
-| Theme (`--theme`) | Look | Font | Wallpaper |
-|-------------------|------|------|-----------|
-| `pixflat` | light, Raspberry Pi OS Bookworm (default on Debian 10 to 12) | Piboto | fisherman |
-| `pixnoir` | dark, Raspberry Pi OS Bookworm | Piboto | fisherman |
-| `pixtrix` | light, Raspberry Pi OS Trixie (default on Debian 13 and later) | Nunito Sans Light | sunrise |
-| `pixonyx` | dark, Raspberry Pi OS Trixie | Nunito Sans Light | sunrise |
-| `pix` | legacy, Raspberry Pi OS Buster/Bullseye | Piboto | fisherman |
+| Name | Style | Font | Wallpaper |
+|------|-------|------|-----------|
+| `pixflat` | Light, Raspberry Pi OS Bookworm (default on Debian 10 to 12) | Piboto Light | fisherman |
+| `pixnoir` | Dark, Raspberry Pi OS Bookworm | Piboto Light | fisherman |
+| `pixtrix` | Light, Raspberry Pi OS Trixie (default on Debian 13 and later) | Nunito Sans Light | sunrise |
+| `pixonyx` | Dark, Raspberry Pi OS Trixie | Nunito Sans Light | sunrise |
+| `pix` | Legacy, Raspberry Pi OS Buster and Bullseye | Piboto Light | fisherman |
 
-Every theme is installed; at the end of the install, once they are, it asks
-which one the session uses (Enter keeps the current one). Change it later
-with, for example:
+The installer asks for the theme at the end. To change the default theme for
+all users later, run the installer with `--theme`:
 
 ```bash
 bash rpios-look.sh --theme pixonyx
-bash rpios-look.sh --theme auto      # back to the one for your Debian
+bash rpios-look.sh --theme auto      # the default for your Debian release
 ```
 
-That changes the session for everyone. For yourself only, without sudo and
-at once in the running session, use `rpios-look-set`, which the install adds:
+## Changing the look: rpios-look-set
+
+`rpios-look-set` changes the look for the current user only. It needs no
+sudo, applies at once to the running session, and is kept for later logins.
+
+### Options
+
+| Option | Values |
+|--------|--------|
+| `--theme NAME` | `pixflat`, `pixnoir`, `pixtrix`, `pixonyx`, `pix`, or any GTK theme. Also sets the theme's icons, cursor, window frames and font. |
+| `--light`, `--dark` | The light or dark version of the current theme. Icons and font are kept. |
+| `--icons NAME` | `pixflat`, `pixtrix`, `pix`, or any icon theme. |
+| `--window NAME` | Window frames: `pixflat`, `pixnoir`, `pixtrix`, `pixonyx`, `pix`, or any Openbox theme. `theme` makes them follow the theme again. |
+| `--font NAME` | `nunito`, `piboto`, `piboto-condensed`, `sans`, `serif`, `mono`, or any installed font family. |
+| `--font-style STYLE` | `regular`, `light`, `thin`, `extralight`, `medium`, `semibold`, `bold`, `extrabold`, `black`, with optional `italic`. |
+| `--font-size N` | Size in points. |
+| `--cursor NAME`, `--cursor-size N` | Cursor theme and size in pixels. |
+| `--accent COLOUR` | Highlight colour, for example `'#d6363c'`, or `default`. |
+| `--desktop-color COLOUR`, `--desktop-text COLOUR` | Desktop background and icon text colours. |
+| `--wallpaper W`, `--wallpaper-mode M` | A wallpaper name or path, or `none`; and `crop`, `fit`, `stretch`, `center`, `tile` or `color`. |
+| `--list` | Show the installed themes, icons, window frames and fonts. |
+| `--show` | Show the current look. |
+| `--reset` | Return to the session's default look. |
+
+A font keeps its Raspberry Pi weight (Light for Nunito Sans and Piboto) and
+the current size unless `--font-style` or `--font-size` is given. Only styles
+the font has are accepted. Window titles use the same font.
+
+### Examples
 
 ```bash
-rpios-look-set --theme pixonyx                  # with its icons, cursor and font
-rpios-look-set --icons pixflat --cursor pixtrix --cursor-size 32
-rpios-look-set --accent '#d6363c'               # highlight colour
-rpios-look-set --desktop-color '#202020' --wallpaper none
-rpios-look-set --wallpaper aurora --wallpaper-mode fit
-rpios-look-set --font "Nunito Sans Light 13"
-rpios-look-set --show                           # the look now
-rpios-look-set --reset                          # back to the session's look
+rpios-look-set --theme pixtrix
+rpios-look-set --dark
+rpios-look-set --theme pixflat --icons pixtrix --window pixnoir
+rpios-look-set --font piboto --font-size 11
+rpios-look-set --font nunito --font-style semibold
+rpios-look-set --accent '#2e7d32' --cursor-size 32
+rpios-look-set --reset
 ```
 
-It writes the same files as *Customize Look and Feel* and *Desktop
-Preferences*, which only the Raspberry Pi Desktop session reads. The
-highlight colour is kept as Raspberry Pi OS keeps it, in a copy of each
-Raspberry Pi theme (`~/.local/share/rpios-look`). Window borders keep the old
-cursor until the next login. On Debian 10 to 12, Debian's file manager shows
-new colours fully, and the desktop a new colour or font, from the next login
-(a new wallpaper at once). The session on Wayland does not use these
-settings yet.
+These settings apply to the session on X. The session on Wayland does not
+use them yet.
 
-In *Customize Look and Feel* each Raspberry Pi icon set and cursor appears
-once, by its own name (the set adapted for Debian), and the lists are sorted.
+## X or Wayland
 
-## Options
+### How it is chosen
 
-Options go after the command, for example:
+Before installing, the script detects the computer: model, processor,
+memory, graphics and driver, 3D acceleration, virtual machine, kernel,
+Debian release, installed desktops and login manager. Following Raspberry
+Pi OS, it selects:
+
+| Display system | When |
+|----------------|------|
+| **Wayland (labwc)** | Debian 13 or later, at least 2 GB of memory, a 64-bit system, and 3D graphics with a supported driver: Intel (`i915`, `xe`), AMD (`amdgpu`), Raspberry Pi 4 and 5, ARM boards (`panfrost`, `lima`, `etnaviv` and others), virtual machines with 3D (`virtio_gpu`, `vmwgfx`). |
+| **X (Openbox)** | All other cases: Debian 10 to 12, less than 2 GB of memory, 32-bit systems, PC processors without SSE4.2, graphics without 3D acceleration, older AMD graphics (`radeon`), NVIDIA graphics, Raspberry Pi 3 and earlier. |
+
+Only the Wayland packages are optional. The X server is always installed,
+because the login screen runs on it, and the X session is always available.
+
+### Changing it later
+
+Run the installer with one of these options. The choice is remembered, and
+your next login uses it.
 
 ```bash
-bash rpios-look.sh --theme pixnoir --icons pixtrix
+bash rpios-look.sh --wayland        # use Wayland
+bash rpios-look.sh --no-wayland     # use X only
+bash rpios-look.sh --auto-wayland   # let the script decide again
 ```
 
-### Remembered options
+To switch for one login only, choose the session on the login screen.
 
-The script remembers these and uses them again on later runs until you give
-a new value.
+## Panel
 
-- **`--theme NAME`**: the look, from the table above, or `auto`. Without
-  it, the install asks at the end. Default: `auto`.
-- **`--icons NAME`**: the icon set, `pixflat`, `pixtrix`, `pix` or `auto`
-  (the theme's own). Default: `auto`.
-- **`--wallpaper W`**: a file in `/usr/share/rpd-wallpaper` (for example
-  `aurora`), a path, or `auto` (the theme's own). Default: `auto`.
-- **`--4k`**, **`--no-4k`**: the 4K wallpapers instead of the standard ones.
-  Default: standard.
-- **`--pi-apps`**, **`--no-pi-apps`**: Raspberry Pi's own panel and file
-  manager, installed beside Debian's (Debian 13 and later), or Debian's.
-  Default: Raspberry Pi's.
-- **`--login-screen`**, **`--no-login-screen`**: the Raspberry Pi OS login
-  screen, where LightDM is the login manager, or the login screen as it is.
-  Default: Raspberry Pi OS's.
-- **`--pi-greeter`**, **`--no-pi-greeter`**: Raspberry Pi's own login box,
-  exactly as on Raspberry Pi OS but without a session chooser, or Debian's
-  greeter in its style. Default: Debian's.
-- **`--login-background B`**: the picture behind the login box: `debian`
-  (Debian's own login artwork, which follows Debian's active theme),
-  `raspios` (Raspberry Pi OS's) or a full path to a picture. Default:
-  `debian`.
-- **`--wayland`**, **`--no-wayland`**, **`--auto-wayland`**: the session on
-  Wayland (Debian 13 and later), on X only, or as suits the computer (see
-  [Wayland or X](#wayland-or-x)). Default: as suits the computer.
-- **`--qt`**, **`--no-qt`**: Qt applications follow the theme in the session
-  (installs Debian's Qt GTK platform themes). Default: off.
+### Launchers
 
-### One-run options
+As on Raspberry Pi OS, the panel shows a generic **Web Browser** launcher
+with the standard browser icon. It opens Debian's default browser
+(`x-www-browser`), which is also the session's default for web links. To
+change the default browser:
 
-- **`-d`, `--desktop LIST`**: also give these desktops the look, for you
-  only: `xfce`, `gnome`, `budgie`, `cinnamon`, `mate`, `lxqt`, `openbox`,
-  `labwc`, `kde`, `all` or `none`. Default: `none`. Every setting it changes
-  is backed up, and `--uninstall` restores it.
+```bash
+sudo update-alternatives --config x-www-browser
+```
 
-  ```bash
-  bash rpios-look.sh --desktop xfce
-  ```
+### Applets
 
-- **`--bundle LIST`**: with `--download`, only these release/architecture
-  pairs, for example `bookworm/i386,trixie/amd64`.
-- **`--no-log`**: write no log file.
-- **`-y`**, **`--yes`**: answer yes to every question.
-- **`-v`**, **`--verbose`**: print every command run with sudo.
+Right-click the panel and choose **Add / Remove Panel Items** to add
+applets. Raspberry Pi's panel (Debian 13 and later) offers its own applets
+and these Debian applets:
 
-## What changes
+| Applet | Purpose |
+|--------|---------|
+| Keyboard Layout Handler (`xkb`) | Keyboard layout |
+| Weather (`weather`) | Weather forecast |
+| Volume Control (`volume`) | ALSA volume |
+| Temperature Monitor (`thermal`) | System temperature |
+| Resource Monitors (`monitors`) | CPU and memory graphs |
+| Desktop Number (`deskno`) | Current desktop |
+| CPU Frequency (`cpufreq`) | CPU frequency |
 
-### Packages
+Debian's network status and keyboard LED applets are not offered: they stop
+Raspberry Pi's panel. Programs with a tray icon appear in the notification
+area. With `--no-pi-apps`, the session uses Debian's panel, which offers all
+of Debian's applets.
 
-From Raspberry Pi OS, each verified against Raspberry Pi's signing key:
+## Install options
 
-- **Themes:** `pixflat-theme` (PiXflat, PiXnoir), `pixtrix-theme` (PiXtrix,
-  PiXonyx), `pix-theme` (PiX), with their GTK 2 engines
-  `gtk2-engines-pixflat` and `gtk2-engines-clearlookspix`.
-- **Icons and cursors:** `pixflat-icons`, `pixtrix-icons`, `rpd-icons`.
-- **Fonts:** `fonts-piboto`, `fonts-nunito-sans`.
-- **Wallpapers:** `rpd-wallpaper`, `rpd-wallpaper-trixie` (or their 4K
-  sets).
-- **Login screen:** `pi-greeter`, where LightDM is installed.
-- **Panel (Debian 13 and later):** `lxpanel-pi` and, for Wayland,
-  `wf-panel-pi`, each with every plugin Raspberry Pi OS installs that works on
-  Debian (menu, volume, Bluetooth, clock, battery, eject, magnifier, CPU,
-  CPU temperature, GPU), `pishutdown` (the Shutdown dialog) and `gui-runcmd`
-  (the Run dialog).
-- **File manager (Debian 13 and later):** `pcmanfm-pi`, installed beside
-  Debian's as its own program (see [Don't break Debian](#dont-break-debian)).
+The installer remembers these options and reuses them on later runs.
 
-From Debian:
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--theme NAME` | Theme from the [table](#themes), or `auto`. | Asked at the end |
+| `--icons NAME` | `pixflat`, `pixtrix`, `pix` or `auto`. | `auto` |
+| `--wallpaper W` | A file in `/usr/share/rpd-wallpaper`, a path, or `auto`. | `auto` |
+| `--4k`, `--no-4k` | 4K wallpapers. | Off |
+| `--wayland`, `--no-wayland`, `--auto-wayland` | Display system (see [X or Wayland](#x-or-wayland)). | Auto |
+| `--pi-apps`, `--no-pi-apps` | Raspberry Pi's panel and file manager (Debian 13 and later). | On |
+| `--login-screen`, `--no-login-screen` | Raspberry Pi OS login screen style (LightDM). | On |
+| `--pi-greeter`, `--no-pi-greeter` | Raspberry Pi's greeter, which has no session chooser. | Off |
+| `--login-background B` | `debian`, `raspios`, or a path to a picture. | `debian` |
+| `--qt`, `--no-qt` | Qt applications follow the theme. | Off |
 
-- **The session:** `lxsession`, `openbox`, `lxpanel`, `pcmanfm`,
-  `lxappearance`, `dconf-cli` and, with LightDM, `accountsservice`, where
-  missing; for Wayland, `labwc`,
-  `swaybg`, `kanshi`, `xsettingsd`, `wlr-randr` and `xwayland`.
-- **Display:** the X server (`xserver-xorg`), Mesa's 3D drivers
-  (`libgl1-mesa-dri`) and `x11-utils`, where missing. They are kept on
-  uninstall.
-- **For the themes:** `gtk2-engines-pixbuf`, `libgtk2.0-bin`,
-  `gnome-icon-theme`, `adwaita-icon-theme-legacy` (Debian 13),
-  `sound-theme-freedesktop`, and Liberation Mono (`fonts-liberation` or
-  `fonts-liberation2`).
-- **Help menu:** `debian-reference`.
+These options apply to one run only:
+
+| Option | Description |
+|--------|-------------|
+| `-d`, `--desktop LIST` | Also apply the look to other desktops, for you only: `xfce`, `gnome`, `budgie`, `cinnamon`, `mate`, `lxqt`, `openbox`, `labwc`, `kde` or `all`. Changed settings are backed up and restored on uninstall. |
+| `--bundle LIST` | With `--download`: only these release/architecture pairs, for example `trixie/amd64`. |
+| `-y`, `--yes` | Answer yes to every question. |
+| `-v`, `--verbose` | Print every command run with sudo. |
+| `--no-log` | Do not write a log file. |
+
+## What is installed
+
+### From Raspberry Pi OS
+
+Each package is verified against Raspberry Pi's signing key.
+
+| Kind | Packages |
+|------|----------|
+| Themes | `pixflat-theme`, `pixtrix-theme`, `pix-theme`, `gtk2-engines-pixflat`, `gtk2-engines-clearlookspix` |
+| Icons and cursors | `pixflat-icons`, `pixtrix-icons`, `rpd-icons` |
+| Fonts | `fonts-piboto`, `fonts-nunito-sans` |
+| Wallpapers | `rpd-wallpaper`, `rpd-wallpaper-trixie`, or their 4K versions |
+| Login screen | `pi-greeter` (with LightDM) |
+| Panel (Debian 13+) | `lxpanel-pi` and its plugins, `pishutdown`, `gui-runcmd`; for Wayland, `wf-panel-pi` and its plugins |
+| File manager (Debian 13+) | `pcmanfm-pi`, installed beside Debian's |
+
+### From Debian
+
+Only missing packages are installed.
+
+| Kind | Packages |
+|------|----------|
+| Session | `lxsession`, `openbox`, `lxpanel`, `pcmanfm`, `lxappearance`, `dconf-cli`, `accountsservice` (with LightDM) |
+| Display | `xserver-xorg`, `libgl1-mesa-dri`, `x11-utils`; for Wayland, `labwc`, `swaybg`, `kanshi`, `xsettingsd`, `wlr-randr`, `xwayland` |
+| Themes | `gtk2-engines-pixbuf`, `libgtk2.0-bin`, `gnome-icon-theme`, `adwaita-icon-theme-legacy` (Debian 13), `sound-theme-freedesktop`, Liberation Mono |
+| Help menu | `debian-reference` |
 
 ### Hardware support
 
-The panel's network, Bluetooth and volume icons need the services behind
-them, as on Raspberry Pi OS. The script looks at the hardware and adds only
-what this computer uses, from Debian:
+Added only for hardware the computer has, and kept on uninstall:
 
-- **Wi-Fi adapter:** NetworkManager with `wpasupplicant`, `iw`,
-  `wireless-regdb` and `rfkill`, unless another network manager (ConnMan,
-  Wicd) is installed. Interfaces set up in `/etc/network/interfaces` stay
-  as they are. The network icon is NetworkManager's `nm-applet`, also added
-  where NetworkManager is installed already; Raspberry Pi's own network
-  plugin needs a Raspberry Pi rebuild of a Debian library, so it is left out.
-- **Bluetooth adapter:** BlueZ, `rfkill`, Bluetooth audio for the sound
-  server in use, and `blueman` on Debian 10 to 12.
-- **Sound card without a sound server:** PipeWire (Debian 12 and later) or
-  PulseAudio; Raspberry Pi OS's volume plugin needs one.
-- **Missing firmware:** the drivers are part of Debian's kernel; what a
-  device can lack is its firmware. The script reads this boot's kernel log
-  for firmware a driver could not load, looks each file up in Debian's
-  signed index of its firmware component, and installs the package, such as
-  `firmware-iwlwifi`, through APT. Where your APT sources lack that
-  component (`non-free-firmware`, or `non-free` before Debian 12), the
-  summary names the package and how to add it. Reboot afterwards.
+- **Wi-Fi:** NetworkManager, `wpasupplicant`, `iw`, `wireless-regdb`,
+  `rfkill`, unless another network manager is installed. Interfaces in
+  `/etc/network/interfaces` are not changed.
+- **Bluetooth:** BlueZ, `rfkill`, Bluetooth audio, and `blueman` on Debian
+  10 to 12.
+- **Sound:** PipeWire (Debian 12 and later) or PulseAudio, if no sound
+  server is installed.
+- **Firmware:** packages for firmware the kernel failed to load during this
+  boot, from Debian's `non-free-firmware` component. If that component is
+  not enabled, the summary explains how to add it.
 
-These packages are kept when the look is uninstalled: removing them could
-leave the computer without its network or sound.
+## The session
 
-Debian's own panel plugins (CPU frequency, network status, weather,
-keyboard layout and others) stay installed with Debian's panel. They cannot
-be loaded into Raspberry Pi's panel, which is a separate program; with
-`--no-pi-apps` the session uses Debian's panel, and they can be added to it.
+- **Login screen entries:** *Raspberry Pi Desktop* (X), and *Raspberry Pi
+  Desktop on Wayland* where the computer suits it. The first install selects
+  the suitable one; the login screen remembers your choice.
+- **Settings:** Raspberry Pi OS's values for theme, icons, cursor, fonts,
+  hinting, toolbar icons and event sounds.
+- **Windows:** the theme's Openbox frames, one desktop, and Raspberry Pi
+  OS's keys: Super for the menu, Alt+F2 to run, Ctrl+Alt+T for a terminal,
+  Ctrl+Shift+Escape for the task manager, Ctrl+Alt+Delete to shut down.
+- **Panel:** Raspberry Pi OS's layout at the top of the screen.
+- **Menu:** Raspberry Pi OS's menu and categories, with Help, Preferences
+  and Logout.
+- **Desktop and file manager:** Raspberry Pi OS's wallpaper, colours, font
+  and file manager settings.
+- **GTK 4 applications:** use the theme's colours and its light or dark
+  style.
+- **Wayland:** labwc with Raspberry Pi OS's window settings and keys, and
+  Raspberry Pi's Wayland panel.
 
-### The session
+**Login screen.** With LightDM, the greeter uses Raspberry Pi OS's colours,
+theme and font, with the Debian logo and Debian's login artwork
+(`--login-background raspios` uses Raspberry Pi OS's). Other login managers,
+such as GDM or SDDM, are not changed; the sessions are listed there too.
 
-- **Login screen entries:** *Raspberry Pi Desktop* (X) and, where the
-  computer suits it, *Raspberry Pi Desktop on Wayland*, next to Debian's
-  sessions. The first install chooses the one that suits the computer for
-  you; the login screen remembers what you pick. With
-  LightDM, Debian's `accountsservice` is added where missing: LightDM keeps
-  each user's choice there.
-- **Settings:** Raspberry Pi OS's own, from its configuration packages
-  (`raspberrypi-ui-mods` for Bookworm, `rpd-common` and `rpd-x-core` for
-  Trixie): the theme, icons, cursor and font at 12 pt; full hinting and
-  subpixel order; 24 px cursors and toolbar icons; no icons in menus and
-  buttons; event sounds.
-- **Windows:** the theme's Openbox look with round corners and invisible
-  resize handles, one desktop, and Raspberry Pi OS's keys (Super for the
-  menu, Alt+F2 to run, Ctrl+Alt+Delete to shut down, Ctrl+Alt+T for a
-  terminal, Ctrl+Shift+Escape for the task manager, the volume keys).
-- **Panel:** Raspberry Pi OS's layout at the top: menu, browser, file
-  manager and terminal launchers, taskbar, then eject, Bluetooth, tray,
-  volume, clock, battery and magnifier.
-- **Menu:** Raspberry Pi OS's own menu, categories and entry names, taken
-  from its package for that release, with Help (Debian Reference),
-  Preferences and Logout.
-- **Desktop and file manager:** the wallpaper, colours and font; trash and
-  drives on the first monitor; Raspberry Pi OS's file manager settings. On
-  Debian 13 Raspberry Pi's file manager opens folders, and is the only *File
-  Manager* in the menu.
-- **Tray:** clipboard managers and second volume applets, which Raspberry
-  Pi OS does not show, are hidden in the session. Turn one on again in
-  *Desktop Session Settings*.
-- **Monospace:** Liberation Mono, as on Raspberry Pi OS.
-- **GTK 4 and libadwaita applications:** they cannot use the themes, but take
-  the theme's colours while the session runs, and its light or dark style.
-- **Wayland:** labwc with Raspberry Pi OS's window settings and keys,
-  Raspberry Pi's Wayland panel, the desktop, and your system's keyboard
-  layout. Graphics without 3D acceleration are drawn in software.
-
-### Login screen (LightDM)
-
-Debian's LightDM greeter with Raspberry Pi OS's colours, theme and font,
-the Debian logo as the user picture, the user list, and its session chooser
-and power menu, in front of Debian's own login artwork
-(`--login-background raspios` shows Raspberry Pi OS's instead). With `--pi-greeter`, Raspberry Pi's own
-greeter, where it can run. The login screen is shared by all users and
-sessions. With another login manager (GDM, SDDM) the login screen is left
-alone; the sessions are listed there as well.
-
-### Other desktops (`--desktop`)
+**Other desktops** (`--desktop`):
 
 | Desktop | Applied |
 |---------|---------|
-| Xfce | theme, icons, cursor, fonts, wallpaper, top panel, and an Xfwm4 theme made from the official Openbox theme |
-| GNOME, Budgie | GTK 3 theme, icons, cursor, fonts, button layout, wallpaper |
-| Cinnamon, MATE | theme, icons, cursor, fonts, wallpaper |
-| LXQt | icons, cursor, Openbox theme, wallpaper |
-| Openbox, labwc | the window settings above; labwc also cursor and GTK settings |
-| KDE Plasma | icons and cursor (Plasma and Qt keep Breeze) |
+| Xfce | Theme, icons, cursor, fonts, wallpaper, top panel, window frames |
+| GNOME, Budgie | GTK theme, icons, cursor, fonts, button layout, wallpaper |
+| Cinnamon, MATE | Theme, icons, cursor, fonts, wallpaper |
+| LXQt | Icons, cursor, Openbox theme, wallpaper |
+| Openbox, labwc | Window settings; labwc also cursor and GTK settings |
+| KDE Plasma | Icons and cursor |
 
-## Staying up to date
+## Updating
 
 No package source is added, so `apt upgrade` does not update the Raspberry
-Pi OS packages. Run the script again instead:
+Pi OS packages. To update them:
 
-- `bash rpios-look.sh --refresh` lists what an update would change, then
-  asks: newer official packages, missing ones, a Debian change, changed
-  options. With nothing to update it says so and changes nothing.
-- `bash rpios-look.sh` applies the same updates without listing them.
+- `bash rpios-look.sh --refresh` lists available updates, then asks.
+- `bash rpios-look.sh` applies updates directly.
 
-A newer installed version is never downgraded. The Debian packages are
-updated by your usual `apt upgrade`.
+Installed packages are never downgraded. Debian packages are updated by
+`apt upgrade` as usual.
 
 ## Upgrading Debian
 
-1. Run `bash rpios-look.sh --prepare-upgrade`. It lists what it removes
-   and asks first: the Raspberry Pi OS packages with compiled code (panel,
-   file manager, greeter, GTK 2 engines), which are built for one Debian
-   release. The themes, icons, fonts and wallpapers stay, and the session
-   uses Debian's panel, file manager and login screen meanwhile.
-2. Upgrade Debian as usual and reboot.
+1. Run `bash rpios-look.sh --prepare-upgrade`. It removes the Raspberry Pi
+   packages that are built for one Debian release (panel, file manager,
+   greeter, GTK 2 engines). Themes, icons, fonts and wallpapers stay.
+2. Upgrade Debian and reboot.
 3. Run `bash rpios-look.sh`.
 
-## Uninstall
+## Uninstalling
 
 ```bash
 bash rpios-look.sh --uninstall
 ```
 
-It lists what it removes and asks first.
+The script lists what it removes and asks first. It:
 
-For everyone:
+- removes the Raspberry Pi Desktop sessions and restores Debian's login
+  screen;
+- after a second question, removes the packages it installed, except those
+  other software needs and the hardware support (X server, network,
+  Bluetooth, sound, firmware);
+- restores the settings that `--desktop` changed for you.
 
-- The Raspberry Pi Desktop session is removed from the login screen. Users
-  who chose it log in to the login screen's default session again.
-- The login screen returns to Debian's.
-- After a second question, the packages the script installed are removed,
-  with the dependencies only they used. A package that other software has
-  come to need is kept; APT's own simulation decides. Hardware support
-  (X server, network, Bluetooth, sound, firmware) is kept.
+Packages installed before the script, or later, are never removed.
 
-For you, the user running it: the settings `--desktop` changed are restored.
+## Offline installation
 
-Never removed: packages you had before or installed later.
-
-## Offline install
-
-1. On any computer with internet access, run:
-
-   ```bash
-   bash rpios-look.sh --download
-   ```
-
-   This fills the `packages/` folder next to the script, for every Debian
-   release from 10 and architecture Raspberry Pi publishes, each package
-   filed by kind in `packages/pool/` (`themes`, `icons`, `fonts`,
-   `wallpapers`, `engines`, `panel`, `files`, `greeter`, `session`,
-   `network`, `sound`, `firmware`, `sounds`, `dependencies`).
-   `--bundle trixie/i386` builds one release and architecture only. Unchanged
-   packages are reused; `VERSIONS.md` lists every package and `SHA256SUMS`
-   every file.
+1. On a computer with internet access, run `bash rpios-look.sh --download`.
+   This builds `packages/` next to the script for every supported Debian
+   release and architecture. Use `--bundle trixie/amd64` to build one only.
 2. Copy `rpios-look.sh` and `packages/` to the offline computer.
-3. There, run:
+3. There, run `bash rpios-look.sh --offline`.
 
-   ```bash
-   bash rpios-look.sh --offline
-   ```
-
-`packages/` is built locally and not kept in this repository.
+`packages/` includes `VERSIONS.md` and `SHA256SUMS`. It is not stored in
+this repository.
 
 ## Troubleshooting
 
-- **Log files.** Each run writes a log to your home folder, named after its
-  mode: `rpios-look-install-<date>-<time>.log`, or
-  `rpios-look-uninstall-…`, `rpios-look-refresh-…`, and so on. The
-  newest ten of each mode are kept.
-- **The look is not there after logging in.** Check that the login screen's
-  session menu shows *Raspberry Pi Desktop*.
-- **dpkg was interrupted.** Run `sudo dpkg --configure -a` and
-  `sudo apt-get -f install`, then run the script again.
-- **Another package manager is running.** The script waits for it.
-- **404 Not Found.** Debian has moved your release to archive.debian.org
-  (Debian 11's security updates moved in 2026). Point
-  `/etc/apt/sources.list` there, as
-  [Debian describes](https://www.debian.org/distrib/archive), run
-  `sudo apt update`, then run the script again. APT downloads everything
-  before installing, so the failed run changed nothing.
-- **Something looks half done.** Run the same command again; every step is
-  safe to repeat.
+| Problem | Solution |
+|---------|----------|
+| The look is missing after login | Choose *Raspberry Pi Desktop* in the login screen's session menu. |
+| Windows have no title bars | Log out and back in; the session repairs settings saved by earlier versions. |
+| dpkg was interrupted | Run `sudo dpkg --configure -a` and `sudo apt-get -f install`, then the script again. |
+| 404 Not Found | Your Debian release has moved to archive.debian.org. Update `/etc/apt/sources.list` as [Debian describes](https://www.debian.org/distrib/archive), run `sudo apt update`, then the script again. |
+| Something looks incomplete | Run the same command again; every step is safe to repeat. |
 
-## New releases
-
-Nothing in the script names a release it has to know in advance:
-
-- Debian's releases come from Debian's own `distro-info-data` where it is
-  installed, so a new release is known by its name; testing, unstable and
-  derivatives such as Ubuntu or Linux Mint are matched by the Debian
-  release they follow (`/etc/debian_version`).
-- The script uses the newest Raspberry Pi OS release that publishes the look
-  for your Debian release or an older one. Raspberry Pi OS 14 (forky) is
-  empty yet, so Debian 14 and unstable use Raspberry Pi OS 13; once
-  Raspberry Pi publishes it, `--refresh` shows the move and applies it.
-- The architectures are those Raspberry Pi's signed index lists.
-- A Debian release that has reached its end is fetched from Debian's archive
-  server, with Debian's retired keys.
-- The panels, menu and application entries come from Raspberry Pi OS's own
-  packages of that release (unpacked, never installed), so a change Raspberry
-  Pi makes is taken as it comes; only what cannot work on Debian is left out.
+Each run writes a log to your home folder, for example
+`rpios-look-install-<date>-<time>.log`. The ten newest logs of each kind are
+kept.
 
 ## How it works
 
-- **The session.** Raspberry Pi OS is an LXDE session profile: its login
-  screen entry starts `lxsession` with its own profile (`rpd-x`, or
-  `LXDE-pi` before Raspberry Pi OS 13), menu and data directories. The
-  session here is built the same way. Its settings are in
-  `/usr/share/rpios-look`, which only the session puts first in
-  `XDG_CONFIG_DIRS` and `XDG_DATA_DIRS`; Debian's sessions never read them.
-  The session's programs fall back to Debian's panel, file manager and
-  greeter when Raspberry Pi's are not installed.
-- **One package.** Everything the script writes outside your home folder is
-  in a package it generates, `rpios-look-debian`: the session, the login
-  screen style, the icon sets with the Debian logo (`PiXflat-Debian`, …),
-  Xfwm4 themes and `rpios-look-set`. dpkg tracks it, and the uninstall
-  removes it. The one other
-  file is `/etc/lightdm/pi-greeter.conf`, kept and put back.
-- **Records.** What the script installed, the options and the replaced login
-  screen file are kept in `/var/lib/rpios-look`; the settings `--desktop`
-  changed, in `~/.local/state/rpios-look`.
-- **An earlier install.** The script was named raspios-look (3.0.0) and,
-  before that, pixflat-theme (2). An install under either name is taken over:
-  its records carry over, the users who chose its session keep the Raspberry
-  Pi Desktop session, and pixflat-theme 2 gives Debian's LXDE session its own
-  settings back. Settings a user saved under the name before, which point at
-  its programs, are put right at their next login, so the window manager
-  starts and the window frames follow the theme.
-- **The script.** `rpios-look.sh` is one file in twelve numbered sections,
-  listed at its top.
+- **Session:** like Raspberry Pi OS, the session is an LXDE profile
+  (`rpd-x`, or `LXDE-pi` before Debian 13). Its settings are in
+  `/usr/share/rpios-look`, which only this session reads.
+- **Generated package:** everything the script writes outside your home
+  folder is in one package, `rpios-look-debian`, so dpkg tracks and removes
+  it. It holds the session, the login screen style, the icon sets with the
+  Debian logo, and `rpios-look-set`.
+- **Records:** installed packages, options and replaced files are kept in
+  `/var/lib/rpios-look`; per-user records in `~/.local/state/rpios-look`.
+- **Releases:** new Debian releases are recognised from `distro-info-data`.
+  The script uses the newest Raspberry Pi OS release available for your
+  Debian release, and takes panel, menu and settings from Raspberry Pi's own
+  packages of that release.
+- **Earlier versions:** installs of `raspios-look` (3.0.0) and
+  `pixflat-theme` (2) are taken over automatically.
 
-## Don't break Debian
+## Keeping Debian safe
 
-Debian's own advice on keeping a system healthy is
-[DontBreakDebian](https://wiki.debian.org/DontBreakDebian). This is how the
-script follows it, point by point.
+The script follows Debian's
+[DontBreakDebian](https://wiki.debian.org/DontBreakDebian) guidance:
 
-- **Don't make a FrankenDebian.** No package source is added: not Raspberry
-  Pi's, not another Debian release's, so `apt upgrade` never takes anything
-  from elsewhere. Raspberry Pi OS is a Debian derivative, and Debian advises
-  against its repositories, so only individual, verified packages are
-  installed, each of which:
-  - has no namesake in your Debian sources (a Raspberry Pi rebuild of a
-    Debian package is never installed);
-  - is built for your Debian release when it holds compiled code (for
-    Debian 9 and testing or unstable, the nearest release Raspberry Pi
-    has), and is installed only when every dependency, with its version,
-    comes from Debian;
-  - replaces no Debian package and changes no Debian file. Raspberry Pi's
-    file manager, which would replace Debian's, is repacked to run beside
-    it; `pi-greeter`'s install script, which edits Debian's
-    `/etc/lightdm/lightdm.conf`, is left out (that edit, made by
-    pixflat-theme 2, is undone where it can be undone exactly); any other
-    Raspberry Pi package that would replace, break, conflict with or stand
-    in for a Debian package, or whose install scripts touch Debian's files,
-    is refused.
+- **No extra package sources.** Only individual Raspberry Pi packages are
+  installed, never a repository. A package is refused if it has the same
+  name as a Debian package, replaces or conflicts with one, or changes
+  Debian's files. Packages with compiled code must match your Debian
+  release, and all their dependencies must come from Debian.
+- **Debian packages come from your APT sources only.** Before installing,
+  the script checks every package's origin. APT runs with `--no-remove`, so
+  nothing is removed to make room.
+- **Everything is tracked.** All system files are in packages dpkg knows
+  about. The only exceptions, all undone by `--uninstall`, are
+  `/etc/lightdm/pi-greeter.conf` (with `--pi-greeter`), the users' session
+  choice, and the records in `/var/lib/rpios-look`.
+- **Nothing happens without asking.** The plan lists every package with its
+  version and origin before anything changes.
 
-  Before installing, the script checks where APT would take every package
-  from, and stops unless it is Debian (its security updates included) or one
-  of the verified files.
-- **Don't use GPU manufacturer install scripts.** Nothing is installed
-  outside APT. Firmware a device lacks comes from Debian's own firmware
-  packages, through your APT sources.
-- **Don't suffer from Shiny New Stuff Syndrome.** No Debian package is
-  upgraded beyond your release: Debian packages come from your sources only,
-  and APT runs with `--no-remove`, so nothing is removed to make room. The
-  Raspberry Pi OS packages get no support from Debian's security team; they
-  are themes, artwork and desktop programs, and `--refresh` updates them.
-- **`make install` can conflict with packages.** Everything the script puts
-  outside your home folder is in packages dpkg tracks: the official ones and
-  `rpios-look-debian`, which it generates. The exceptions, all recorded
-  and undone by `--uninstall`: `/etc/lightdm/pi-greeter.conf` (with
-  `--pi-greeter`; the original is kept), the users' session choice in
-  AccountsService (through its own interface) and LightDM's copy of it, and
-  the records in `/var/lib/rpios-look`.
-- **Don't blindly follow bad advice.** The script shows its plan, every
-  package with its version and origin, and asks before changing anything;
-  `--refresh` lists updates before applying them. Each run writes a log.
-- **Don't blindly remove software.** The uninstall lists what it removes and
-  asks. It removes only packages it installed itself: never one that was
-  there before, nor one other software needs (APT's simulation decides),
-  nor the hardware support it added (network, Bluetooth, sound, firmware).
-- **Read package descriptions before installing.** The plan lists every
-  package; `VERSIONS.md` in `packages/` lists the offline ones with their
-  origin.
-- **Take notes.** What the script changed is recorded in
-  `/var/lib/rpios-look` and `~/.local/state/rpios-look`, each run's log
-  is kept in your home folder, and `dpkg -L rpios-look-debian` lists every
-  file of its generated package.
-
-Packages are verified as they are downloaded: Raspberry Pi indexes against
-the Raspberry Pi Archive Signing Key pinned in the script
-(`CF8A 1AF5 02A2 AA2D 763B AE7E 82B1 2992 7FA3 303E`), Debian indexes against
-`debian-archive-keyring`, every package against its SHA256. Downloads come
-only from `https://archive.raspberrypi.org/`, `https://deb.debian.org/` and
-`https://archive.debian.org/`; other addresses, plain HTTP and redirects are
-refused.
-
-## Where the packages come from
-
-**Raspberry Pi OS**: <https://archive.raspberrypi.org/debian/>
-(signed indexes in
-[`dists/`](https://archive.raspberrypi.org/debian/dists/), packages in
-[`pool/main/`](https://archive.raspberrypi.org/debian/pool/main/)).
-The login screen wallpaper comes from
-[rpd-common](https://archive.raspberrypi.org/debian/pool/main/r/rpd-metas/),
-which is unpacked but never installed. The desktop settings are the values
-of [raspberrypi-ui-mods](https://archive.raspberrypi.org/debian/pool/main/r/raspberrypi-ui-mods/)
-and [rpd-metas](https://archive.raspberrypi.org/debian/pool/main/r/rpd-metas/);
-those packages configure a Raspberry Pi system, so they are never installed.
-
-**Debian**: your APT sources, or <https://deb.debian.org/debian/> when
-building `packages/`.
+**Verification.** Raspberry Pi indexes are checked against the Raspberry Pi
+Archive Signing Key (`CF8A 1AF5 02A2 AA2D 763B AE7E 82B1 2992 7FA3 303E`),
+Debian indexes against `debian-archive-keyring`, and every package against
+its SHA256. Downloads come only from `https://archive.raspberrypi.org/`,
+`https://deb.debian.org/` and `https://archive.debian.org/`.
 
 ## Credits and licence
 
 The themes, icons, fonts, wallpapers and desktop settings are the work of
-[Raspberry Pi Ltd](https://www.raspberrypi.com/) and the Raspberry Pi
-desktop team; this project installs their official packages on Debian and
-applies their settings. All artwork keeps its own licence (see
-`/usr/share/doc/<package>/copyright` after installation).
+[Raspberry Pi Ltd](https://www.raspberrypi.com/) and the Raspberry Pi desktop
+team. This project installs their official packages on Debian. All artwork
+keeps its own licence (see `/usr/share/doc/<package>/copyright`).
 
-The script: MIT licence; see [LICENSE](LICENSE).
+The script is released under the MIT licence; see [LICENSE](LICENSE).

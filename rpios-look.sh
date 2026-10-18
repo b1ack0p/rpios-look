@@ -99,7 +99,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.3.0"
+readonly APP_VERSION="3.4.0"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -532,10 +532,8 @@ wayland_pkgs() {
 # Debian packages of the Wayland session: the compositor, wallpaper, display
 # settings, XSETTINGS for X applications, and Xwayland.
 wayland_debs() { printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland; }
-# Debian packages of the X server, which the session on X and the login screen
-# run on: the server with its input and video drivers, Mesa's 3D drivers (not
-# installed with the server when recommended packages are left out), and
-# xprop, which the session's start uses. Kept on uninstall, as hardware support.
+# Debian packages of the X server, which the login screen always needs, with
+# Mesa's 3D drivers. Kept on uninstall.
 x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
 
 # Raspberry Pi's own programs: its file manager, which draws the desktop and
@@ -568,6 +566,8 @@ panel_plugins() {
 # plugin needs a Raspberry Pi rebuild of a Debian library (nm-applet shows the
 # same icons in the tray).
 readonly PANEL_DROP="updater|power|netman"
+# Debian panel applets that work in Raspberry Pi's panel.
+readonly DEBIAN_APPLETS="xkb weather volume thermal monitors deskno cpufreq"
 # The same for the Wayland panel, and the Raspberry Pi Connect and on-screen
 # keyboard buttons, which need Raspberry Pi's own services.
 readonly WF_DROP="updater|power|netman|connect|squeek"
@@ -720,9 +720,7 @@ detect_host() {
 	detect_machine
 }
 
-# Detect the computer: model, processor, memory, graphics with the kernel
-# driver in use and whether it has 3D acceleration (a render node), virtual
-# machine, kernel, the desktop editions installed and the display manager.
+# Detect the computer: model, processor, memory, graphics, kernel, desktop.
 detect_machine() {
 	local d drv slot name t
 	H_KERNEL=$(uname -r)
@@ -735,13 +733,12 @@ detect_machine() {
 	[[ -n $H_CPU ]] || H_CPU=$(uname -m)
 	H_CPU="$(tr -s ' ' <<<"$H_CPU") ($(nproc 2>/dev/null || echo 1) cores)"
 	H_MEM_MB=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo)
-	# A PC processor without SSE4.2 is from before 2009
+	# PC processors without SSE4.2 predate 2009
 	H_OLD_CPU=0
 	if [[ $H_ARCH == amd64 || $H_ARCH == i386 ]] && ! grep -qw sse4_2 /proc/cpuinfo; then H_OLD_CPU=1; fi
 	H_VIRT=$(systemd-detect-virt 2>/dev/null || true)
 	[[ -n $H_VIRT ]] || H_VIRT=none
-	# Graphics: each card's kernel driver; the first real one (not the boot
-	# framebuffer) names the graphics
+	# The first real graphics driver (not the boot framebuffer)
 	H_GPU="" H_GPU_DRV="" H_GPU_DRVS=""
 	for d in /sys/class/drm/card[0-9]*; do
 		[[ ${d##*/} != *-* && -e $d/device/driver ]] || continue
@@ -753,7 +750,7 @@ detect_machine() {
 		if [[ -n $slot ]] && command -v lspci >/dev/null; then name=$(lspci -s "$slot" 2>/dev/null | cut -d: -f3- | sed 's/^ *//; s/ (rev [0-9a-f]*)$//'); fi
 		H_GPU=${name:-$drv}
 	done
-	# NVIDIA's own driver shows no card without its modesetting
+	# NVIDIA's driver may not register a DRM card
 	if [[ -z $H_GPU_DRV && -d /sys/module/nvidia ]]; then H_GPU_DRV=nvidia H_GPU="NVIDIA"; fi
 	[[ -n $H_GPU_DRV ]] || H_GPU_DRV=$(awk '{ print $1 }' <<<"$H_GPU_DRVS")
 	H_RENDER=0; if compgen -G '/dev/dri/renderD*' >/dev/null; then H_RENDER=1; fi
@@ -772,10 +769,8 @@ detect_machine() {
 	[[ -n $H_DM && $H_DM != display-manager ]] || H_DM=$(basename "$(cat /etc/X11/default-display-manager 2>/dev/null)" 2>/dev/null)
 }
 
-# Choose the display system of the Raspberry Pi Desktop session, as Raspberry
-# Pi OS 13 does for its own models: Wayland (labwc) on capable graphics, X
-# (Openbox) on older computers and older Debian releases. X is always there
-# too: the login screen runs on it. --wayland and --no-wayland decide instead.
+# Choose Wayland or X for the session, as Raspberry Pi OS does: Wayland on
+# capable hardware with Debian 13+, X otherwise.
 pick_display() {
 	local why=""
 	if ! suite_ge "$H_SUITE" trixie; then why="the Wayland session needs Debian 13 or later"
@@ -802,10 +797,10 @@ pick_display() {
 	else H_DISPLAY=x11 H_DISPLAY_WHY=$why; fi
 }
 
-# Print the display system chosen, for messages.
+# Print the chosen display system.
 display_name() { if [[ $H_DISPLAY == wayland ]]; then echo "Wayland (labwc)"; else echo "X (Openbox)"; fi; }
 
-# Print what was found about this computer and the display system chosen.
+# Print the detected computer and display system.
 print_machine() {
 	local mem
 	mem=$(awk -v m="$H_MEM_MB" 'BEGIN { if (m >= 1024) printf "%.1f GB", m / 1024; else printf "%d MB", m }')
@@ -1981,7 +1976,7 @@ _openbox_rc() {
 	fonts=$(_xml_fonts ActiveWindow InactiveWindow MenuHeader MenuItem ActiveOnScreenDisplay InactiveOnScreenDisplay)
 	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>yes</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$fonts")"
 	(( theme_only )) && return 0
-	# Debian's LXDE has no menu file of its own: Openbox's, found by name
+	# Use Openbox's own menu when LXDE's is missing
 	if [[ ! -f /usr/share/lxde/openbox/menu.xml ]]; then
 		sed -i 's#<file>/usr/share/lxde/openbox/menu.xml</file>#<file>menu.xml</file>#' "$file"
 	fi
@@ -2031,6 +2026,18 @@ _launcher() {
 	done
 	return 1
 }
+# Print the browser launcher: the generic "Web Browser" entry when Debian has
+# a default browser, as in Raspberry Pi OS; otherwise an installed browser.
+_browser() {
+	if [[ -x /usr/bin/x-www-browser ]]; then echo x-www-browser.desktop
+	else _launcher firefox-esr.desktop chromium.desktop lxde-x-www-browser.desktop; fi
+}
+# The same, as a path for the X panels, which look up ids in the menu only.
+_browser_lx() {
+	local id
+	id=$(_browser) || return 1
+	if [[ $id == x-www-browser.desktop ]]; then echo "$SHARE/data/applications/$id"; else echo "$id"; fi
+}
 
 # Print the parts of the Raspberry Pi OS panel (raspberrypi-ui-mods /
 # rpd-x-core) that both panel programs share. Usage: _panel_global [KEY=VALUE]...
@@ -2058,7 +2065,7 @@ _panel_tasks() {
 	local id fm=pcmanfm.desktop
 	local -a buttons=()
 	(( S_PI_FM )) && fm=pcmanfm-pi.desktop
-	for id in "$(_launcher x-www-browser.desktop firefox-esr.desktop chromium.desktop lxde-x-www-browser.desktop)" \
+	for id in "$(_browser_lx)" \
 		"$fm" "$(_launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop)"; do
 		if [[ -n $id ]]; then buttons+=("Button {" "  id=$id" "}"); fi
 	done
@@ -2105,7 +2112,7 @@ _pi_panel_layout() {
 		if compgen -G "$SYS_ROOT/usr/lib/*/lxpanel-pi/$t.so" >/dev/null; then keep+="$t|"; fi
 	done < <(sed -n 's/^[[:space:]]*type=//p' "$f" | sort -u)
 	KEEP="${keep}space|separator|launchbar|taskbar|tray" DROP=$PANEL_DROP FM=$fm \
-	B=$(_launcher x-www-browser.desktop firefox-esr.desktop chromium.desktop lxde-x-www-browser.desktop || true) \
+	B=$(_browser_lx || true) \
 	T=$(_launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop || true) awk '
 		depth == 0 && !/\{/ { if (n == 0) head = head $0 "\n"; next }
 		{
@@ -2395,6 +2402,16 @@ _session_entries() {
 		[[ ! -f $f ]] || sed -E 's/^(Exec|TryExec)=pcmanfm( |$)/\1=pcmanfm-pi\2/' "$f" | _write "$apps/pcmanfm-desktop-pref.desktop"
 		_ini_set "$xdg/mimeapps.list" 'Default Applications' inode/directory pcmanfm-pi.desktop
 	fi
+	# The generic "Web Browser" entry, also the default for web links
+	if [[ -x /usr/bin/x-www-browser ]]; then
+		printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Web Browser' 'TryExec=/usr/bin/x-www-browser' \
+			'Exec=x-www-browser %U' 'Terminal=false' 'StartupNotify=true' 'Icon=web-browser' 'NoDisplay=true' \
+			'MimeType=text/html;text/xml;application/xml;application/xhtml+xml;application/xhtml_xml;x-scheme-handler/http;x-scheme-handler/https;' \
+			| _write "$apps/x-www-browser.desktop"
+		for f in text/html text/xml application/xml application/xhtml+xml application/xhtml_xml x-scheme-handler/http x-scheme-handler/https; do
+			_ini_set "$xdg/mimeapps.list" 'Default Applications' "$f" x-www-browser.desktop
+		done
+	fi
 	f=$apps/lxappearance.desktop
 	[[ -f $f ]] || f=/usr/share/applications/lxappearance.desktop
 	[[ ! -f $f ]] || sed -E "s|^Exec=.*|Exec=$SHARE/appearance|; /^TryExec=/d" "$f" | _write "$apps/lxappearance.desktop"
@@ -2608,9 +2625,7 @@ if [ ! -e "$rc" ] || cmp -s "$rc" "$seen" 2>/dev/null; then
 	mkdir -p "$config/openbox" && cp "$share/openbox-rc.xml" "$rc" && cp "$share/openbox-rc.xml" "$seen"
 fi
 
-# The user's own copy of the session's profile, which the settings save in
-# full, keeps the programs' paths: those of the name before point nowhere,
-# and without its window manager the session has no window frames.
+# Repair settings saved under the previous name, so the window manager starts.
 lxs=$config/lxsession/$profile/desktop.conf
 for f in "$lxs" "$config/lxsession/$profile/autostart"; do
 	if [ -f "$f" ] && grep -q '/usr/share/raspios-look/' "$f"; then
@@ -2622,11 +2637,10 @@ if [ -n "$wm" ] && ! command -v "${wm%% *}" >/dev/null 2>&1; then
 	sed -i --follow-symlinks "s#^window_manager=.*#window_manager=$share/openbox#" "$lxs"
 fi
 
-# As in Raspberry Pi OS, the window frames follow the applications' theme,
-# also when another settings program changed only one of them; and Openbox's
-# menu is its own where LXDE's is missing. The copy of the defaults is kept
-# in step, so the user's file still counts as unchanged.
+# Window frames follow the theme unless chosen with rpios-look-set --window.
+# Use Openbox's own menu when LXDE's is missing.
 theme=$(sed -n 's/^sNet\/ThemeName=//p' "$lxs" "$share/xdg/lxsession/$profile/desktop.conf" 2>/dev/null | head -n1)
+[ ! -f "$own/window" ] || theme=""
 same=0; cmp -s "$rc" "$seen" 2>/dev/null && same=1
 case $theme in
 	PiX|PiXflat|PiXnoir|PiXtrix|PiXonyx)
@@ -2819,7 +2833,7 @@ _session_wayland() {
 	local root=$1 xdg=$1$SHARE/xdg x rc browser term fm=pcmanfm
 	x=$( (pi_unpack "$WAYLAND_PKG" "$(config_suite)" "$(rpi_arch)") 2>/dev/null ) || x=""
 	(( S_PI_FM )) && fm=pcmanfm-pi
-	browser=$(_launcher x-www-browser.desktop firefox-esr.desktop chromium.desktop || true)
+	browser=$(_browser || true)
 	term=$(_launcher x-terminal-emulator.desktop lxterminal.desktop || true)
 	rc=$xdg/labwc/rc.xml
 	if [[ -f $x/etc/xdg/labwc/rc.xml ]]; then _write "$rc" <"$x/etc/xdg/labwc/rc.xml"
@@ -2948,11 +2962,28 @@ running session at once and is kept for your next logins; other sessions
 and other users are not changed.
 
   --theme NAME         pixflat, pixnoir, pixtrix, pixonyx or pix, with its own
-                       icons, cursor and font; or any installed GTK theme
+                       icons, cursor, window frames and font; or any
+                       installed GTK theme
+  --light, --dark      the light or dark version of the current theme
+                       (PiXflat and PiXnoir, PiXtrix and PiXonyx)
   --icons NAME         pixflat, pixtrix, pix or any installed icon theme
+                       (also --icon)
+  --window NAME        the window frames: pixflat, pixnoir, pixtrix, pixonyx,
+                       pix or any installed Openbox theme; "theme" makes them
+                       follow the theme again
   --cursor NAME        pixflat, pixtrix, pix or any installed cursor theme
   --cursor-size N      cursor size in pixels (e.g. 24, 32, 48)
-  --font "NAME SIZE"   the font of applications and the desktop
+  --font NAME          the font of applications, the desktop and the window
+                       titles: nunito (Nunito Sans, Raspberry Pi OS Trixie),
+                       piboto (Raspberry Pi OS Bookworm), piboto-condensed,
+                       sans, serif, mono (Debian's DejaVu fonts), or any
+                       installed font family. Its Raspberry Pi weight and the
+                       current size are kept unless given:
+  --font-style STYLE   regular, light, thin, extralight, medium, semibold,
+                       bold, extrabold or black, optionally with italic
+                       (e.g. "bold italic"); only those the font has
+  --font-size N        the font size in points (e.g. 11, 12, 14)
+  --list               the themes, icons, window frames and fonts installed
   --accent COLOUR      highlight colour, e.g. '#d6363c', or default
   --accent-text COLOUR text on the highlight colour (default: black or white,
                        whichever reads better)
@@ -2967,7 +2998,10 @@ and other users are not changed.
   --reset              back to the session's look, as installed
   -h, --help           this text
 
-Example: rpios-look-set --theme pixonyx --accent '#2e7d32' --cursor-size 32
+Examples: rpios-look-set --theme pixonyx --accent '#2e7d32' --cursor-size 32
+          rpios-look-set --theme pixtrix --icons pixflat --window pixnoir
+          rpios-look-set --font piboto --font-size 11
+          rpios-look-set --font nunito --font-style "semibold"
 USAGE
 }
 die() { printf 'rpios-look-set: %s\n' "$*" >&2; exit 1; }
@@ -3021,6 +3055,77 @@ gtk_theme() {
 	for d in $(theme_dirs themes); do [[ -f $d/$1/gtk-3.0/gtk.css ]] && return 0; done
 	return 1
 }
+pi_name() { # PiX theme names by their short name
+	case ${1,,} in pixflat) echo PiXflat ;; pixnoir) echo PiXnoir ;; pixtrix) echo PiXtrix ;;
+		pixonyx) echo PiXonyx ;; pix) echo PiX ;; *) echo "$1" ;; esac
+}
+ob_theme() { # succeed if an Openbox theme is installed
+	local d
+	for d in $(theme_dirs themes); do [[ -f $d/$1/openbox-3/themerc ]] && return 0; done
+	return 1
+}
+
+# Fonts: short names and default styles.
+font_family() { # print the installed family for NAME, or fail
+	local f
+	case ${1,,} in
+		nunito|nunito-sans|"nunito sans") f="Nunito Sans" ;;
+		piboto|pibotolt|piboto-light) f="Piboto" ;;
+		piboto-condensed|"piboto condensed") f="Piboto Condensed" ;;
+		sans|sans-serif) f="DejaVu Sans" ;;
+		serif) f="DejaVu Serif" ;;
+		mono|monospace) f="DejaVu Sans Mono" ;;
+		*) f=$(fc-list : family | tr ',' '\n' | awk -v n="${1,,}" 'tolower($0) == n { print; exit }') ;;
+	esac
+	[[ -n $f ]] && fc-list "$f" family | grep -q . || return 1
+	printf '%s\n' "$f"
+}
+font_default_style() { case $1 in "Nunito Sans"|Piboto) echo light ;; *) echo regular ;; esac; }
+font_styles() { # the styles a family has, as this command names them
+	fc-list --format '%{style}\n' "$1" | tr ',' '\n' | tr 'A-Z' 'a-z' | sed 's/^12pt //; s/ *$//' | grep . | sort -u
+}
+# Convert a style to Pango words.
+pango_style() {
+	local w out="" s=${1,,}
+	for w in $s; do
+		case $w in
+			regular|normal|book) ;;
+			thin) out+=" Thin" ;; extralight|ultralight) out+=" Ultra-Light" ;; light) out+=" Light" ;;
+			medium) out+=" Medium" ;; semibold|demibold) out+=" Semi-Bold" ;; bold) out+=" Bold" ;;
+			extrabold|ultrabold) out+=" Ultra-Bold" ;; black|heavy) out+=" Heavy" ;; italic) out+=" Italic" ;;
+			*) return 1 ;;
+		esac
+	done
+	printf '%s\n' "${out# }"
+}
+# Openbox title font weight.
+ob_weight() { case ${1,,} in *bold*|*black*|*heavy*) echo Bold ;; *light*|*thin*) echo Light ;; *) echo Normal ;; esac; }
+# Set the window title font.
+set_openbox_font() {
+	local fam=$1 wt=$2 size=$4 slant=Normal
+	[[ ${3,,} == *italic* ]] && slant=Italic
+	seed "$obrc" "$SHARE/openbox-rc.xml"
+	sed -i -e "/<theme>/,/<\/theme>/ { /<font /,/<\/font>/ {
+		s|<name>[^<]*</name>|<name>$fam</name>|; s|<weight>[^<]*</weight>|<weight>$wt</weight>|
+		s|<slant>[^<]*</slant>|<slant>$slant</slant>|; s|<size>[^<]*</size>|<size>${size%.*}</size>| } }" "$obrc"
+}
+
+list() {
+	local t d f
+	printf 'Themes (--theme):   '
+	for t in $PI_THEMES; do gtk_theme "$t" && printf '%s ' "${t,,}"; done
+	printf '(or any GTK theme installed)\nIcons (--icons):    '
+	for t in pixflat pixtrix pix; do icon_theme "$t" >/dev/null && printf '%s ' "$t"; done
+	printf '\nWindows (--window): '
+	for t in $PI_THEMES; do ob_theme "$t" && printf '%s ' "${t,,}"; done
+	printf '\nFonts (--font):     '
+	for t in nunito piboto piboto-condensed sans serif mono; do font_family "$t" >/dev/null && printf '%s ' "$t"; done
+	printf '(or any family: fc-list : family)\n'
+	for t in nunito piboto; do
+		f=$(font_family "$t") || continue
+		printf '  %-18s %s\n' "$t styles:" "$(font_styles "$f" | paste -sd, - | sed 's/,/, /g')"
+	done
+}
 
 # The running session, if this user has one: its display, for the commands
 # that reach it
@@ -3055,6 +3160,9 @@ show() {
 	local w
 	printf 'Theme          %s\n' "$(get "$lxs" "$lxs_sys" GTK sNet/ThemeName)"
 	printf 'Icons          %s\n' "$(get "$lxs" "$lxs_sys" GTK sNet/IconThemeName)"
+	w=$(sed -n '/<theme>/,/<\/theme>/ s|.*<name>\([^<]*\)</name>.*|\1|p' "$obrc" 2>/dev/null | head -n1)
+	printf 'Windows        %s%s\n' "${w:-$(sed -n '/<theme>/,/<\/theme>/ s|.*<name>\([^<]*\)</name>.*|\1|p' "$SHARE/openbox-rc.xml" | head -n1)}" \
+		"$( [[ -f $own/window ]] && echo ' (chosen)' || echo ' (the theme'"'"'s)')"
 	printf 'Cursor         %s, %s pixels\n' "$(get "$lxs" "$lxs_sys" GTK sGtk/CursorThemeName)" "$(get "$lxs" "$lxs_sys" GTK iGtk/CursorThemeSize)"
 	printf 'Font           %s\n' "$(get "$lxs" "$lxs_sys" GTK sGtk/FontName)"
 	printf 'Accent         %s%s\n' "$(accent_now)" "$( [[ -d $own/themes ]] || echo ' (the theme'"'"'s)')"
@@ -3141,20 +3249,25 @@ write_desktop() {
 	done
 }
 
-theme="" icons="" cursor="" size="" font="" accent="" accent_fg="" dbg="" dfg="" wall="" mode="" reset=0
+theme="" style="" icons="" window="" cursor="" size="" font="" font_name="" font_style="" font_size="" accent="" accent_fg="" dbg="" dfg="" wall="" mode="" reset=0
 (( $# )) || { usage; exit 2; }
 while (( $# )); do
 	o=$1
 	case $o in --*=*) set -- "${o%%=*}" "${o#*=}" "${@:2}"; o=$1 ;; esac
 	case $o in
 		--show) show; exit 0 ;;
+		--list) list; exit 0 ;;
+		--light|--dark) style=${o#--} ;;
+		--mode) (( $# >= 2 )) || die "$o needs a value"; style=${2,,}; shift
+			[[ $style == light || $style == dark ]] || die "the mode is light or dark" ;;
 		-h|--help) usage; exit 0 ;;
 		--reset) reset=1 ;;
-		--theme|--icons|--cursor|--cursor-size|--font|--accent|--accent-text|--desktop-color|--desktop-text|--wallpaper|--wallpaper-mode)
+		--theme|--icons|--icon|--window|--cursor|--cursor-size|--font|--font-style|--font-size|--accent|--accent-text|--desktop-color|--desktop-text|--wallpaper|--wallpaper-mode)
 			(( $# >= 2 )) || die "$o needs a value"
 			case $o in
-				--theme) theme=$2 ;; --icons) icons=$2 ;; --cursor) cursor=$2 ;; --cursor-size) size=$2 ;;
-				--font) font=$2 ;; --accent) accent=$2 ;; --accent-text) accent_fg=$2 ;;
+				--theme) theme=$2 ;; --icons|--icon) icons=$2 ;; --window) window=$2 ;; --cursor) cursor=$2 ;; --cursor-size) size=$2 ;;
+				--font) font_name=$2 ;; --font-style) font_style=$2 ;; --font-size) font_size=$2 ;;
+				--accent) accent=$2 ;; --accent-text) accent_fg=$2 ;;
 				--desktop-color) dbg=$2 ;; --desktop-text) dfg=$2 ;; --wallpaper) wall=$2 ;; --wallpaper-mode) mode=$2 ;;
 			esac
 			shift ;;
@@ -3165,24 +3278,65 @@ done
 
 [[ -f $lxs_sys ]] || die "the Raspberry Pi Desktop session is not installed"
 gtk="" theme_icons="" theme_font=""
+# Light or dark version of the current theme.
+if [[ -n $style ]]; then
+	[[ -z $theme ]] || die "give --theme or --$style, not both"
+	cur=$(get "$lxs" "$lxs_sys" GTK sNet/ThemeName)
+	case $style/$cur in
+		dark/PiXflat|dark/PiXnoir) gtk=PiXnoir ;; dark/PiXtrix|dark/PiXonyx) gtk=PiXonyx ;;
+		light/PiXflat|light/PiXnoir) gtk=PiXflat ;; light/PiXtrix|light/PiXonyx) gtk=PiXtrix ;;
+		*) die "$cur has no $style version; use --theme" ;;
+	esac
+fi
 if [[ -n $theme ]]; then
 	case ${theme,,} in
-		pixflat) gtk=PiXflat theme_icons=pixflat theme_font="PibotoLt 12" ;;
-		pixnoir) gtk=PiXnoir theme_icons=pixflat theme_font="PibotoLt 12" ;;
-		pixtrix) gtk=PiXtrix theme_icons=pixtrix theme_font="Nunito Sans Light 12" ;;
-		pixonyx) gtk=PiXonyx theme_icons=pixtrix theme_font="Nunito Sans Light 12" ;;
-		pix)     gtk=PiX theme_icons=pix theme_font="PibotoLt 12" ;;
+		pixflat) gtk=PiXflat theme_icons=pixflat theme_font=piboto ;;
+		pixnoir) gtk=PiXnoir theme_icons=pixflat theme_font=piboto ;;
+		pixtrix) gtk=PiXtrix theme_icons=pixtrix theme_font=nunito ;;
+		pixonyx) gtk=PiXonyx theme_icons=pixtrix theme_font=nunito ;;
+		pix)     gtk=PiX theme_icons=pix theme_font=piboto ;;
 		*) gtk=$theme ;;
 	esac
-	gtk_theme "$gtk" || die "no GTK theme '$theme' is installed"
+	gtk_theme "$gtk" || die "no GTK theme '$theme' is installed (see --list)"
 	[[ -n $icons ]] || icons=$theme_icons
 	[[ -n $cursor ]] || cursor=$theme_icons
-	[[ -n $font ]] || font=$theme_font
+	[[ -n $font_name ]] || font_name=$theme_font
+fi
+# Window frames.
+if [[ -n $window ]]; then
+	if [[ ${window,,} == theme ]]; then window=theme
+	else window=$(pi_name "$window"); ob_theme "$window" || die "no window frames '$window' are installed (see --list)"; fi
+fi
+# Font: family, style and size; unset parts keep their current value.
+if [[ -n $font_name$font_style$font_size ]]; then
+	cur=$(get "$lxs" "$lxs_sys" GTK sGtk/FontName)
+	if [[ -n $font_name ]]; then
+		fam=$(font_family "$font_name") || die "no font '$font_name' is installed (see --list)"
+		[[ -n $font_style ]] || font_style=$(font_default_style "$fam")
+	else
+		# keep the current family and style
+		fam=$(sed -E 's/ [0-9.]+$//; s/( (Thin|Ultra-Light|Light|Semi-Bold|Bold|Ultra-Bold|Heavy|Medium|Italic))+$//' <<<"$cur")
+		if [[ -z $font_style ]]; then
+			font_style=$(sed -E 's/ [0-9.]+$//' <<<"$cur"); font_style=${font_style#"$fam"}
+			font_style=$(sed 's/Semi-Bold/semibold/; s/Ultra-Bold/extrabold/; s/Ultra-Light/extralight/; s/Heavy/black/' <<<"${font_style# }")
+			[[ -n $font_style ]] || font_style=regular
+		fi
+		[[ $fam != PibotoLt ]] || { fam=Piboto; [[ $font_style != regular ]] || font_style=light; }
+	fi
+	[[ -n $font_size ]] || font_size=$(grep -oE '[0-9]+(\.[0-9]+)?$' <<<"$cur")
+	[[ -n $font_size ]] || font_size=12
+	[[ $font_size =~ ^[0-9]+(\.[0-9]+)?$ ]] && (( ${font_size%.*} >= 6 && ${font_size%.*} <= 48 )) || die "the font size is a number of points, 6 to 48"
+	words=$(pango_style "$font_style") || die "unknown font style '$font_style' (see --help)"
+	# accept only styles the font has
+	w=${font_style,,}; w=${w//italic/}; w=${w// /}; [[ -n $w ]] || w=regular
+	if [[ $w != regular ]] && ! font_styles "$fam" | grep -qxE "$w|$w italic"; then
+		die "$fam has no '$font_style' style; it has: $(font_styles "$fam" | paste -sd, - | sed 's/,/, /g')"
+	fi
+	font="$fam${words:+ $words} $font_size"
 fi
 if [[ -n $icons ]]; then icons=$(icon_theme "$icons") || die "no icon theme '$icons' is installed"; fi
 if [[ -n $cursor ]]; then cursor=$(icon_theme "$cursor" cursors) || die "no cursor theme '$cursor' is installed"; fi
 if [[ -n $size ]]; then [[ $size =~ ^[0-9]+$ ]] && (( size >= 8 && size <= 256 )) || die "the cursor size is a number of pixels, 8 to 256"; fi
-if [[ -n $font ]]; then [[ $font =~ [[:space:]][0-9]+(\.[0-9]+)?$ ]] || die "the font is a name and a size, e.g. \"Nunito Sans Light 12\""; fi
 if [[ -n $accent && $accent != default ]]; then accent=$(colour "$accent") || die "a colour is #rgb or #rrggbb"; fi
 if [[ -n $accent_fg ]]; then accent_fg=$(colour "$accent_fg") || die "a colour is #rgb or #rrggbb"; fi
 if [[ -n $dbg ]]; then dbg=$(colour "$dbg") || die "a colour is #rgb or #rrggbb"; fi
@@ -3213,8 +3367,11 @@ if (( reset )); then
 	# Openbox follows the session's look again
 	mkdir -p "${obrc%/*}" && cp "$SHARE/openbox-rc.xml" "$obrc" && cp "$SHARE/openbox-rc.xml" "${obrc%/*}/.$PROFILE-rc.xml.$APP"
 fi
+# A chosen window frame is remembered; a new theme resets it.
+if [[ -n $window || -n $theme ]] || (( reset )); then rm -f "$own/window"; fi
 if [[ -n $gtk ]]; then
-	ini_set "$lxs" GTK sNet/ThemeName "$gtk"; set_openbox_theme "$gtk"
+	ini_set "$lxs" GTK sNet/ThemeName "$gtk"
+	[[ -f $own/window ]] || set_openbox_theme "$gtk"
 	# the theme's own colours (a dark panel for a dark theme), with your
 	# highlight colour, if you chose one
 	if s=$(theme_scheme "$gtk"); then
@@ -3227,6 +3384,11 @@ fi
 [[ -z $cursor ]] || ini_set "$lxs" GTK sGtk/CursorThemeName "$cursor"
 [[ -z $size ]] || ini_set "$lxs" GTK iGtk/CursorThemeSize "$size"
 [[ -z $font ]] || ini_set "$lxs" GTK sGtk/FontName "$font"
+[[ -z $font ]] || set_openbox_font "$fam" "$(ob_weight "$font_style")" "$font_style" "$font_size"
+if [[ -n $window ]]; then
+	if [[ $window == theme ]]; then set_openbox_theme "$(ini_get "$lxs" GTK sNet/ThemeName)"
+	else set_openbox_theme "$window"; mkdir -p "$own" && printf '%s\n' "$window" >"$own/window"; fi
+fi
 [[ -z $accent ]] || set_accent "$accent" "${accent_fg:-$( [[ $accent == default ]] || readable "$accent")}"
 write_desktop
 
@@ -3239,6 +3401,7 @@ if [[ -z $p ]]; then
 	else
 		echo "Saved; the Raspberry Pi Desktop session uses it from your next login."
 	fi
+	show
 	exit 0
 fi
 attach "$p"
@@ -3268,7 +3431,7 @@ if [[ -n $dbg$dfg$wall$mode$font || $reset == 1 ]]; then
 		[[ -z $gtk$accent && $reset == 0 ]] || echo "Debian's file manager shows the new colours fully from your next login."
 	fi
 fi
-if [[ -n $gtk$icons$accent$font || $reset == 1 ]] || [[ $(ini_get "$lxs" GTK sNet/IconThemeName) != "$old_icons" ]]; then
+if [[ -n $gtk$icons$accent$font$window || $reset == 1 ]] || [[ $(ini_get "$lxs" GTK sNet/IconThemeName) != "$old_icons" ]]; then
 	# The panel builds its menu once: restart it after lxsession has passed
 	# the new theme on
 	sleep 2
@@ -3429,13 +3592,13 @@ choose_session() {
 	user=/org/freedesktop/Accounts/User$(id -u)
 	if command -v busctl >/dev/null \
 		&& cur=$(busctl get-property org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User XSession 2>/dev/null); then
-		# Chosen on the first install, or again when the Wayland session the
-		# user had is gone (this computer now runs the session on X)
-		(( first )) || [[ $cur == 's ""' ]] || { [[ $cur == "s \"$SESSION_ID-wayland\"" && ! -f $wl ]]; } || return 0
+		# Set on first install, on a Wayland option, or if the Wayland session is gone
+		(( first )) || [[ $cur == 's ""' || -n ${GIVEN[wayland]:-} ]] \
+			|| { [[ $cur == "s \"$SESSION_ID-wayland\"" && ! -f $wl ]]; } || return 0
 		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetXSession s "$want" >/dev/null 2>&1 || true
 		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetSession s "$want" >/dev/null 2>&1 || true
 	else
-		(( first )) || return 0
+		(( first )) || [[ -n ${GIVEN[wayland]:-} ]] || return 0
 		_ini_set "$HOME/.dmrc" Desktop Session "$want"
 		chmod 0644 "$HOME/.dmrc"
 		if [[ -d /var/cache/lightdm ]]; then sys_write "/var/cache/lightdm/dmrc/$(id -un).dmrc" <"$HOME/.dmrc"; fi
@@ -3806,6 +3969,11 @@ EOF
 		printf '#!/bin/sh\nset -e\nif [ "$1" = configure ] && command -v gtk-update-icon-cache >/dev/null; then\n'
 		for f in "${icons[@]}"; do printf '\tgtk-update-icon-cache -q -t -f /usr/share/icons/%s || true\n' "$f"; done
 		printf '\t:\nfi\n'
+		# Link Debian's applets into Raspberry Pi's panel
+		printf 'if [ "$1" = configure ]; then\n\tfor d in /usr/lib/*/lxpanel-pi; do\n\t\t[ -d "$d" ] || continue\n'
+		printf '\t\tfor p in %s; do\n' "$DEBIAN_APPLETS"
+		printf '\t\t\tf=${d%%/lxpanel-pi}/lxpanel/plugins/$p.so\n\t\t\t[ -f "$f" ] && [ ! -e "$d/$p.so" ] && ln -s "$f" "$d/$p.so" || true\n'
+		printf '\t\tdone\n\tdone\nfi\n'
 		# Raspberry Pi's panel reads the application menu only when it starts:
 		# restart running panels when packages add or remove applications.
 		cat <<'EOF_TRIG'
@@ -3823,6 +3991,7 @@ EOF_TRIG
 	printf 'interest-noawait /usr/share/applications\n' >"$stage/DEBIAN/triggers"
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = remove ] || [ "$1" = purge ]; then\n'
+		printf '\tfor l in /usr/lib/*/lxpanel-pi/*.so; do\n\t\tcase $(readlink "$l" || true) in /usr/lib/*/lxpanel/plugins/*) rm -f "$l" ;; esac\n\tdone\n'
 		for f in "${icons[@]}"; do
 			printf '\trm -f /usr/share/icons/%s/icon-theme.cache\n\trmdir /usr/share/icons/%s 2>/dev/null || true\n' "$f" "$f"
 		done
@@ -4975,9 +5144,7 @@ _menu() {
 	done
 }
 
-# Every theme is installed; once they are, ask which one the session uses,
-# unless --theme was given. Enter keeps the current one (on the first
-# install, the default for this Debian release). Sets LOOK_CHOSEN.
+# Ask which installed theme to use, unless --theme was given.
 LOOK_CHOSEN=0
 choose_look() {
 	local i def=1 cur dflt
@@ -5000,9 +5167,7 @@ choose_look() {
 	set_theme "$(chosen_theme)"
 }
 
-# The user running this, who chose the look, gets it also where they had
-# chosen another theme in the session's settings (their own desktop.conf).
-# Other users keep their own choice.
+# Apply the chosen theme to the current user's own settings, if they have any.
 apply_user_look() {
 	local f cur
 	(( LOOK_CHOSEN )) || [[ -n ${GIVEN[theme]:-} ]] || return 0
