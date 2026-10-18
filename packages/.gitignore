@@ -1,0 +1,5 @@
+# packages/ is built locally, on demand:
+#     bash rpios-look.sh --download
+# Nothing in here is tracked, so this folder ships empty.
+*
+!.gitignore
