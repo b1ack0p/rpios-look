@@ -53,7 +53,9 @@ manager too, unless `--no-pi-apps` is given (see [Panel](#panel)).
 Differences from Raspberry Pi OS:
 
 - The **Debian logo** replaces the Raspberry Pi logo on the menu button and
-  the login screen.
+  the login screen. No program shows the Raspberry Pi logo: the Shutdown
+  dialog shows its Shutdown icon on every Debian release, as it does on
+  Raspberry Pi OS 13.
 - Raspberry Pi's system tools are left out: raspi-config, the updater, and
   the panel's power and network plugins. The network icon comes from
   Debian's `nm-applet`.

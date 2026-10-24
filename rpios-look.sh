@@ -101,7 +101,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.8.0"
+readonly APP_VERSION="3.8.1"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -237,7 +237,14 @@ readonly ICON_ALIASES=(
 	"blueman-active:bluetooth-online"               "blueman-disabled:bluetooth-offline"
 	"bluetooth-symbolic:bluetooth-active"           "!bluetooth-disabled:bluetooth-offline"
 	"!bluetooth-disabled-symbolic:bluetooth-offline" "bluetooth-disconnected-symbolic:bluetooth-inactive"
+	"!rpi:system-shutdown"
 )
+# Icon names the Raspberry Pi OS icon sets draw as the Raspberry Pi logo, for
+# the menu button; each shows the Debian logo instead. The other one, "rpi",
+# is the window icon of Raspberry Pi's Shutdown dialog before Raspberry Pi
+# OS 13, and shows the Shutdown icon instead, as it does from 13 (see
+# ICON_ALIASES and _session_icons).
+readonly LOGO_ICONS=(start-here distributor-logo gnome-main-menu launch rpi-logo)
 
 # Options (O_*). The remembered ones are saved by an install run in
 # $SYS_DIR/options and reused by later runs unless given again.
@@ -1913,7 +1920,7 @@ _icon_aliases() {
 }
 
 # Show the Debian logo wherever the theme shows the Raspberry Pi logo
-# ("start-here", "distributor-logo"), e.g. on the Raspberry Pi menu button.
+# (LOGO_ICONS), e.g. on the menu button.
 # The images come from Debian's desktop-base, else from debconf.
 # Usage: _logo_aliases OUT-DIR
 _logo_aliases() {
@@ -1924,12 +1931,12 @@ _logo_aliases() {
 		size=${f#/usr/share/icons/desktop-base/}; size=${size%%/*}
 		dir=$out/$size/places ext=${f##*.}
 		mkdir -p "$dir"
-		for n in start-here distributor-logo; do ln -sfn "$f" "$dir/$n.$ext"; done
+		for n in "${LOGO_ICONS[@]}"; do ln -sfn "$f" "$dir/$n.$ext"; done
 		found=1
 	done
 	if (( ! found )) && [[ -f /usr/share/pixmaps/debian-logo.png ]]; then
 		mkdir -p "$out/48x48/places"
-		for n in start-here distributor-logo; do ln -sfn /usr/share/pixmaps/debian-logo.png "$out/48x48/places/$n.png"; done
+		for n in "${LOGO_ICONS[@]}"; do ln -sfn /usr/share/pixmaps/debian-logo.png "$out/48x48/places/$n.png"; done
 	fi
 }
 
@@ -2637,7 +2644,7 @@ _session_entries() {
 # keeps the official sets working, with the Debian logo even when chosen by
 # name. Usage: _session_icons DATA-DIR
 _session_icons() {
-	local data=$1 b o inh f size logo out
+	local data=$1 b o inh f n rel size t logo out
 	logo=/usr/share/icons/desktop-base/scalable/emblems/emblem-debian.svg
 	[[ -f $logo ]] || logo=$(_logo_path) || logo=""
 	for b in PiXflat PiXtrix PiX; do
@@ -2651,13 +2658,25 @@ _session_icons() {
 			{ print }
 			/^\[Icon Theme\]/ { print "Hidden=true"; if (!ENVIRON["H"]) print "Inherits=" ENVIRON["I"] "gnome,Adwaita,hicolor" }' "$f" \
 			| _write "$data/icons/$b/index.theme"
+		# The Shutdown dialog's window icon, as in the adapted set
+		for f in "$SYS_ROOT/usr/share/icons/$b"/*/*/rpi.*; do
+			rel=${f#"$SYS_ROOT/usr/share/icons/$b/"} size=${rel%%/*}
+			for t in "$SYS_ROOT/usr/share/icons/$b/$size"/actions/system-shutdown.*; do
+				[[ -f $f && -f $t ]] || continue
+				out=$data/icons/$b/${rel%.*}
+				mkdir -p "${out%/*}"
+				ln -sfn "/usr/share/icons/$b/$size/actions/${t##*/}" "$out.${t##*.}"
+			done
+		done
 		[[ -n $logo ]] || continue
-		for f in "$SYS_ROOT/usr/share/icons/$b"/*/places/start-here.* "$SYS_ROOT/usr/share/icons/$b"/*/places/distributor-logo.*; do
-			[[ -f $f ]] || continue
-			size=${f#"$SYS_ROOT/usr/share/icons/$b/"}; size=${size%%/*}
-			out=$data/icons/$b/$size/places/${f##*/}
-			mkdir -p "${out%/*}"
-			ln -sfn "$logo" "${out%.*}.${logo##*.}"
+		for n in "${LOGO_ICONS[@]}"; do
+			for f in "$SYS_ROOT/usr/share/icons/$b"/*/*/"$n".*; do
+				[[ -f $f ]] || continue
+				rel=${f#"$SYS_ROOT/usr/share/icons/$b/"}
+				out=$data/icons/$b/${rel%.*}
+				mkdir -p "${out%/*}"
+				ln -sfn "$logo" "$out.${logo##*.}"
+			done
 		done
 	done
 }
@@ -2688,6 +2707,10 @@ _session_themes() {
 			# one. Tray icons are windows of their applets, not of the panel.
 			printf '#tray, #tray * { padding: 0px; margin: 0px; border: 0px; }\n'
 			printf 'window > image { background-color: @bar_bg_color; }\n'
+			# Rounded tooltips need a compositor, which marks them "csd"; without
+			# one (Openbox) their corners are black, so they are square, as
+			# Raspberry Pi OS's X11 session makes them (startx-rpd, startlxde-pi)
+			printf 'tooltip:not(.csd), .tooltip:not(.csd) { border-radius: 0px; }\n'
 		} | _write "$data/themes/$t/gtk-3.0/gtk.css"
 		# Openbox reads the hover image of a toggled title bar button as
 		# "<button>_toggled_hover.xbm"; the official themes name it
