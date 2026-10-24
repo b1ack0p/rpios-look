@@ -103,11 +103,13 @@ question takes its default answer.
 
 | Name | Style | Font | Wallpaper |
 |------|-------|------|-----------|
-| `pixflat` | Light, Raspberry Pi OS Bookworm (default on Debian 10 to 12) | Piboto Light | fisherman |
-| `pixnoir` | Dark, Raspberry Pi OS Bookworm | Piboto Light | fisherman |
+| `pixflat` | Light, Raspberry Pi OS Buster to Bookworm (default on Debian 10 to 12) | Piboto Light | temple on Debian 10, clouds on 11, fisherman on 12 and later |
+| `pixnoir` | Dark, Raspberry Pi OS Bookworm | Piboto Light | as `pixflat` |
 | `pixtrix` | Light, Raspberry Pi OS Trixie (default on Debian 13 and later) | Nunito Sans Light | sunrise |
 | `pixonyx` | Dark, Raspberry Pi OS Trixie | Nunito Sans Light | sunrise |
-| `pix` | Legacy, Raspberry Pi OS Buster and Bullseye | Piboto Light | fisherman |
+| `pix` | Legacy, Raspbian Stretch | Piboto Light | road |
+
+Each wallpaper is the one Raspberry Pi OS uses with that theme in that release.
 
 The installer asks for the theme at the end. To change the default theme for
 all users later, run the installer with `--theme`:

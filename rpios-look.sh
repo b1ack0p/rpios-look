@@ -101,7 +101,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.8.1"
+readonly APP_VERSION="3.8.2"
 # The package this script generates; it carries the session, the login
 # screen style and the adapted icon sets, so dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -488,7 +488,7 @@ set_theme() {
 	# T_GTK names the GTK theme and the Openbox, labwc and Xfwm4 themes alike
 	case $1 in
 		pixflat) T_GTK=PiXflat T_ICON_BASE=PiXflat T_ERA=bookworm T_DARK=0
-		         T_DESC="PiXflat — light, Raspberry Pi OS Bookworm" ;;
+		         T_DESC="PiXflat — light, Raspberry Pi OS Buster to Bookworm" ;;
 		pixnoir) T_GTK=PiXnoir T_ICON_BASE=PiXflat T_ERA=bookworm T_DARK=1
 		         T_DESC="PiXnoir — dark, Raspberry Pi OS Bookworm" ;;
 		pixtrix) T_GTK=PiXtrix T_ICON_BASE=PiXtrix T_ERA=trixie T_DARK=0
@@ -496,14 +496,25 @@ set_theme() {
 		pixonyx) T_GTK=PiXonyx T_ICON_BASE=PiXtrix T_ERA=trixie T_DARK=1
 		         T_DESC="PiXonyx — dark, Raspberry Pi OS Trixie" ;;
 		pix)     T_GTK=PiX T_ICON_BASE=PiX T_ERA=legacy T_DARK=0
-		         T_DESC="PiX — legacy Raspberry Pi OS Buster/Bullseye" ;;
+		         T_DESC="PiX — legacy, Raspbian Stretch" ;;
 		*) die "unknown theme '$1'" ;;
 	esac
 	if [[ $T_ERA == trixie ]]; then
-		T_FONT_FAMILY="Nunito Sans" T_FONT_WEIGHT=Light T_FONT="Nunito Sans Light 12" T_WALL_DEFAULT=sunrise.jpg
+		T_FONT_FAMILY="Nunito Sans" T_FONT_WEIGHT=Light T_FONT="Nunito Sans Light 12"
 	else
-		T_FONT_FAMILY=PibotoLt T_FONT_WEIGHT=Normal T_FONT="PibotoLt 12" T_WALL_DEFAULT=fisherman.jpg
+		T_FONT_FAMILY=PibotoLt T_FONT_WEIGHT=Normal T_FONT="PibotoLt 12"
 	fi
+	# The wallpaper Raspberry Pi OS gives the look: PiXflat's changed with each
+	# release (raspberrypi-ui-mods), PiX had Raspbian Stretch's
+	case $T_ERA in
+		trixie) T_WALL_DEFAULT=sunrise.jpg ;;
+		legacy) T_WALL_DEFAULT=road.jpg ;;
+		*) case $H_SUITE in
+			buster)   T_WALL_DEFAULT=temple.jpg ;;
+			bullseye) T_WALL_DEFAULT=clouds.jpg ;;
+			*)        T_WALL_DEFAULT=fisherman.jpg ;;
+		   esac ;;
+	esac
 	case $O_ICONS in pixflat) T_ICON_BASE=PiXflat ;; pixtrix) T_ICON_BASE=PiXtrix ;; pix) T_ICON_BASE=PiX ;; esac
 	# The adapted icon set, with the Debian logo and the names Debian's
 	# programs use (see gen_icon_overlay)
