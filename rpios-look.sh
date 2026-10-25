@@ -5,8 +5,8 @@
 #               Debian: the official PiXflat, PiXnoir, PiXtrix, PiXonyx and
 #               PiX themes with their icons, cursors, fonts, wallpapers,
 #               panel, file manager and login screen, as a "Raspberry Pi
-#               Desktop" session on the login screen. Other desktops (Xfce,
-#               GNOME, MATE, ...) can be given the same look on request.
+#               Desktop" session on the login screen. Debian's LXDE, Openbox,
+#               labwc, Xfce and MATE can be given the same look on request.
 #
 # Usage       : bash rpios-look.sh                   install or update
 #               bash rpios-look.sh --refresh         list available updates, then
@@ -50,8 +50,8 @@
 #               An install run saves the options above; later runs reuse them
 #               unless given again, e.g. --theme auto.
 #               -d, --desktop LIST   also give these desktops the look, for you only:
-#                                    xfce, gnome, budgie, cinnamon, mate, lxqt,
-#                                    openbox, labwc, kde, all or none (this run only)
+#                                    lxde, openbox, labwc, xfce, mate, all or none
+#                                    (this run only)
 #                   --bundle LIST    with --download: only these release/architecture
 #                                    pairs, e.g. bookworm/i386,trixie/amd64
 #                   --no-log         no run log
@@ -104,7 +104,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.9.0"
+readonly APP_VERSION="3.10.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -147,7 +147,7 @@ readonly OLDEST=9 OFFLINE_OLDEST=10
 # Raspberry Pi OS theme packages that are built per architecture but contain
 # no compiled code, so the build of any Raspberry Pi OS release can be used.
 readonly DATA_PKGS=(pixflat-theme pixtrix-theme pix-theme)
-readonly DE_OTHER=(xfce gnome budgie cinnamon mate lxqt openbox labwc kde)
+readonly DE_OTHER=(lxde openbox labwc xfce mate)
 
 # Dependency names missing from some Debian releases, mapped to the packages
 # that provide them there; the first available candidate is used. A newer
@@ -280,7 +280,8 @@ H_ARCH="" H_ID="" H_LIKE="" H_CODENAME="" H_PRETTY="" H_SUITE="" H_RPI_ARCH=""
 H_MODEL="" H_CPU="" H_MEM_MB=0 H_OLD_CPU=0 H_GPU="" H_GPU_DRV="" H_GPU_DRVS="" H_RENDER=0 H_KMS=0
 H_VIRT="" H_KERNEL="" H_EDITION="" H_DM="" H_DISPLAY="x11" H_DISPLAY_WHY=""
 FETCH_PKGS=()           # installed from verified .deb files
-HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound, firmware), kept on uninstall
+HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound, firmware, login screen)
+POLICY_RC=""            # the policy-rc.d file a purge made, removed on exit
 ROOT_PKGS=()            # what is installed for its own sake, not as a dependency
 APT_PKGS=()             # installed by name from the APT sources
 USE_STACK=0             # 1 when Raspberry Pi's builds replace Debian's panel and file manager (PI_STACK)
@@ -472,7 +473,7 @@ adopt_session() {
 	uid=$(id -u)
 	[[ -S /run/user/$uid/bus ]] && export XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus"
 	[[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]] && return 0
-	for p in lxsession xfce4-session lxqt-session gnome-shell budgie-panel cinnamon mate-session plasmashell labwc openbox; do
+	for p in lxsession xfce4-session mate-session labwc openbox; do
 		pid=$(pgrep -u "$uid" -n -x "$p" 2>/dev/null) && break
 	done
 	[[ -n ${pid:-} ]] || return 0
@@ -486,7 +487,7 @@ adopt_session() {
 	# compositor itself, and the display is taken from its first child that
 	# has one.
 	if [[ $p == labwc && -z ${LABWC_PID:-} ]]; then export LABWC_PID=$pid; fi
-	[[ -z ${WAYLAND_DISPLAY:-} && ( $p == labwc || $p == gnome-shell ) ]] || return 0
+	[[ -z ${WAYLAND_DISPLAY:-} && $p == labwc ]] || return 0
 	for c in $(pgrep -u "$uid" -P "$pid" 2>/dev/null || true); do
 		w="" x=""
 		while IFS= read -r -d '' line; do
@@ -577,12 +578,12 @@ wayland_pkgs() {
 # display settings, XSETTINGS for X applications, and Xwayland.
 wayland_debs() { printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland; }
 # Print the Debian packages of the X server, which the login screen always
-# needs, and Mesa's 3D drivers. They are kept on uninstall.
+# needs, and Mesa's 3D drivers.
 x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
 # Print the Debian packages of the login screen: LightDM with Debian's greeter
 # in the Raspberry Pi OS style, where no other display manager is in use, and
-# Debian's login artwork (desktop-base). They are kept on uninstall, so the
-# computer keeps a login screen. ALL (1) prints every one, for packages/.
+# Debian's login artwork (desktop-base). ALL (1) prints every one, for
+# packages/.
 # Usage: login_debs [ALL]
 login_debs() {
 	(( O_LOGIN )) || [[ ${1:-0} == 1 ]] || return 0
@@ -3677,6 +3678,37 @@ session_vars() {
 	if (( S_PI_FM )); then S_FM_PROFILE=default; fi
 }
 
+# Debian's LXDE session with Raspberry Pi's build of its panel (Debian 11
+# and 12, where that build replaces Debian's): the build draws Debian's
+# layout only in part, as it has no pager and no background image and names
+# its menu plugin smenu. The package carries Debian's layout adapted to it,
+# which an Xsession.d hook puts first in XDG_CONFIG_DIRS for Debian's LXDE
+# session only, while that build is installed. Debian's files and the
+# user's own panel settings stay as they are. Usage: lxde_panel_build ROOT
+lxde_panel_build() {
+	local root=$1 src=$SYS_ROOT/etc/xdg/lxpanel/LXDE/panels/panel
+	(( USE_STACK )) && suite_ge "$H_SUITE" bullseye && ! suite_ge "$H_SUITE" trixie && [[ -f $src ]] || return 0
+	awk '
+		/^Plugin[ \t]*\{/ { buf = $0; inb = 1; next }
+		inb { buf = buf "\n" $0; if ($0 ~ /^\}/) { if (buf !~ /type[ \t]*=[ \t]*pager/) print buf; inb = 0 }; next }
+		{ print }' "$src" \
+		| sed -e 's/^\([ \t]*\)background=1[ \t]*$/\1background=0/' \
+			-e 's/^\([ \t]*type[ \t]*=[ \t]*\)menu[ \t]*$/\1smenu/' \
+			-e 's#^\([ \t]*\)image=/usr/share/lxde/images/lxde-icon.png[ \t]*$#\1padding=4\n\1image=start-here#' \
+		| _write "$root$SHARE/lxde-xdg/lxpanel/LXDE/panels/panel"
+	cat <<EOF | _write "$root/etc/X11/Xsession.d/90${APP_NAME}-lxde"
+# Written by $APP_NAME and removed with $APP_PKG. Debian's LXDE session uses
+# a panel layout adapted to Raspberry Pi's build of the panel, while that
+# build (with its smenu plugin) is installed.
+if [ "\${DESKTOP_SESSION:-}" = LXDE ] && [ -f $SHARE/lxde-xdg/lxpanel/LXDE/panels/panel ]; then
+	for f in /usr/lib/*/lxpanel/plugins/smenu.so; do
+		[ -e "\$f" ] && export XDG_CONFIG_DIRS="$SHARE/lxde-xdg:\${XDG_CONFIG_DIRS:-/etc/xdg}"
+		break
+	done
+fi
+EOF
+}
+
 # Write the whole session into the package root: profile, Openbox, panels,
 # menu, file manager, entries, icons, themes, GTK 4 colours and programs.
 # Usage: session_build ROOT
@@ -3804,7 +3836,7 @@ greeter_conf() {
 # install, and later only where AccountsService has no session for the user
 # yet (it was installed later); a session the user picks is kept.
 choose_session() {
-	local user cur first=0 want=$SESSION_ID wl=/usr/share/wayland-sessions/$SESSION_ID-wayland.desktop
+	local user cur m v first=0 want=$SESSION_ID wl=/usr/share/wayland-sessions/$SESSION_ID-wayland.desktop
 	[[ $H_DISPLAY == wayland && -f $wl ]] && want=$SESSION_ID-wayland
 	_once session-chosen && first=1
 	user=/org/freedesktop/Accounts/User$(id -u)
@@ -3813,6 +3845,13 @@ choose_session() {
 		# Set on first install, on a Wayland option, or if the Wayland session is gone
 		(( first )) || [[ $cur == 's ""' || -n ${GIVEN[wayland]:-} ]] \
 			|| { [[ $cur == "s \"$SESSION_ID-wayland\"" && ! -f $wl ]]; } || return 0
+		# A file this creates is removed on uninstall; a session chosen before
+		# is put back
+		sudo test -e "/var/lib/AccountsService/users/$(id -un)" || id -un | record_add "$SYS_DIR/accounts-created"
+		for m in XSession Session; do
+			v=$(busctl get-property org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User "$m" 2>/dev/null | sed -n 's/^s "\(.*\)"$/\1/p' || true)
+			[[ -z $v || $v == "$SESSION_ID"* || $v == "$PREV_NAME"* ]] || printf '%s\t%s\t%s\n' "$(id -un)" "$m" "$v" | record_add "$SYS_DIR/session-before"
+		done
 		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetXSession s "$want" >/dev/null 2>&1 || true
 		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetSession s "$want" >/dev/null 2>&1 || true
 	else
@@ -4117,7 +4156,12 @@ install_all() {
 
 	step "Installing packages"
 	if (( ${#files[@]} + ${#APT_PKGS[@]} == 0 )); then ok "Every package is installed and up to date"; return 0; fi
-	had=$(installed_names)
+	had=$(installed_names) accts=$(_accounts)
+	# APT's "automatically installed" marks of Debian's panel and file
+	# manager, before Raspberry Pi's builds replace them (see restore_debian_stack)
+	if (( USE_STACK )) && [[ ! -f $SYS_DIR/stack-auto ]]; then
+		{ apt-mark showauto "${PI_STACK[@]}" 2>/dev/null || true; } | sys_write "$SYS_DIR/stack-auto"
+	fi
 	if ! sim=$(LC_ALL=C apt-get install --simulate "${opts[@]}" "${files[@]}" "${APT_PKGS[@]}" 2>&1); then
 		tail -n 15 <<<"$sim" >&2
 		[[ -n $REPO ]] && warn "an offline install can only use packages that are installed or in packages/"
@@ -4136,8 +4180,15 @@ install_all() {
 	_verify_installed
 	mapfile -t new < <(LC_ALL=C comm -13 <(printf '%s\n' "$had") <(installed_names))
 	_record_installed "${new[@]}"
+	# The system users and groups the packages created, which a purge keeps
+	LC_ALL=C comm -13 <(printf '%s\n' "$accts") <(_accounts) | record_add "$SYS_DIR/accounts-new"
 	start_sound "${new[@]}"
 	RELOGIN=1
+}
+
+# Print the system's users and groups, as "user:NAME" and "group:NAME".
+_accounts() {
+	{ sed 's/:.*//; s/^/user:/' /etc/passwd; sed 's/:.*//; s/^/group:/' /etc/group; } | LC_ALL=C sort
 }
 
 # Start a sound server installed in this run for the running user; otherwise
@@ -4175,7 +4226,7 @@ _record_installed() {
 	(( $# )) || return 0
 	for p; do [[ " ${ROOT_PKGS[*]} " == *" $p "* ]] || autos+=("$p"); done
 	if (( ${#autos[@]} )); then as_root apt-mark auto "${autos[@]}" >/dev/null; fi
-	# Hardware support is recorded apart: it stays when the look is uninstalled.
+	# Hardware support is recorded apart, so that the uninstall can name it.
 	local -a look=() hw=()
 	for p; do if [[ " ${HW_PKGS[*]} " == *" $p "* ]]; then hw+=("$p"); else look+=("$p"); fi; done
 	if (( ${#look[@]} )); then printf '%s\n' "${look[@]}" | record_add "$SYS_DIR/installed-packages"; fi
@@ -4205,6 +4256,7 @@ build_pkg() {
 		icons+=("$b-Debian")
 	done
 	session_build "$stage"
+	lxde_panel_build "$stage"
 	if (( O_LOGIN )) && [[ -n $(installed_version lightdm) ]]; then login_build "$stage"; fi
 
 	ver="${APP_VERSION}+$(date -u +%Y%m%d%H%M%S)"
@@ -4371,8 +4423,7 @@ desktop_list() {
 				n=$(sed -n 's/^DesktopNames=//p' "$f" | first_line | cut -d';' -f1)
 				n=${n,,}; [[ -n $n ]] || n=$(basename "$f" .desktop)
 				case $n in
-					x-cinnamon) n=cinnamon ;; xfce*) n=xfce ;; plasma*) n=kde ;; budgie*) n=budgie ;; mate*) n=mate ;;
-					gnome*|ubuntu*) n=gnome ;; lxqt*) n=lxqt ;; labwc*) n=labwc ;; openbox*) n=openbox ;;
+					lxde*) n=lxde ;; xfce*) n=xfce ;; mate*) n=mate ;; labwc*) n=labwc ;; openbox*) n=openbox ;;
 				esac
 				[[ " ${DE_OTHER[*]} " == *" $n "* ]] && echo "$n"
 			done | awk '!seen[$0]++' ;;
@@ -4624,22 +4675,6 @@ xf_set() {
 	fi
 }
 
-# Set a KDE configuration key, recording its old value. apply_de_kde has
-# checked that KDE's tools exist. Usage: kde_set FILE GROUP KEY VALUE
-kde_set() {
-	local w r old
-	w=$(command -v kwriteconfig6 || command -v kwriteconfig5 || true)
-	r=$(command -v kreadconfig6 || command -v kreadconfig5 || true)
-	[[ -n $w && -n $r ]] || return 0
-	old=$("$r" --file "$1" --group "$2" --key "$3" 2>/dev/null || true)
-	if [[ -n $old ]]; then
-		_track_cmd "kde:$1:$2:$3" "$(_q "$w" --file "$1" --group "$2" --key "$3" "$old")"
-	else
-		_track_cmd "kde:$1:$2:$3" "$(_q "$w" --file "$1" --group "$2" --key "$3" --delete)"
-	fi
-	"$w" --file "$1" --group "$2" --key "$3" "$4" || warn "could not set KDE $2 $3"
-}
-
 # Succeed if the user runs a process of that name.
 _running() { pgrep -u "$(id -u)" -x "$1" >/dev/null 2>&1; }
 
@@ -4709,22 +4744,40 @@ apply_mono_font() {
 EOF_FC
 }
 
-# LXQt: icons, cursor, Openbox and the PCManFM-Qt wallpaper.
-apply_de_lxqt() {
-	_ini_set "$HOME/.config/lxqt/lxqt.conf" General icon_theme "$T_ICONS"
-	_ini_set "$HOME/.config/lxqt/session.conf" Mouse cursor_theme "$T_ICONS" cursor_size "$T_CURSOR_SIZE"
-	local rc=$HOME/.config/openbox/lxqt-rc.xml
-	if _seed "$rc" /etc/xdg/openbox/lxqt-rc.xml /usr/share/lxqt/openbox/rc.xml; then
+# Debian's LXDE session: its XSETTINGS (lxsession), the Openbox theme and
+# the desktop, as the Raspberry Pi Desktop session sets them. The panel stays
+# Debian's; it follows the GTK theme.
+apply_de_lxde() {
+	local f=$HOME/.config/lxsession/LXDE/desktop.conf rc=$HOME/.config/openbox/lxde-rc.xml i
+	if _seed "$f" /etc/xdg/lxsession/LXDE/desktop.conf; then
+		# lxsession passes a change of this file on to the running session
+		_ini_set "$f" GTK sNet/ThemeName "$T_GTK" sNet/IconThemeName "$T_ICONS" sGtk/FontName "$T_FONT" \
+			sGtk/CursorThemeName "$T_ICONS" iGtk/CursorThemeSize "$T_CURSOR_SIZE" sGtk/ColorScheme "$(color_scheme)" \
+			iGtk/ToolbarStyle 3 iGtk/ButtonImages 0 iGtk/MenuImages 0 sNet/SoundThemeName "$T_SOUND_THEME" \
+			iNet/EnableEventSounds 1 iNet/EnableInputFeedbackSounds 1
+	else
+		warn "no LXDE session settings found; skipping its theme"
+	fi
+	if _seed "$rc" /etc/xdg/openbox/LXDE/rc.xml /etc/xdg/openbox/lxde-rc.xml /etc/xdg/openbox/rc.xml; then
 		_openbox_buttons "$T_GTK"
 		_openbox_rc "$rc" 1
 		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --reconfigure >/dev/null 2>&1 || true; fi
 	fi
-	if [[ -n $S_WALL ]]; then
-		_ini_set "$HOME/.config/pcmanfm-qt/lxqt/settings.conf" Desktop Wallpaper "$S_WALL" WallpaperMode zoom
-		if _running pcmanfm-qt; then pcmanfm-qt --set-wallpaper "$S_WALL" --wallpaper-mode zoom || true; fi
+	# The desktop. A running pcmanfm takes a new wallpaper at once and then
+	# saves all its settings, so the file is backed up first and written last.
+	for i in 0 1; do _track_file "$HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf"; done
+	if [[ -n $S_WALL && -n ${DISPLAY:-} ]] && _running pcmanfm; then
+		pcmanfm --profile LXDE --set-wallpaper "$S_WALL" --wallpaper-mode crop >/dev/null 2>&1 || true
+		sleep 1
 	fi
-	ok "LXQt configured (icons, cursor, Openbox, wallpaper; GTK applications use the GTK theme)"
-	NOTES+=("LXQt: Qt widgets keep the LXQt style; log out and back in to refresh the cursor.")
+	for i in 0 1; do
+		[[ $i == 0 || -f $HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf ]] || continue
+		[[ -z $S_WALL ]] || _ini_set "$HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf" '*' wallpaper "$S_WALL" wallpaper_mode crop
+		_ini_set "$HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf" '*' desktop_bg "$T_DESK_BG" desktop_fg "$T_DESK_FG" \
+			desktop_shadow "$T_DESK_SHADOW" desktop_font "$T_FONT"
+	done
+	ok "LXDE configured (theme, icons, cursor, font, window frames, desktop)"
+	NOTES+=("LXDE: the desktop's colours and font change at your next login.")
 }
 
 # Xfce: XSETTINGS, Xfwm4, wallpaper, panel and panel CSS.
@@ -4789,49 +4842,6 @@ XfdesktopIconView.view .label:active, .xfdesktop-icon-view.view .label:active { 
 	NOTES+=("Xfce: restart the panel (xfce4-panel -r) or log in again to pick up the panel CSS.")
 }
 
-# GNOME and Budgie: interface, fonts, window buttons, sounds and wallpaper.
-# Usage: apply_de_gnome [NAME-IN-MESSAGES]
-apply_de_gnome() {
-	local de=${1:-GNOME}
-	_gs_interface org.gnome.desktop.interface
-	if (( T_DARK )); then gs_str org.gnome.desktop.interface color-scheme prefer-dark
-	else gs_str org.gnome.desktop.interface color-scheme default; fi
-	gs_str org.gnome.desktop.wm.preferences button-layout "appmenu:minimize,maximize,close"
-	gs_str org.gnome.desktop.sound theme-name "$T_SOUND_THEME"
-	gs_set org.gnome.desktop.sound event-sounds true
-	gs_set org.gnome.desktop.sound input-feedback-sounds true
-	gs_str org.gnome.desktop.wm.preferences titlebar-font "$T_FONT"
-	if [[ -n $S_WALL ]]; then
-		gs_str org.gnome.desktop.background picture-uri "file://$S_WALL"
-		gs_str org.gnome.desktop.background picture-uri-dark "file://$S_WALL"
-		gs_str org.gnome.desktop.background picture-options zoom
-		gs_str org.gnome.desktop.screensaver picture-uri "file://$S_WALL"
-	fi
-	ok "$de settings applied"
-	NOTES+=("$de: GTK 3 applications and window titlebars use $T_GTK; the shell and GTK 4/libadwaita applications keep the Adwaita style.")
-}
-
-# Budgie uses the GNOME settings.
-apply_de_budgie() {
-	apply_de_gnome Budgie
-	NOTES+=("Budgie: the panel keeps its own theme.")
-}
-
-# Cinnamon: interface, window buttons and wallpaper.
-apply_de_cinnamon() {
-	_gs_interface org.cinnamon.desktop.interface
-	gs_str org.cinnamon.desktop.wm.preferences button-layout ":minimize,maximize,close"
-	gs_str org.cinnamon.desktop.wm.preferences titlebar-font "$T_FONT"
-	gs_str org.cinnamon.desktop.sound theme-name "$T_SOUND_THEME"
-	gs_set org.cinnamon.desktop.sound event-sounds true
-	if [[ -n $S_WALL ]]; then
-		gs_str org.cinnamon.desktop.background picture-uri "file://$S_WALL"
-		gs_str org.cinnamon.desktop.background picture-options zoom
-	fi
-	ok "Cinnamon settings applied"
-	NOTES+=("Cinnamon: the panel/desktop theme and window borders keep the Cinnamon style.")
-}
-
 # MATE: interface, cursor and wallpaper.
 apply_de_mate() {
 	gs_str org.mate.interface gtk-theme "$T_GTK"
@@ -4884,26 +4894,8 @@ apply_de_labwc() {
 	NOTES+=("labwc: set the wallpaper in your background tool (e.g. swaybg -m fill -i ${S_WALL:-<file>}).")
 }
 
-# KDE Plasma: icons and cursor.
-apply_de_kde() {
-	if ! { command -v kwriteconfig6 || command -v kwriteconfig5; } >/dev/null \
-		|| ! { command -v kreadconfig6 || command -v kreadconfig5; } >/dev/null; then
-		warn "kwriteconfig not found; skipping KDE"
-		return 0
-	fi
-	kde_set kdeglobals Icons Theme "$T_ICONS"
-	kde_set kcminputrc Mouse cursorTheme "$T_ICONS"
-	kde_set kcminputrc Mouse cursorSize "$T_CURSOR_SIZE"
-	ok "KDE Plasma: icons and cursor set"
-	NOTES+=("KDE Plasma: only icons, cursor and GTK applications are themed; Plasma and Qt keep Breeze.")
-}
-
 # --qt: make Qt applications use the GTK theme from the next login.
 apply_qt_env() {
-	if [[ " ${D_LIST[*]} " == *" lxqt "* || " ${D_LIST[*]} " == *" kde "* ]]; then
-		warn "--qt skipped: LXQt and KDE manage the Qt platform theme themselves"
-		return 0
-	fi
 	_kv_set "$HOME/.config/environment.d/90-$APP_NAME.conf" QT_QPA_PLATFORMTHEME gtk3
 	_block_set "$HOME/.xsessionrc" "$APP_NAME" "export QT_QPA_PLATFORMTHEME=gtk3"
 	ok "Qt applications will follow the GTK theme after the next login"
@@ -5247,9 +5239,62 @@ _stack_installed() { [[ $(installed_version lxpanel) == *+rpt* ]]; }
 # Raspberry Pi's (see PI_STACK), from the APT sources. Raspberry Pi's panel
 # plugins, which need its panel, are removed first. Warn about Raspberry Pi
 # builds for which the APT sources have no Debian version.
+# Give every wallpaper setting of the running user that names a Raspberry Pi
+# OS wallpaper Debian's default: the desktop-base alternative, which points
+# to the artwork of this Debian release; without desktop-base, a plain colour.
+# Covers PCManFM (any profile), Xfce, MATE and GNOME-based desktops.
+reset_wallpapers() {
+	local def=/etc/alternatives/desktop-background f p k
+	local rpd='/usr/share/rpd-wallpaper/'
+	[[ -e $def ]] || def=""
+	for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/pcmanfm/*/desktop-items-*.conf "${XDG_CONFIG_HOME:-$HOME/.config}"/pcmanfm/*/pcmanfm.conf; do
+		grep -q "^wallpaper=$rpd" "$f" 2>/dev/null || continue
+		if [[ -n $def ]]; then sed -i --follow-symlinks "s#^wallpaper=$rpd.*#wallpaper=$def#" "$f"
+		else sed -i --follow-symlinks "\#^wallpaper=$rpd#d; s/^wallpaper_mode=.*/wallpaper_mode=color/" "$f"; fi
+	done
+	# Only with Xfce desktop settings: querying starts xfconfd, which creates its folders
+	if [[ -f ${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml ]] \
+		&& command -v xfconf-query >/dev/null && xfconf-query -c xfce4-desktop -l >/dev/null 2>&1; then
+		while read -r p; do
+			[[ $(xfconf-query -c xfce4-desktop -p "$p" 2>/dev/null) == "$rpd"* ]] || continue
+			if [[ -n $def ]]; then xfconf-query -c xfce4-desktop -p "$p" -s "$def" || true
+			else xfconf-query -c xfce4-desktop -p "$p" -r || true; fi
+		done < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E '/last-image$' || true)
+	fi
+	if command -v gsettings >/dev/null; then
+		for k in org.mate.background:picture-filename org.gnome.desktop.background:picture-uri \
+			org.gnome.desktop.background:picture-uri-dark org.gnome.desktop.screensaver:picture-uri \
+			org.cinnamon.desktop.background:picture-uri; do
+			_gs_ok "${k%%:*}" "${k#*:}" || continue
+			[[ $(_gs get "${k%%:*}" "${k#*:}" 2>/dev/null) == *"$rpd"* ]] && _gs reset "${k%%:*}" "${k#*:}" || true
+		done
+	fi
+}
+
+# Purge packages without stopping their running services (the display
+# manager, NetworkManager, the sound server): a running desktop or network
+# connection stays until the next restart. A policy-rc.d file that denies
+# service actions is in place during the purge, unless the system has one.
+# Usage: _purge [-q] PACKAGE...
+_purge() {
+	local pol=/usr/sbin/policy-rc.d rc=0
+	local -a quiet=()
+	if [[ $1 == -q ]]; then quiet=(-q); shift; fi
+	if [[ ! -e $pol ]]; then
+		printf '#!/bin/sh\n# Written by %s during an uninstall\nexit 101\n' "$APP_NAME" | sys_write "$pol" && as_root chmod 0755 "$pol" && POLICY_RC=$pol
+	fi
+	if (( ${#quiet[@]} )); then
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$@" >/dev/null || rc=$?
+	else
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "$@" || rc=$?
+	fi
+	if [[ -n $POLICY_RC ]]; then as_root rm -f -- "$POLICY_RC"; POLICY_RC=""; fi
+	return "$rc"
+}
+
 restore_debian_stack() {
 	local p v src
-	local -a args=() kept=() plugins=()
+	local -a args=() kept=() plugins=() autos=()
 	while read -r p v src; do
 		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC)$ ]] || continue
 		v=$(LC_ALL=C apt-cache madison "$p" 2>/dev/null | awk -F' *[|] *' 'NR == 1 { print $2 }')
@@ -5260,7 +5305,14 @@ restore_debian_stack() {
 		step "Putting Debian's panel and file manager back"
 		mapfile -t plugins < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'lxplug-*' 2>/dev/null | awk '$1 ~ /^.i/ { print $2 }')
 		if (( ${#plugins[@]} )); then as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "${plugins[@]}" >/dev/null || true; fi
+		if [[ -f $SYS_DIR/stack-auto ]]; then
+			mapfile -t autos < <(printf '%s\n' "${args[@]%%=*}" | grep -xF -f "$SYS_DIR/stack-auto" || true)
+		else
+			mapfile -t autos < <(apt-mark showauto "${args[@]%%=*}" 2>/dev/null || true)
+		fi
 		if as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" --allow-downgrades "${args[@]}"; then
+			# Installing by name marks them manual; they were dependencies of a desktop
+			if (( ${#autos[@]} )); then as_root apt-mark auto "${autos[@]}" >/dev/null || true; fi
 			ok "Debian's ${args[*]%%=*} are installed again"
 		else
 			warn "APT could not put Debian's panel and file manager back; install them with: sudo apt install --allow-downgrades ${args[*]}"
@@ -5299,9 +5351,10 @@ _safe_purge_set() {
 # running it: the settings it changed. Packages that were installed before, or
 # that other software now needs, stay.
 uninstall() {
-	local p f u m d why
+	local p f u m d v prev why
 	local -a pkgs=() remove=() keep=()
 	if [[ -f $SYS_DIR/installed-packages ]]; then mapfile -t pkgs <"$SYS_DIR/installed-packages"; fi
+	if [[ -f $SYS_DIR/hardware-packages ]]; then mapfile -t -O "${#pkgs[@]}" pkgs <"$SYS_DIR/hardware-packages"; fi
 	for p in "${pkgs[@]}"; do
 		[[ -n $(installed_version "$p") ]] || continue
 		grep -qxF "$p" "$SYS_DIR/packages-before" 2>/dev/null && continue
@@ -5310,10 +5363,11 @@ uninstall() {
 	pkgs=("${keep[@]}") keep=()
 	step "What the uninstall removes"
 	log "  For everyone: the Raspberry Pi Desktop session, the login screen style and $APP_PKG"
-	(( ${#pkgs[@]} )) && log "  Packages this script installed: ${pkgs[*]}"
+	(( ${#pkgs[@]} )) && log "  Packages this script installed, hardware support included: ${pkgs[*]}"
 	_stack_installed && log "  Raspberry Pi's panel and file manager: Debian's are installed again in their place"
 	log "  For $(id -un): the settings it changed and your Raspberry Pi Desktop settings; other users keep theirs."
-	log "  Packages you had before or installed later stay."
+	log "  Packages you had before, or that software you installed later needs, stay."
+	log "  Running services (login screen, network, sound) stop at the next restart."
 	ask "Continue" n || die "aborted"
 	prepare_root
 	take_run_lock
@@ -5323,11 +5377,15 @@ uninstall() {
 	# Users who chose the session get the login screen's default session
 	for f in $(sudo sh -c "grep -lE '^X?Session=($SESSION_ID|$PREV_NAME)(-wayland)?\$' /var/lib/AccountsService/users/*" 2>/dev/null); do
 		u=$(id -u "${f##*/}" 2>/dev/null) || continue
+		prev=""
 		for m in XSession Session; do
+			# The session chosen before the install, else the login screen's default
+			v=$(awk -F'\t' -v u="${f##*/}" -v m="$m" '$1 == u && $2 == m { print $3; exit }' "$SYS_DIR/session-before" 2>/dev/null || true)
 			sudo grep -qE "^$m=($SESSION_ID|$PREV_NAME)(-wayland)?\$" "$f" && as_root busctl call org.freedesktop.Accounts \
-				"/org/freedesktop/Accounts/User$u" org.freedesktop.Accounts.User "Set$m" s "" >/dev/null 2>&1 || true
+				"/org/freedesktop/Accounts/User$u" org.freedesktop.Accounts.User "Set$m" s "$v" >/dev/null 2>&1 || true
+			[[ -z $v ]] || prev=$v
 		done
-		ok "${f##*/} logs in to the login screen's default session again"
+		if [[ -n $prev ]]; then ok "${f##*/} logs in to $prev again"; else ok "${f##*/} logs in to the login screen's default session again"; fi
 	done
 	# LightDM's own record of the users' session choice, used without
 	# AccountsService
@@ -5380,6 +5438,10 @@ uninstall() {
 	rm -rf -- "${d:?}/$APP_NAME"
 	# The session's own GSettings database and XSETTINGS
 	rm -f -- "$f/dconf/${APP_NAME//-/}" "$f/xsettingsd/xsettingsd.conf"
+	# Files and folders the sessions left empty; rmdir keeps folders with content
+	[[ ! -f $f/gtk-4.0/gtk.css || -s $f/gtk-4.0/gtk.css ]] || rm -f -- "$f/gtk-4.0/gtk.css"
+	rmdir -- "$f/gtk-4.0" "$f/pcmanfm/default" "$f/pcmanfm" "$f/xsettingsd" "$f/dconf" "$f/labwc" "$f/lxpanel" \
+		"$f/lxsession" "$f/openbox" "$d/themes" "$d/desktop-directories" "$d/flatpak/db" "$d/flatpak" 2>/dev/null || true
 
 	step "Removing packages"
 	for p in "$APP_PKG" "$PREV_PKG" "$OLD_PKG"; do
@@ -5402,7 +5464,7 @@ uninstall() {
 			remove=()
 		fi
 		for p in "${pkgs[@]}"; do [[ " ${remove[*]} " == *" $p "* ]] || keep+=("$p"); done
-		if (( ${#remove[@]} )); then as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "${remove[@]}"; fi
+		if (( ${#remove[@]} )); then _purge "${remove[@]}"; fi
 		# The packages that stay are marked as automatically installed, so
 		# that 'apt autoremove' removes them once nothing needs them
 		if (( ${#keep[@]} )); then
@@ -5421,11 +5483,30 @@ uninstall() {
 	for f in /usr/share/fonts/truetype/piboto /usr/share/fonts/truetype/nunito-sans; do
 		[[ -d $f && $(ls -A "$f") == .uuid ]] && ! dpkg -S "$f" >/dev/null 2>&1 && as_root rm -rf -- "$f"
 	done
-	if [[ -s $SYS_DIR/hardware-packages ]]; then
-		info "Kept, as hardware support: $(paste -sd' ' "$SYS_DIR/hardware-packages")"
+	# Wallpapers that still name the removed Raspberry Pi OS wallpapers get
+	# Debian's default for this release, as desktop-base names it
+	reset_wallpapers
+	# The system users and groups the install created, once no installed
+	# package declares them (systemd-sysusers, maintainer scripts) and no
+	# process runs as them; users first, then their groups
+	while IFS=: read -r kind u; do
+		[[ $u =~ ^[a-z_][a-z0-9_-]*$ ]] || continue
+		grep -qsw -- "$u" /usr/lib/sysusers.d/*.conf /etc/sysusers.d/*.conf \
+			/var/lib/dpkg/info/*.preinst /var/lib/dpkg/info/*.postinst && continue
+		case $kind in
+			user)  getent passwd "$u" >/dev/null && ! pgrep -u "$u" >/dev/null && as_root userdel "$u" 2>/dev/null || true ;;
+			group) getent group "$u" >/dev/null && as_root groupdel "$u" 2>/dev/null || true ;;
+		esac
+	done < <(sort -r "$SYS_DIR/accounts-new" 2>/dev/null || true)
+	# The AccountsService files the install created for its user
+	while IFS= read -r u; do
+		[[ $u =~ ^[a-z_][a-z0-9_.-]*$ ]] && as_root rm -f -- "/var/lib/AccountsService/users/$u"
+	done < <(cat "$SYS_DIR/accounts-created" 2>/dev/null || true)
+	if [[ -z $(installed_version accountsservice) ]]; then
+		as_root rmdir /var/lib/AccountsService/users /var/lib/AccountsService 2>/dev/null || true
 	fi
 	if (( ${#pkgs[@]} == 0 )); then as_root rm -rf -- "$SYS_DIR"; fi
-	ok "Uninstalled. Log out and back in to finish."
+	ok "Uninstalled. Restart the computer to finish."
 }
 
 ###############################################################################
@@ -5517,6 +5598,7 @@ start_log() {
 
 # Remove temporary files on exit.
 cleanup() {
+	if [[ -n $POLICY_RC ]]; then sudo rm -f -- "$POLICY_RC" || true; fi
 	if [[ -n $WORKDIR && -d $WORKDIR ]]; then rm -rf -- "$WORKDIR"; fi
 	if [[ -n $BUILD_STAGE && -d $BUILD_STAGE ]]; then rm -rf -- "$BUILD_STAGE"; fi
 }

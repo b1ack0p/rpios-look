@@ -4,7 +4,8 @@ rpios-look makes Debian look like Raspberry Pi OS, without breaking Debian.
 It installs Raspberry Pi OS's official themes, icons, cursors, fonts,
 wallpapers, panel, file manager and login screen style as a separate session,
 **Raspberry Pi Desktop**, and leaves your settings in Debian's own sessions
-unchanged.
+unchanged unless you ask for them with
+[`--desktop`](#other-desktops).
 
 ![The Raspberry Pi Desktop session on Debian 13, with its menu open](screenshot/scr1.png)
 ![The Raspberry Pi Desktop session on Wayland, Debian 13](screenshot/scr2.png)
@@ -118,7 +119,7 @@ the look is installed: a fresh install detects the computer again.
 
 | One-run option | Description |
 |----------------|-------------|
-| `-d`, `--desktop LIST` | Also give other desktops the look, for you only (see [Other desktops](#other-desktops)). A comma-separated list of `xfce`, `gnome`, `budgie`, `cinnamon`, `mate`, `lxqt`, `openbox`, `labwc`, `kde`; or `all` or `none` (default). |
+| `-d`, `--desktop LIST` | Also give other desktops the look, for you only (see [Other desktops](#other-desktops)). A comma-separated list of `lxde`, `openbox`, `labwc`, `xfce`, `mate`; or `all` or `none` (default). |
 | `--bundle LIST` | With `--download`: only these comma-separated release/architecture pairs, for example `bookworm/i386,trixie/amd64` |
 | `-y`, `--yes` | Answer yes to every question |
 | `-v`, `--verbose` | Print the commands run with sudo, the download URLs and other details |
@@ -260,6 +261,13 @@ anything changes.
 - If Raspberry Pi has no build of an installed package of these sources (for
   example a `-dbg` package), Debian's are kept.
 - `--uninstall` and `--prepare-upgrade` install Debian's versions again.
+- On Debian 11 and 12, Raspberry Pi's GTK 3 panel cannot draw Debian's LXDE
+  panel layout: it has no pager or background image, and its menu plugin is
+  called `smenu`. While the look is installed, Debian's LXDE session reads an
+  adapted copy of Debian's layout from the session package (no pager, the
+  theme's panel colour, the menu as `smenu`). Debian's files and your own
+  panel settings are not changed; a panel layout you saved yourself in
+  `~/.config/lxpanel/LXDE` is used as it is.
 
 On Debian 13 and later, Raspberry Pi's panel (`lxpanel-pi`) and file manager
 (`pcmanfm-pi`) are installed beside Debian's, which stay unchanged.
@@ -353,16 +361,18 @@ cannot run, Debian's greeter is used.
 ### Other desktops
 
 `--desktop` gives other desktops the look, for the user running the script.
-Changed settings are backed up and restored by `--uninstall`.
+Changed settings are backed up and restored by `--uninstall`. Only desktops
+built like Raspberry Pi OS's, or that take its GTK themes fully, are
+supported; on GNOME, Budgie, Cinnamon, KDE Plasma and LXQt, whose own
+toolkits or shells ignore these themes, use the Raspberry Pi Desktop session.
 
 | Desktop | Applied |
 |---------|---------|
+| LXDE (Debian's session) | Theme, icons, cursor, font, colours, window frames, wallpaper and desktop; the panel stays Debian's |
+| Openbox | Window frames and title fonts |
+| labwc | Window frames, title fonts, cursor and GTK settings |
 | Xfce | Theme, icons, cursor, fonts, wallpaper, top panel, window frames |
-| GNOME, Budgie | GTK theme, icons, cursor, fonts, button layout, wallpaper |
-| Cinnamon, MATE | Theme, icons, cursor, fonts, wallpaper |
-| LXQt | Icons, cursor, Openbox theme, wallpaper |
-| Openbox, labwc | Window settings; labwc also cursor and GTK settings |
-| KDE Plasma | Icons and cursor |
+| MATE | Theme, icons, cursor, fonts, wallpaper |
 
 ## What is installed
 
@@ -394,7 +404,8 @@ Only missing packages are installed, from your APT sources.
 
 ### Hardware support and login screen
 
-These are kept on uninstall.
+These are installed only where the computer lacks them, and removed again on
+uninstall.
 
 | Kind | Packages | When |
 |------|----------|------|
@@ -436,10 +447,18 @@ first. It:
 - on Debian 10 to 12, installs Debian's panel and file manager again;
 - restores the settings that `--desktop` changed for you, and removes your
   Raspberry Pi Desktop settings, which no other session reads;
-- after a second question, removes the packages it installed. Packages you
-  had before, hardware support and the login screen packages stay. Packages
-  that other software needs are kept and marked automatic, so
-  `apt autoremove` removes them once nothing needs them.
+- gives any desktop wallpaper of yours that still names a Raspberry Pi OS
+  wallpaper Debian's default for your release (the `desktop-background`
+  alternative of desktop-base), in PCManFM, Xfce, MATE and GNOME-based
+  desktops;
+- after a second question, removes the packages it installed, hardware
+  support and login screen packages included, so the computer is as Debian
+  set it up. Packages you had before stay. Packages that software you
+  installed later needs are kept and marked automatic, so `apt autoremove`
+  removes them once nothing needs them;
+- leaves running services (the login screen, network, sound) running until
+  the next restart, so the uninstall never cuts off the desktop or network
+  it runs in. Restart the computer to finish.
 
 ## Offline installation
 
