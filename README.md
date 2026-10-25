@@ -50,10 +50,21 @@ Differences from Raspberry Pi OS:
   Shutdown dialog shows its Shutdown icon on every Debian release, as it does
   on Raspberry Pi OS 13.
 - **Tools left out.** Raspberry Pi's system tools are not installed:
-  raspi-config, the updater, and the panel's power and network plugins; on
-  Wayland also the Raspberry Pi Connect and on-screen keyboard plugins.
-- **Network icon.** Debian's `nm-applet` shows the network icon in the
-  notification area, in place of the network plugin.
+  raspi-config and the updater; the panel's power plugin, which reports
+  Raspberry Pi power supply problems, only on a Raspberry Pi; on Wayland also
+  the Raspberry Pi Connect and on-screen keyboard plugins.
+- **Network icon.** On Debian 12 and 13, where NetworkManager runs the
+  network, the panel has Raspberry Pi OS's own network plugin, with its
+  Wi-Fi menu and connection editor. It needs Raspberry Pi's build of Debian's
+  `libnma0` (the same version with Raspberry Pi's patch), which replaces
+  Debian's while the look is installed; uninstall puts Debian's back.
+  Elsewhere Debian's `nm-applet` shows the network icon in the notification
+  area.
+- **Window corners.** On X, Debian's Openbox rounds the window corners of
+  the themes that Raspberry Pi OS rounds (PiX, PiXflat, PiXnoir) and keeps
+  PiXtrix and PiXonyx square; its rounding is 2 pixels, where Raspberry Pi's
+  own Openbox build rounds PiXflat and PiXnoir by 1. On Wayland, labwc keeps
+  square corners for every theme, as on Raspberry Pi OS.
 - **Greeter.** The login screen is Debian's LightDM GTK greeter in Raspberry
   Pi OS's style, with a session chooser. `--pi-greeter` uses Raspberry Pi's
   own greeter, which has none.
@@ -97,7 +108,7 @@ bash rpios-look.sh [MODE] [OPTION]...
 |------|--------|
 | *(none)* | Install, or update an existing install |
 | `--refresh` | List available updates, then ask to apply them |
-| `--uninstall` | Remove the look (see [Uninstalling](#uninstalling)) |
+| `--uninstall` | Remove everything this script added and restore Debian's default setup (see [Uninstalling](#uninstalling)) |
 | `--prepare-upgrade` | Prepare for a Debian release upgrade (see [Upgrading Debian](#upgrading-debian)) |
 | `--download` | Build `packages/` for an [offline installation](#offline-installation) |
 | `--offline` | Install from `packages/` |
@@ -116,6 +127,7 @@ the look is installed: a fresh install detects the computer again.
 | `--pi-greeter`, `--no-pi-greeter` | Raspberry Pi's own greeter, which has no session chooser | Off |
 | `--login-background B` | `debian` (Debian's login artwork), `raspios`, or the absolute path of a picture, using only `A-Z a-z 0-9 . _ / + -` and without `..` | `debian` |
 | `--qt`, `--no-qt` | Qt applications follow the GTK theme in the session | Off |
+| `--size SIZE` | Raspberry Pi OS's size presets (Appearance Settings, Defaults) for the font, panel icons and height, taskbar buttons, toolbar and file manager icons, cursor and terminal font: `small`, `medium` (Raspberry Pi OS's default), `large` or `larger`. | `medium` |
 
 | One-run option | Description |
 |----------------|-------------|
@@ -276,16 +288,28 @@ On Debian 13 and later, Raspberry Pi's panel (`lxpanel-pi`) and file manager
 
 The panel is Raspberry Pi OS's own layout for your Debian release, with its
 spaces and separators: menu, launchers, taskbar, eject, Bluetooth, network,
-volume, clock, battery and magnifier. Differences:
+volume, clock and battery. Differences:
 
-- The notification area takes the network plugin's place; it shows
-  `nm-applet` and other programs' tray icons.
-- A **keyboard layout** applet sits before the clock. It shows the current
-  layout by its short name (`FR`, `US`, ...); right-click it to add layouts
-  and choose the key that switches them. Raspberry Pi OS has none.
+- Where Debian's `nm-applet` is used (see [Overview](#overview)), the
+  notification area takes the network plugin's place.
+- The **keyboard layout** applet (`xkb`) is installed but, as on Raspberry Pi
+  OS, not on the panel; add it with **Add / Remove Panel Items**.
+- The **magnifier** (`mage-rpi`) is installed and opens with Ctrl+Alt+M. Its
+  panel plugin is installed but not on the panel, which by default shows no
+  magnifier on Raspberry Pi OS, where the magnifier is optional.
 - The **battery** appears only on a computer with a battery.
 - The **microphone** and **Bluetooth** icons appear only when the computer
-  has a microphone or a Bluetooth adapter, as on Raspberry Pi OS.
+  has a microphone or a Bluetooth adapter, as on Raspberry Pi OS. Turned off,
+  Bluetooth shows a grey icon, as on Raspberry Pi OS, also on laptops whose
+  own Bluetooth switch would power the adapter off (ThinkPads and others):
+  there the switch stays on and only the adapter's radio is turned off, and
+  the session package's `rfkill` (Debian's diverted to `rfkill.distrib`)
+  lists the adapter first, as the panel's plugin reads only the first entry.
+- **Pop-ups** of the panel (the calendar, the volume slider) open inside the
+  screen on any resolution and monitor layout: on X a small helper,
+  `popup-keeper`, moves one that the panel places partly off the screen before
+  it is shown; on Wayland the compositor does. Menus and tooltips are kept on
+  the screen by GTK.
 
 The **Web Browser** launcher opens Debian's default browser
 (`x-www-browser`), which is also the session's default for web links. To
@@ -342,9 +366,30 @@ installed. On X:
 | Ctrl+Shift+Escape | Task manager (`lxtask`) |
 | Print | Screenshot (`scrot`) |
 | Ctrl+Alt+Delete, Ctrl+Alt+End | Shutdown dialog (`pishutdown`, installed with `--pi-apps` on Debian 13 and later) |
-| Ctrl+Alt+B, Ctrl+Alt+M, volume keys | Bluetooth menu, magnifier, volume (Raspberry Pi's panel only) |
+| Ctrl+Alt+M | Magnifier (`mage-rpi`) |
+| Ctrl+Alt+B, Ctrl+Alt+W | Bluetooth menu, network menu (Raspberry Pi's panel only) |
+| Volume up, down and mute | Volume, through the panel's volume plugin (or the sound server) |
+| Microphone mute | Microphone on or off |
+| Lock (e.g. Fn+F3 on ThinkPads) | Lock the screen (`lxlock`) |
+| Display (e.g. Fn+F7) | Display settings (`arandr` or `lxrandr`) |
+| Airplane mode | Every radio off, or all on again |
 
-On Wayland, the session uses Raspberry Pi OS's labwc keys.
+On Wayland, the session uses Raspberry Pi OS's labwc keys (Ctrl+Alt+L locks
+with `swaylock`), with the same volume, microphone, lock and airplane mode
+keys, and turns the displays off after 10 minutes without input
+(`swayidle`). Suspend, hibernate, lid and power keys are Debian's
+(systemd-logind), as before. Authentication dialogs come from MATE's agent
+(`mate-polkit`), as on Raspberry Pi OS.
+
+**ThinkPads and other IBM/Lenovo "Think" models.** On older ThinkPads the
+firmware also changes its own volume and mute with the volume keys, and its
+mute key only mutes, so the two fall out of step and the sound can stay
+muted. The session package sets `thinkpad_acpi`'s `volume_control` option,
+which makes that volume a mixer control (`ThinkPadEC`), and enables every
+hotkey; the session keeps that volume at full and unmuted, so the panel's
+volume plugin alone sets the volume, as on Raspberry Pi OS. Both take effect
+after a restart. Brightness, the ThinkLight and the Wi-Fi switch of older
+models stay with the firmware.
 
 ### Login screen
 
@@ -396,8 +441,8 @@ Only missing packages are installed, from your APT sources.
 
 | Kind | Packages |
 |------|----------|
-| Session | `lxsession`, `openbox`, `lxpanel`, `pcmanfm`, `gvfs-backends`, `gvfs-fuse`, `lxappearance`, `dconf-cli`, `libglib2.0-bin`; `accountsservice` with LightDM |
-| Wayland | `labwc`, `swaybg`, `kanshi`, `xsettingsd`, `wlr-randr`, `xwayland` |
+| Session | `lxsession`, `openbox`, `lxpanel`, `pcmanfm`, `gvfs-backends`, `gvfs-fuse`, `lxappearance`, `dconf-cli`, `libglib2.0-bin`, `python3`, `mate-polkit`; `accountsservice` with LightDM |
+| Wayland | `labwc`, `swaybg`, `kanshi`, `xsettingsd`, `wlr-randr`, `xwayland`, `swaylock`, `swayidle`, `wlopm` |
 | Themes | `gtk2-engines-pixbuf`, `libgtk2.0-bin`, `gnome-icon-theme`, `sound-theme-freedesktop`; `fonts-liberation` (Debian 13+) or `fonts-liberation2`; `adwaita-icon-theme-legacy` (Debian 13+) |
 | Help menu | `debian-reference-common`, `debian-reference-en` |
 | Qt (with `--qt`) | `qt5-gtk-platformtheme`, `qt6-gtk-platformtheme` |
@@ -411,8 +456,9 @@ uninstall.
 |------|----------|------|
 | X server | `xserver-xorg`, `x11-utils`, `libgl1-mesa-dri` | Always |
 | Wi-Fi | `network-manager`, `wpasupplicant`, `iw`, `wireless-regdb`, `rfkill` | With a Wi-Fi adapter, unless NetworkManager, ConnMan or Wicd is installed. Interfaces in `/etc/network/interfaces` are not changed. |
-| Network icon | `network-manager-applet` (Debian 13+) or `network-manager-gnome` | Where NetworkManager is used |
-| Bluetooth | `bluez`, `rfkill`; `libspa-0.2-bluetooth` (PipeWire) or `pulseaudio-module-bluetooth` (PulseAudio); `blueman` on Debian 10 to 12 with Debian's panel | With a Bluetooth adapter |
+| Network icon | Raspberry Pi's network plugin with its `libnma0`, `libnma-common` and connection editor (Debian 12 and 13); else `network-manager-applet` (Debian 13+) or `network-manager-gnome` | Where NetworkManager is used |
+| Bluetooth | `bluez`, `rfkill`; `libspa-0.2-bluetooth` (PipeWire) or `pulseaudio-module-bluetooth` (PulseAudio); `blueman` on Debian 10 to 12 with Debian's panel | With a Bluetooth adapter, also one that is turned off |
+| ThinkPad volume | `alsa-utils` | On older ThinkPads with a firmware volume |
 | Sound | `pipewire-audio` (Debian 12+) or `pulseaudio` | With a sound card, if no sound server is installed |
 | Firmware | The packages holding firmware the kernel failed to load during this boot, from Debian's `non-free-firmware` component (`non-free` before Debian 12) | On Debian itself, not on derivatives, and never offline. If the component is not enabled, the summary explains how to add it. |
 | Login screen | `lightdm`, `lightdm-gtk-greeter` where no other login manager is used; `desktop-base` for Debian's login artwork | With `--login-screen` |
@@ -513,9 +559,12 @@ The script follows Debian's
   provide a package of the same name, if it replaces, breaks, conflicts with
   or provides a Debian package, or if its install scripts change a Debian
   file. Raspberry Pi's file manager on Debian 13 is repacked to install
-  beside Debian's. The one exception is Raspberry Pi OS's builds of Debian's
-  panel and file manager on Debian 10 to 12 (see
-  [Panel and file manager](#panel-and-file-manager)).
+  beside Debian's. The exceptions, with `--pi-apps` (the default), are
+  Raspberry Pi OS's builds of Debian's panel and file manager on Debian 10 to
+  12 (see [Panel and file manager](#panel-and-file-manager)) and of `libnma`
+  for its network plugin on Debian 12 and 13. They are the same versions
+  with Raspberry Pi's changes and replace Debian's while the look is
+  installed; `--uninstall` puts Debian's back.
 - **Matching builds.** Packages with compiled code must match your Debian
   release, and their dependencies must come from Debian, or from Raspberry
   Pi where Debian has no such package. Dependencies that only a Raspberry Pi

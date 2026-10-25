@@ -11,7 +11,8 @@
 # Usage       : bash rpios-look.sh                   install or update
 #               bash rpios-look.sh --refresh         list available updates, then
 #                                                      ask to apply them
-#               bash rpios-look.sh --uninstall       undo it
+#               bash rpios-look.sh --uninstall       remove everything this script added
+#                                                      and restore Debian's default setup
 #               bash rpios-look.sh --prepare-upgrade before a Debian release upgrade
 #               bash rpios-look.sh --download        build or refresh packages/ for
 #                                                      an offline install (needs internet)
@@ -47,6 +48,9 @@
 #                                    suits it, X on older computers and older Debian.
 #                                    X is always installed: the login screen runs on it
 #                   --qt | --no-qt   Qt applications follow the theme in the session
+#                   --size SIZE      small, medium, large or larger: Raspberry Pi OS's
+#                                    size presets for fonts, icons, the panel and the
+#                                    cursor. Default: medium, Raspberry Pi OS's own
 #               An install run saves the options above; later runs reuse them
 #               unless given again, e.g. --theme auto.
 #               -d, --desktop LIST   also give these desktops the look, for you only:
@@ -104,7 +108,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.10.0"
+readonly APP_VERSION="3.11.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -264,6 +268,8 @@ O_LOGIN=1               # the Raspberry Pi OS login screen, where LightDM is use
 O_PI_GREETER=0          # Raspberry Pi's own greeter, which has no session chooser
 O_LOGIN_BG="debian"     # the login screen's background: debian, raspios or a path
 O_QT=0
+O_SIZE=medium          # the size preset: small, medium (Raspberry Pi OS's default), large or larger
+S_SIZE=""               # the size preset in use (size_resolve)
 O_WAYLAND=auto          # the Wayland session: auto (where the computer suits it), 1 or 0
 O_DESKTOPS="none"       # other desktops to give the look, for the running user
 O_BUNDLE=""             # --download: release/architecture pairs, empty = all
@@ -271,7 +277,7 @@ O_LOG=1
 O_YES=0
 O_VERBOSE=0
 O_INTERACTIVE=0
-readonly SAVED_KEYS=(theme 4k pi-apps login-screen pi-greeter login-background qt wayland)
+readonly SAVED_KEYS=(theme 4k pi-apps login-screen pi-greeter login-background qt wayland size)
 declare -A GIVEN=()     # remembered options given on this command line
 
 # Host (H_*) and run state. The theme variables (T_*) are set by set_theme.
@@ -284,6 +290,9 @@ HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound,
 POLICY_RC=""            # the policy-rc.d file a purge made, removed on exit
 ROOT_PKGS=()            # what is installed for its own sake, not as a dependency
 APT_PKGS=()             # installed by name from the APT sources
+BT_SWITCH=0             # 1 when the computer has a laptop Bluetooth switch (bt_switch_build)
+USE_NETMAN=0            # 1 when Raspberry Pi's network plugin and its libnma build are used
+NET_NAMES=()            # those Raspberry Pi builds that carry Debian's names (libnma)
 USE_STACK=0             # 1 when Raspberry Pi's builds replace Debian's panel and file manager (PI_STACK)
 STACK_NAMES=()          # those packages, with the other installed packages of their sources
 declare -A PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
@@ -417,6 +426,8 @@ set_option() {
 			[[ $2 =~ ^[A-Za-z0-9._/+-]+$ && $2 != *..* ]] || return 1
 			O_LOGIN_BG=$2 ;;
 		qt:[01]) O_QT=$2 ;;
+		size:small|size:medium|size:large|size:larger) O_SIZE=$2 ;;
+		size:auto) O_SIZE=medium ;;   # the default, as earlier versions saved it
 		wayland:auto|wayland:on) O_WAYLAND=${2/on/1} ;;
 		wayland:off|wayland:0) O_WAYLAND=0 ;;
 		# Written by 3.2.0 and earlier, where the Wayland session was the default.
@@ -427,8 +438,8 @@ set_option() {
 
 # Print the remembered options in the format of the options file.
 option_lines() {
-	printf 'theme=%s\n4k=%s\npi-apps=%s\nlogin-screen=%s\npi-greeter=%s\nlogin-background=%s\nqt=%s\nwayland=%s\n' \
-		"$O_THEME" "$O_4K" "$O_PI_APPS" "$O_LOGIN" "$O_PI_GREETER" "$O_LOGIN_BG" "$O_QT" "$(case $O_WAYLAND in 1) echo on ;; 0) echo off ;; *) echo auto ;; esac)"
+	printf 'theme=%s\n4k=%s\npi-apps=%s\nlogin-screen=%s\npi-greeter=%s\nlogin-background=%s\nqt=%s\nwayland=%s\nsize=%s\n' \
+		"$O_THEME" "$O_4K" "$O_PI_APPS" "$O_LOGIN" "$O_PI_GREETER" "$O_LOGIN_BG" "$O_QT" "$(case $O_WAYLAND in 1) echo on ;; 0) echo off ;; *) echo auto ;; esac)" "$O_SIZE"
 }
 
 # Save the options of this install run for later runs.
@@ -521,10 +532,23 @@ set_theme() {
 		         T_DESC="PiX — legacy, Raspbian Stretch" ;;
 		*) die "unknown theme '$1'" ;;
 	esac
+	# Raspberry Pi OS's size presets, from its Appearance Settings (Defaults):
+	# font, cursor, panel icons and taskbar buttons, toolbar, file manager and
+	# terminal. Medium is Raspberry Pi OS's default.
+	case ${S_SIZE:-medium} in
+		small)  T_FONT_SIZE=8  T_CURSOR_SIZE=24 T_PANEL_ICON=20 T_TASK_WIDTH=150 T_TB_ICON=16 \
+		        T_FOLDER_ICON=32 T_SMALL_ICON=16 T_PANE_ICON=16 T_THUMB=64 T_TERM_FONT="Monospace 8" ;;
+		large)  T_FONT_SIZE=16 T_CURSOR_SIZE=36 T_PANEL_ICON=52 T_TASK_WIDTH=300 T_TB_ICON=48 \
+		        T_FOLDER_ICON=80 T_SMALL_ICON=32 T_PANE_ICON=32 T_THUMB=160 T_TERM_FONT="Monospace 15" ;;
+		larger) T_FONT_SIZE=24 T_CURSOR_SIZE=48 T_PANEL_ICON=68 T_TASK_WIDTH=300 T_TB_ICON=48 \
+		        T_FOLDER_ICON=96 T_SMALL_ICON=48 T_PANE_ICON=48 T_THUMB=192 T_TERM_FONT="Monospace 20" ;;
+		*)      T_FONT_SIZE=12 T_CURSOR_SIZE=24 T_PANEL_ICON=36 T_TASK_WIDTH=200 T_TB_ICON=24 \
+		        T_FOLDER_ICON=48 T_SMALL_ICON=24 T_PANE_ICON=24 T_THUMB=80 T_TERM_FONT="Monospace 10" ;;
+	esac
 	if [[ $T_ERA == trixie ]]; then
-		T_FONT_FAMILY="Nunito Sans" T_FONT_WEIGHT=Light T_FONT="Nunito Sans Light 12"
+		T_FONT_FAMILY="Nunito Sans" T_FONT_WEIGHT=Light T_FONT="Nunito Sans Light $T_FONT_SIZE"
 	else
-		T_FONT_FAMILY=PibotoLt T_FONT_WEIGHT=Normal T_FONT="PibotoLt 12"
+		T_FONT_FAMILY=PibotoLt T_FONT_WEIGHT=Normal T_FONT="PibotoLt $T_FONT_SIZE"
 	fi
 	# The default wallpaper of the look in Raspberry Pi OS. PiXflat's changed
 	# with each release (raspberrypi-ui-mods); PiX uses Raspbian Stretch's.
@@ -543,7 +567,6 @@ set_theme() {
 	# Values that Raspberry Pi OS uses (raspberrypi-ui-mods, rpd-x-core).
 	T_COLOR_SCHEME='selected_bg_color:#878791919b9b\nselected_fg_color:#f0f0f0f0f0f0\nbar_bg_color:#ededececebeb\nbar_fg_color:#000000000000\n'
 	T_DESK_BG="#d6d6d3d3dede" T_DESK_FG="#e8e8e8e8e8e8" T_DESK_SHADOW="#d6d6d3d3dede"
-	T_CURSOR_SIZE=24
 	T_SOUND_THEME=freedesktop   # Raspberry Pi OS enables event sounds with this theme
 }
 
@@ -563,6 +586,8 @@ rpi_pkgs() {
 		else index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper' | grep -v -- '-4k$' || true; fi
 	done | awk '!seen[$0]++'
 	if suite_ge "$1" trixie; then pi_apps "$1" "$2"; wayland_pkgs "$1" "$2"; else pi_stack "$1" "$2"; fi
+	# The magnifier (Ctrl+Alt+M), where Raspberry Pi OS has it
+	index_names "$(rpi_aid)" "$1" "$2" | grep -x mage-rpi || true
 }
 
 # Print Raspberry Pi's Wayland panel and every plugin that Raspberry Pi OS
@@ -572,11 +597,16 @@ rpi_pkgs() {
 wayland_pkgs() {
 	printf '%s\n' wf-panel-pi pipanel rpcc sudopwd
 	index_candidates "$(rpi_aid)" "$1" "$2" "$WAYLAND_PKG" 2>/dev/null | first_line | cut -f6 | depnames \
-		| grep '^wfplug-' | grep -vxE "wfplug-($WF_DROP)" || true
+		| grep '^wfplug-' | grep -vxE "wfplug-($(wf_drop))" || true
 }
 # Print the Debian packages of the Wayland session: compositor, wallpaper,
 # display settings, XSETTINGS for X applications, and Xwayland.
-wayland_debs() { printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland; }
+# Screen lock and blanking as in Raspberry Pi OS 13: swaylock, swayidle and,
+# where Debian has it, wlopm to switch displays off.
+wayland_debs() {
+	printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland swaylock swayidle
+	if apt_has wlopm; then echo wlopm; fi
+}
 # Print the Debian packages of the X server, which the login screen always
 # needs, and Mesa's 3D drivers.
 x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
@@ -605,7 +635,7 @@ pi_apps() {
 	{
 		for t in $(panel_plugins "$1" "$2"); do printf 'lpplug-%s\n' "${t/#smenu/menu}"; done
 		index_candidates "$(rpi_aid)" "$1" "$2" "$PANEL_PKG" 2>/dev/null | first_line | cut -f6 | depnames \
-			| grep '^lpplug-' | grep -vxE "lpplug-($PANEL_DROP)" || true
+			| grep '^lpplug-' | grep -vxE "lpplug-($(panel_drop))" || true
 	} | awk '!seen[$0]++'
 }
 
@@ -616,7 +646,7 @@ panel_plugins() {
 	local f
 	f=$(pi_unpack "$PANEL_PKG" "$1" "$2" 2>/dev/null) && f+=/etc/xdg/lxpanel-pi/panels/panel && [[ -f $f ]] \
 		|| { printf '%s\n' smenu ejecter bluetooth volumepulse clock batt magnifier | _no_battery; return 0; }
-	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$PANEL_DROP|space|separator|launchbar|taskbar|tray" | awk '!seen[$0]++' | _no_battery
+	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$(panel_drop)|space|separator|launchbar|taskbar|tray" | awk '!seen[$0]++' | _no_battery
 }
 
 # The same for a Raspberry Pi OS release before 13, whose layout is in
@@ -625,7 +655,7 @@ lx_panel_plugins() {
 	local f
 	f=$(pi_unpack raspberrypi-ui-mods "$1" "$2" 2>/dev/null) && f+=/etc/xdg/lxpanel/LXDE-pi/panels/panel && [[ -f $f ]] \
 		|| { printf '%s\n' smenu ejecter bluetooth volumepulse batt magnifier | _no_battery; return 0; }
-	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$PANEL_DROP|space|separator|launchbar|taskbar|tray|menu|dclock" \
+	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$(panel_drop)|space|separator|launchbar|taskbar|tray|menu|dclock" \
 		| awk '!seen[$0]++' | _no_battery
 }
 
@@ -671,14 +701,30 @@ has_battery() {
 	done
 	return 1
 }
-# The network plugins of Raspberry Pi OS's panels, replaced by the tray.
+# The network plugins of Raspberry Pi OS's panels: netman (NetworkManager,
+# Raspberry Pi OS 12 and later) and dhcpcdui (dhcpcd, before).
 readonly PANEL_NET="netman|dhcpcdui"
-# Plugins of Raspberry Pi OS's panel that do not work on Debian (grep -E
-# alternatives): the updater and power plugins need Raspberry Pi system tools
-# or hardware; the network plugins need a Raspberry Pi rebuild of a Debian
-# library or Raspberry Pi's network settings (nm-applet shows the same icons
-# in the tray).
-readonly PANEL_DROP="updater|power|$PANEL_NET"
+# Print the plugins of Raspberry Pi OS's panel that are left out here (grep -E
+# alternatives): the updater, which needs Raspberry Pi's system tools; the
+# power plugin, which reports Raspberry Pi power supply problems, except on a
+# Raspberry Pi; and the network plugins unless netman can be used (see
+# USE_NETMAN), where the tray shows nm-applet instead. --download keeps all.
+panel_drop() {
+	local d=updater
+	[[ $O_MODE == download ]] && { echo "$d"; return 0; }
+	on_pi || d+="|power"
+	if (( USE_NETMAN )); then d+="|dhcpcdui"; else d+="|$PANEL_NET"; fi
+	echo "$d"
+}
+# The same for the Wayland panel, with the Raspberry Pi Connect and on-screen
+# keyboard plugins, which need Raspberry Pi's own services.
+wf_drop() { echo "$(panel_drop)|connect|squeek"; }
+# The plugins installed but not placed on the panel: the magnifier, which
+# Raspberry Pi OS shows only once the magnifier (mage-rpi) is installed, and
+# which is installed here for Ctrl+Alt+M (see _openbox_keys).
+readonly PANEL_UNPLACED="magnifier"
+# Succeed on a Raspberry Pi.
+on_pi() { [[ $H_MODEL == *"Raspberry Pi"* ]] || grep -qs 'Raspberry Pi' /proc/device-tree/model; }
 # Before Raspberry Pi OS 13, Raspberry Pi's panel and file manager are its own
 # builds of Debian's packages, under Debian's names. From Raspberry Pi OS 11
 # they use GTK 3, while Debian 11 and 12 build theirs and their plugins for
@@ -691,7 +737,6 @@ readonly PI_STACK_SRC="lxpanel|libfm|pcmanfm"
 readonly DEBIAN_APPLETS="xkb weather volume thermal monitors deskno cpufreq"
 # The same for the Wayland panel, with the Raspberry Pi Connect and on-screen
 # keyboard plugins, which need Raspberry Pi's own services.
-readonly WF_DROP="updater|power|netman|connect|squeek"
 
 # Print the Raspberry Pi OS programs that this script installed and that are
 # built against the libraries of one Debian release; --prepare-upgrade removes
@@ -710,7 +755,18 @@ release_bound_pkgs() {
 # Pi's), gvfs for Trash and drives in the file managers, the appearance
 # settings, and dconf for the session's settings. No compositor is installed:
 # Raspberry Pi OS starts xcompmgr with an option that Debian's lacks.
-session_debs() { printf '%s\n' lxsession openbox lxpanel pcmanfm gvfs-backends gvfs-fuse lxappearance dconf-cli libglib2.0-bin; }
+session_debs() {
+	printf '%s\n' lxsession openbox lxpanel pcmanfm gvfs-backends gvfs-fuse lxappearance dconf-cli libglib2.0-bin python3
+	# MATE's authentication agent, as Raspberry Pi OS uses (lxpolkit without it)
+	if apt_has mate-polkit; then echo mate-polkit; fi
+}
+# Print the authentication agent the sessions start: MATE's, as Raspberry Pi
+# OS uses, else LXDE's lxpolkit.
+polkit_agent() {
+	local f
+	f=$(dpkg -L mate-polkit 2>/dev/null | grep -m1 '/polkit-mate-authentication-agent-1$' || true)
+	if [[ -n $f && -x $f ]]; then echo "$f"; else echo lxpolkit; fi
+}
 
 # Print the Debian packages the themes need: the GTK 2 pixmap engine and
 # runtime, the icon sets that the Raspberry Pi sets inherit, the sound theme
@@ -721,7 +777,16 @@ theme_debs() {
 }
 # Succeed if this computer has a Wi-Fi or a Bluetooth adapter.
 has_wifi() { compgen -G '/sys/class/ieee80211/*' >/dev/null; }
-has_bluetooth() { compgen -G '/sys/class/bluetooth/hci*' >/dev/null; }
+# A Bluetooth adapter, or a Bluetooth radio that rfkill blocks: some laptops
+# (ThinkPads) power the adapter off while blocked, so it is not listed then.
+has_bluetooth() {
+	local t
+	compgen -G '/sys/class/bluetooth/hci*' >/dev/null && return 0
+	for t in /sys/class/rfkill/rfkill*/type; do
+		[[ -r $t && $(<"$t") == bluetooth ]] && return 0
+	done
+	return 1
+}
 
 # Print the Debian packages for the panel's network and Bluetooth icons, as on
 # Raspberry Pi OS, and for its Help menu. With a Wi-Fi adapter: NetworkManager
@@ -737,7 +802,7 @@ tray_debs() {
 		nm=1 rfkill=1
 		printf '%s\n' network-manager wpasupplicant iw wireless-regdb rfkill
 	fi
-	(( nm )) && nm_applet_pkg "$1"
+	(( nm )) && (( ! USE_NETMAN )) && nm_applet_pkg "$1"
 	if (( all )) || has_bluetooth; then
 		echo bluez
 		(( rfkill )) || echo rfkill
@@ -788,6 +853,9 @@ firmware_debs() {
 	[[ -z $out ]] || printf '%s\n' "$out"
 }
 
+# Print amixer's package on older ThinkPads with a firmware volume, which
+# volume-key keeps at full (see keys_build).
+thinkpad_debs() { if [[ -e /proc/acpi/ibm/volume ]]; then echo alsa-utils; fi; }
 # Print the Debian package that provides nm-applet (network-manager-gnome is
 # a transitional package from Debian 13).
 nm_applet_pkg() { if suite_ge "$1" trixie; then echo network-manager-applet; else echo network-manager-gnome; fi; }
@@ -1026,6 +1094,10 @@ rpi_populated() {
 
 # Print the default theme for this release: PiXtrix (the Raspberry Pi OS
 # Trixie look) on Debian 13 and later, PiXflat (Bookworm) otherwise.
+# Set S_SIZE, the size preset in use: the one chosen with --size, else
+# Raspberry Pi OS's default (medium). The screen is not looked at.
+size_resolve() { S_SIZE=$O_SIZE; }
+
 default_theme() { if suite_ge "$H_SUITE" trixie; then echo pixtrix; else echo pixflat; fi; }
 
 # Print the theme chosen by the options.
@@ -1353,7 +1425,7 @@ resolve_pkg() {
 			if [[ $aid == local && $v == *+rpt* && $pkg =~ ^(lxpanel|pcmanfm|libfm) && $pkg != *-pi ]] && (( ! USE_STACK )); then continue; fi
 			# Raspberry Pi's builds of these, with their plugins and data, come
 			# from the target release only, since they must match each other
-			if [[ $x != "$H_SUITE/$arch" && $pkg =~ ^(lxpanel|pcmanfm|libfm|lxplug-) && $pkg != *-pi ]]; then continue; fi
+			if [[ $x != "$H_SUITE/$arch" && $pkg =~ ^(lxpanel|pcmanfm|libfm|lxplug-|libnma) && $pkg != *-pi ]]; then continue; fi
 			if [[ $aid == rpi && -z $H_RPI_ARCH ]]; then
 				# Another architecture's build: only packages without compiled code
 				[[ $a == all ]] || (( data )) || continue
@@ -1505,25 +1577,31 @@ _dep_ok() {
 # Rewrite the dependency names that Debian has since renamed (DEP_RENAMES) in
 # the Depends and Pre-Depends fields. Prints the path of the package to install.
 compat_fix() {
-	local deb=$1 deps names n c repl changed=0 re field
+	local deb=$1 deps group names n c repl changed=0 re field
 	local -A value=()
 	for field in Depends Pre-Depends; do
 		deps=$(dpkg-deb -f "$deb" "$field")
 		[[ -n $deps ]] || continue
-		names=$(depnames <<<"$deps")
-		for n in $names; do
-			_dep_ok "$n" && continue
+		# Each comma-separated group needs one of its alternatives (a | b)
+		while IFS= read -r group; do
+			names=$(depnames <<<"$group")
+			[[ -n $names ]] || continue
 			repl=""
-			for c in ${DEP_RENAMES[$n]:-}; do
-				if _dep_ok "$c"; then repl=$c; break; fi
+			for n in $names; do if _dep_ok "$n"; then repl=ok; break; fi; done
+			[[ -z $repl ]] || continue
+			for n in $names; do
+				for c in ${DEP_RENAMES[$n]:-}; do
+					if _dep_ok "$c"; then repl=$c; break; fi
+				done
+				[[ -z $repl ]] || break
 			done
-			[[ -n $repl ]] || die "$(basename "$deb") depends on '$n', which is not available for $H_SUITE/$H_ARCH"
+			[[ -n $repl ]] || die "$(basename "$deb") depends on '${names//$'\n'/' | '}', which is not available for $H_SUITE/$H_ARCH"
 			re=${n//./\\.}
 			re=${re//+/\\+}
 			deps=$(sed -E "s/(^|[ ,|])${re}([ ,(|:]|\$)/\\1${repl}\\2/g" <<<"$deps")
 			info "Compatibility: $(dpkg-deb -f "$deb" Package) $field $n -> $repl"
 			changed=1
-		done
+		done < <(tr ',' '\n' <<<"$deps")
 		value[$field]=$deps
 	done
 	if (( ! changed )); then printf '%s\n' "$deb"; return 0; fi
@@ -1635,17 +1713,18 @@ _debian_has() {
 # Check that a Raspberry Pi package leaves Debian's alone. It may not replace,
 # break, conflict with or stand in for a Debian package (Raspberry Pi's file
 # manager is repacked first, see fm_coinstall), except for the builds of
-# Debian's panel and file manager that --pi-apps installs in their place
-# (PI_STACK). Its maintainer scripts may not edit a file under /etc that the
+# Debian's panel and file manager (PI_STACK) and of libnma that --pi-apps
+# installs in their place. Its maintainer scripts may not edit a file under /etc that the
 # package does not ship. pi-greeter's postinst, which only lists the users in
 # Debian's lightdm.conf, is removed instead, since this script's own LightDM
 # settings do the same. Any other such package is refused. Prints the path of
 # the package to install; fails for a refused one.
 scripts_coinstall() {
 	local deb=$1 dir=$WORKDIR/scripts s f n bad="" paths
-	# Raspberry Pi's builds of Debian's panel and file manager replace Debian's
-	# on purpose (PI_STACK); their relations are those of Debian's packages
-	stack_deb "$deb" || for s in Replaces Breaks Conflicts Provides; do
+	# Raspberry Pi's builds of Debian's panel and file manager (PI_STACK) and
+	# of libnma replace Debian's on purpose; their relations are those of
+	# Debian's packages
+	stack_deb "$deb" || [[ $(dpkg-deb -f "$deb" Source) == libnma* ]] || for s in Replaces Breaks Conflicts Provides; do
 		for n in $(dpkg-deb -f "$deb" "$s" | depnames); do
 			if _debian_has "$n"; then bad+="$s:$n "; fi
 		done
@@ -2136,20 +2215,31 @@ _xml_child() {
 _xml_fonts() {
 	local p
 	for p; do
-		printf '    <font place="%s">\n      <name>%s</name>\n      <size>12</size>\n      <weight>%s</weight>\n      <slant>Normal</slant>\n    </font>\n' \
-			"$p" "$T_FONT_FAMILY" "$T_FONT_WEIGHT"
+		printf '    <font place="%s">\n      <name>%s</name>\n      <size>%s</size>\n      <weight>%s</weight>\n      <slant>Normal</slant>\n    </font>\n' \
+			"$p" "$T_FONT_FAMILY" "$T_FONT_SIZE" "$T_FONT_WEIGHT"
 	done
 }
 
+# Print yes when the Openbox theme THEME has rounded corners, else no.
+# Raspberry Pi's Openbox reads the radius from the theme (border.radius: 2 for
+# PiX, 1 for PiXflat and PiXnoir, 0 for PiXtrix and PiXonyx); Debian's has
+# only roundCorners (Raspberry Pi's earlier patch), on or off.
+# Usage: _ob_round THEME
+_ob_round() {
+	local r
+	r=$(sed -n 's/^border\.radius:[[:space:]]*//p' "$SYS_ROOT/usr/share/themes/$1/openbox-3/themerc" 2>/dev/null | head -n 1)
+	if [[ ${r:-0} == 0 ]]; then echo no; else echo yes; fi
+}
+
 # Apply the Raspberry Pi OS Openbox settings (lxde-pi-rc.xml / rpd-rc.xml):
-# the <theme> section with round corners and invisible handles, and, unless
-# THEME-ONLY is set, one desktop and the focus and placement settings.
+# the <theme> section with the theme's corners and invisible handles, and,
+# unless THEME-ONLY is set, one desktop and the focus and placement settings.
 # Usage: _openbox_rc FILE [THEME-ONLY]
 _openbox_rc() {
 	local file=$1 theme_only=${2:-0} fonts
 	_track_file "$file"
 	fonts=$(_xml_fonts ActiveWindow InactiveWindow MenuHeader MenuItem ActiveOnScreenDisplay InactiveOnScreenDisplay)
-	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>yes</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$fonts")"
+	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>%s</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$(_ob_round "$T_GTK")" "$fonts")"
 	(( theme_only )) && return 0
 	# Use Openbox's own menu when LXDE's is missing
 	if [[ ! -f /usr/share/lxde/openbox/menu.xml ]]; then
@@ -2170,23 +2260,26 @@ _openbox_keys() {
 	if (( S_PI_PANEL )); then
 		ctl=lxpanelctl-pi
 		keys=("Super_L|$ctl command smenu menu" "C-Escape|$ctl command smenu menu" "A-F2|gui-runcmd"
-			"C-A-B|$ctl command bluetooth menu" "C-A-M|$ctl command magnifier toggle"
-			"XF86AudioRaiseVolume|$ctl command volumepulse volu" "XF86AudioLowerVolume|$ctl command volumepulse vold"
-			"XF86AudioMute|$ctl command volumepulse mute")
+			"C-A-B|$ctl command bluetooth menu")
 	elif (( S_PI_STACK )); then
 		# The keys of Raspberry Pi OS 10 to 12, for its build of Debian's panel
 		keys=("Super_L|$ctl menu" "C-Escape|$ctl menu" "A-F2|$ctl run"
-			"C-A-B|$ctl command bluetooth menu" "C-A-M|$ctl command magnifier toggle"
-			"XF86AudioRaiseVolume|$ctl command volumepulse volu" "XF86AudioLowerVolume|$ctl command volumepulse vold"
-			"XF86AudioMute|$ctl command volumepulse mute")
+			"C-A-B|$ctl command bluetooth menu")
 	else
 		keys=("Super_L|$ctl menu" "C-Escape|$ctl menu" "A-F2|$ctl run")
 	fi
-	keys+=("C-A-S|$ctl move" "C-A-T|x-terminal-emulator" "C-S-Escape|lxtask" "Print|scrot"
+	keys+=("C-A-M|$SHARE/magnifier" "C-A-S|$ctl move" "C-A-T|x-terminal-emulator" "C-S-Escape|lxtask" "Print|scrot"
 		"C-A-End|pishutdown" "C-A-Delete|pishutdown")
+	# Media and laptop keys (see keys_build): volume through the volume
+	# plugin, lock, display settings, all radios and the microphone
+	keys+=("XF86AudioRaiseVolume|$SHARE/volume-key up" "XF86AudioLowerVolume|$SHARE/volume-key down"
+		"XF86AudioMute|$SHARE/volume-key mute" "XF86AudioMicMute|$SHARE/volume-key micmute"
+		"XF86ScreenSaver|lxlock" "XF86RFKill|$SHARE/radio-key" "XF86WLAN|$SHARE/radio-key wlan")
+	(( USE_NETMAN )) && keys+=("C-A-W|$ctl command netman menu")
+	if command -v arandr >/dev/null; then keys+=("XF86Display|arandr"); elif command -v lxrandr >/dev/null; then keys+=("XF86Display|lxrandr"); fi
 	for k in "${keys[@]}"; do
 		c=${k#*|} k=${k%%|*}
-		command -v "${c%% *}" >/dev/null || [[ -x $SYS_ROOT/usr/bin/${c%% *} ]] || continue
+		[[ ${c%% *} == "$SHARE"/* ]] || command -v "${c%% *}" >/dev/null || [[ -x $SYS_ROOT/usr/bin/${c%% *} ]] || continue
 		K=$k C=$c awk '
 			BEGIN {
 				k = "<keybind key=\"" ENVIRON["K"] "\""
@@ -2209,16 +2302,12 @@ _launcher() {
 }
 # Print the browser launcher: the generic "Web Browser" entry when Debian has
 # a default browser, as in Raspberry Pi OS; otherwise an installed browser.
+# Panels name it by id, which they find in the session's applications folder
+# although it is hidden from the menu, as on Raspberry Pi OS; by path, the X
+# panels would ask whether to execute the file.
 _browser() {
 	if [[ -x /usr/bin/x-www-browser ]]; then echo x-www-browser.desktop
 	else _launcher firefox-esr.desktop chromium.desktop lxde-x-www-browser.desktop; fi
-}
-# The same as a path, for the X panels, which otherwise look up ids in the
-# menu only.
-_browser_lx() {
-	local id
-	id=$(_browser) || return 1
-	if [[ $id == x-www-browser.desktop ]]; then echo "$SHARE/data/applications/$id"; else echo "$id"; fi
 }
 
 # Print the parts of the Raspberry Pi OS panel (raspberrypi-ui-mods /
@@ -2227,10 +2316,10 @@ _panel_global() {
 	printf '# lxpanel <profile> config file. Manually editing is not recommended.\n'
 	printf '# Use preference dialog in lxpanel to adjust config when you can.\n\n'
 	printf 'Global {\n'
-	printf '  %s\n' edge=top align=left margin=0 widthtype=percent width=100 height=36 transparent=0 \
+	printf '  %s\n' edge=top align=left margin=0 widthtype=percent width=100 "height=$T_PANEL_ICON" transparent=0 \
 		tintcolor=#000000 alpha=0 autohide=0 heightwhenhidden=2 setdocktype=1 setpartialstrut=1 \
 		usefontcolor=0 fontsize=12 fontcolor=#ffffff usefontsize=0 background=0 \
-		backgroundfile=/usr/share/lxpanel/images/background.png iconsize=36 monitor=0 "$@"
+		backgroundfile=/usr/share/lxpanel/images/background.png "iconsize=$T_PANEL_ICON" monitor=0 "$@"
 	printf '}\n'
 }
 # Print one panel plugin. Usage: _panel_plugin TYPE [CONFIG-LINE]...
@@ -2247,7 +2336,7 @@ _panel_tasks() {
 	local id fm=pcmanfm.desktop
 	local -a buttons=()
 	(( S_PI_FM )) && fm=pcmanfm-pi.desktop
-	for id in "$(_browser_lx)" \
+	for id in "$(_browser)" \
 		"$fm" "$(_launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop)"; do
 		if [[ -n $id ]]; then buttons+=("Button {" "  id=$id" "}"); fi
 	done
@@ -2255,7 +2344,7 @@ _panel_tasks() {
 	_panel_plugin launchbar "${buttons[@]}"
 	_panel_plugin space Size=8
 	_panel_plugin taskbar tooltips=1 IconsOnly=0 ShowAllDesks=0 UseMouseWheel=1 UseUrgencyHint=1 FlatButton=0 \
-		MaxTaskWidth=200 spacing=1 GroupedTasks=0
+		"MaxTaskWidth=$T_TASK_WIDTH" spacing=1 GroupedTasks=0
 	_panel_plugin space Size=2
 }
 
@@ -2274,7 +2363,6 @@ _lxpanel_layout() {
 	_panel_tasks
 	_panel_plugin tray
 	if compgen -G "$plugins/volume.so" >/dev/null; then _panel_plugin space Size=2; _panel_plugin volume; fi
-	if compgen -G "$plugins/xkb.so" >/dev/null; then _panel_plugin space Size=2; _xkb_plugin; fi
 	_panel_plugin space Size=2
 	_panel_plugin dclock ClockFmt=%R 'TooltipFmt=%A %x' BoldFont=0 IconOnly=0 CenterText=1
 	if compgen -G "$plugins/batt.so" >/dev/null && has_battery; then _panel_plugin space Size=2; _panel_plugin batt HideIfNoBattery=1; fi
@@ -2304,25 +2392,19 @@ _pi_stack_file() {
 
 # Print a Raspberry Pi OS panel layout unchanged, with its spaces and
 # separators, so that later releases' layouts are followed, except: plugins
-# that do not work on Debian (PANEL_DROP), plugins not installed and, without
-# a battery, the battery plugin are removed, with any space left doubled; the
-# tray takes the network plugin's place, as nm-applet shows the network icon
-# there; the keyboard layout applet, which Raspberry Pi OS lacks, is added
-# before the clock; and the launchers name the browser, file manager and
-# terminal installed here. Usage: _pi_layout FILE PLUGIN-DIR (under /usr/lib/*/)
+# that are left out (panel_drop), plugins not installed and, without
+# a battery, the battery plugin are removed, with any space left doubled;
+# where nm-applet is used, the tray takes the network plugin's place; and the
+# launchers name the browser, file manager and terminal installed here. Usage: _pi_layout FILE PLUGIN-DIR (under /usr/lib/*/)
 _pi_layout() {
-	local f=$1 dir=$2 t keep="" fm=pcmanfm.desktop xkb="" nobatt=0
+	local f=$1 dir=$2 t keep="" fm=pcmanfm.desktop nobatt=0
 	(( S_PI_FM )) && fm=pcmanfm-pi.desktop
 	while read -r t; do
 		if compgen -G "$SYS_ROOT/usr/lib/*/$dir/$t.so" >/dev/null; then keep+="$t|"; fi
 	done < <(sed -n 's/^[[:space:]]*type=//p' "$f" | sort -u)
-	# Debian's xkb applet, which the generated package links into Raspberry Pi's panel
-	if compgen -G "$SYS_ROOT/usr/lib/*/$dir/xkb.so" >/dev/null || compgen -G "$SYS_ROOT/usr/lib/*/lxpanel/plugins/xkb.so" >/dev/null; then
-		xkb=$(_xkb_plugin)
-	fi
 	has_battery || nobatt=1
-	KEEP="${keep}space|separator|launchbar|taskbar|tray|menu|dclock" DROP=$PANEL_DROP NET=$PANEL_NET FM=$fm \
-	XKB=$xkb SPACE=$(_panel_plugin space Size=2) NOBATT=$nobatt B=$(_browser_lx || true) \
+	KEEP="${keep}space|separator|launchbar|taskbar|tray|menu|dclock" DROP="$(panel_drop)|$PANEL_UNPLACED" NET=$( (( USE_NETMAN )) || echo "$PANEL_NET") FM=$fm \
+	NOBATT=$nobatt B=$(_browser || true) \
 	T=$(_launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop || true) awk '
 		function put(i) {
 			if (typ[i] == "space" && last == "space") return
@@ -2344,26 +2426,19 @@ _pi_layout() {
 		}
 		END {
 			keep = "^(" ENVIRON["KEEP"] ")$"; drop = "^(" ENVIRON["DROP"] ")$"; netre = "^(" ENVIRON["NET"] ")$"
-			for (i = 1; i <= n; i++) { if (typ[i] == "tray") tray = i; if (typ[i] ~ netre && !net) net = i }
-			n++; typ[n] = "xkb"; blk[n] = ENVIRON["XKB"]; xkb = n
-			n++; typ[n] = "space"; blk[n] = ENVIRON["SPACE"]; sp = n
+			for (i = 1; i <= n; i++) { if (typ[i] == "tray") tray = i; if (ENVIRON["NET"] != "" && typ[i] ~ netre && !net) net = i }
 			printf "%s", head
-			for (i = 1; i < xkb; i++) {
+			for (i = 1; i <= n; i++) {
 				if (i == net && tray) { put(tray); continue }
 				if (i == tray && net) continue
 				if (typ[i] != "" && (typ[i] ~ drop || typ[i] !~ keep)) continue
 				if (ENVIRON["NOBATT"] == 1 && typ[i] ~ /^(batt|ptbatt)$/) continue
-				if (typ[i] ~ /^(dclock|clock)$/ && blk[xkb] != "") { put(sp); put(xkb); put(sp) }
 				put(i)
 			}
 			if (last == "space") m--   # no space at the end
 			for (i = 1; i <= m; i++) printf "%s", out[i]
 		}' "$f"
 }
-
-# Print the keyboard layout applet: the system's layouts, each shown by its
-# short name (FR, US, ...), at the applet's smallest size.
-_xkb_plugin() { _panel_plugin xkb DisplayType=1 FlagSize=1 PerWinLayout=0 NoResetOpt=0 KeepSysLayouts=1; }
 
 # Print the Raspberry Pi OS 13 panel (rpd-x-core) for when that package
 # cannot be read: the same plugins in the same order.
@@ -2374,7 +2449,7 @@ _pi_panel_builtin() {
 	_panel_plugin separator
 	_panel_tasks
 	_panel_plugin ejecter
-	for p in bluetooth tray volumepulse clock batt magnifier; do _panel_plugin space Size=2; _panel_plugin "$p"; done
+	for p in bluetooth tray volumepulse clock batt; do _panel_plugin space Size=2; _panel_plugin "$p"; done
 }
 
 # Print Raspberry Pi OS's panel button rules: flat buttons with its spacing,
@@ -2437,7 +2512,10 @@ _session_menu() {
 	local d e id name icon
 	while read -r d; do
 		[[ -f $data/desktop-directories/$d || -f /usr/share/desktop-directories/$d ]] && continue
-		id=${d%.directory} id=${id#"$prefix"} name=${id^} icon=applications-other
+		# The category's id without the menu prefix: the session's (lxde-pi-,
+		# rpd-) or LXDE's (lxde-help.directory in Raspberry Pi OS's own menu)
+		id=${d%.directory} id=${id#"$prefix"} id=${id#lxde-} id=${id#rpd-}
+		name=${id^} icon=applications-other
 		for e in "${MENU_CATS[@]}"; do
 			if [[ ${e%%|*} == "$id" ]]; then IFS='|' read -r _ name icon _ _ <<<"$e"; fi
 		done
@@ -2530,7 +2608,10 @@ _session_profile() {
 	# menu icons regardless; Debian's panel shows them only when it is on
 	(( S_PI_PANEL || S_PI_STACK )) && images=0
 	{
-		printf '[Session]\nwindow_manager=%s/openbox\ndisable_autostart=no\npolkit/command=lxpolkit\n' "$SHARE"
+		# lxsession starts only agents it knows by name (lxpolkit); another
+		# one starts from the autostart list below
+		printf '[Session]\nwindow_manager=%s/openbox\ndisable_autostart=no\npolkit/command=%s\n' "$SHARE" \
+			"$( [[ $(polkit_agent) == lxpolkit ]] && echo lxpolkit )"
 		printf 'clipboard/command=lxclipboard\nxsettings_manager/command=build-in\nproxy_manager/command=build-in\n'
 		printf 'keyring/command=ssh-agent\nquit_manager/command=lxsession-logout\n'
 		printf 'quit_manager/image=/usr/share/lxde/images/logout-banner.png\nquit_manager/layout=top\n'
@@ -2538,7 +2619,7 @@ _session_profile() {
 		printf '[GTK]\nsNet/ThemeName=%s\nsNet/IconThemeName=%s\nsGtk/FontName=%s\n' "$T_GTK" "$T_ICONS" "$T_FONT"
 		printf 'iGtk/ToolbarStyle=3\niGtk/ButtonImages=0\niGtk/MenuImages=%s\niGtk/CursorThemeSize=%s\n' "$images" "$T_CURSOR_SIZE"
 		printf 'iXft/Antialias=1\niGtk/AutoMnemonics=1\niGtk/EnableMnemonics=1\nsGtk/ColorScheme=%s\n' "$(color_scheme)"
-		printf 'sGtk/CursorThemeName=%s\niGtk/ToolbarIconSize=3\nsGtk/IconSizes=gtk-large-toolbar=24,24\n' "$T_ICONS"
+		printf 'sGtk/CursorThemeName=%s\niGtk/ToolbarIconSize=3\nsGtk/IconSizes=gtk-large-toolbar=%s,%s\n' "$T_ICONS" "$T_TB_ICON" "$T_TB_ICON"
 		printf 'sNet/SoundThemeName=%s\niNet/EnableEventSounds=1\niNet/EnableInputFeedbackSounds=1\n' "$T_SOUND_THEME"
 		printf 'iXft/Hinting=1\nsXft/HintStyle=hintfull\nsXft/RGBA=rgb\n\n'
 		printf '[Mouse]\nAccFactor=20\nAccThreshold=10\nLeftHanded=0\n\n[Keyboard]\nDelay=500\nInterval=30\nBeep=1\n\n'
@@ -2547,6 +2628,8 @@ _session_profile() {
 	{
 		printf '@%s/panel\n@%s/desktop\n' "$SHARE" "$SHARE"
 		command -v xscreensaver >/dev/null && printf '@xscreensaver -no-splash\n'
+		printf '@%s/popup-keeper\n' "$SHARE"
+		[[ $(polkit_agent) == lxpolkit ]] || printf '@%s\n' "$(polkit_agent)"
 	} | _write "$dir/autostart"
 }
 
@@ -2597,7 +2680,8 @@ _session_files() {
 _fm_shared_conf() {
 	_ini_set "$1" config cutdown_menus 1 real_expanders 1 single_click 0 use_trash 1 confirm_del 1 \
 		thumbnail_local 1 thumbnail_max 2048
-	_ini_set "$1" ui big_icon_size 48 small_icon_size 24 thumbnail_size 80 pane_icon_size 24 show_thumbnail 1
+	_ini_set "$1" ui big_icon_size "$T_FOLDER_ICON" small_icon_size "$T_SMALL_ICON" thumbnail_size "$T_THUMB" \
+		pane_icon_size "$T_PANE_ICON" show_thumbnail 1
 	_ini_set "$1" places places_home 1 places_desktop 0 places_root 1 places_computer 0 places_trash 0 \
 		places_applications 0 places_network 0 places_unmounted 1 places_volmounts 1
 }
@@ -2650,11 +2734,13 @@ _session_entries() {
 	fi
 	# Hide clipboard managers and other volume applets, which Raspberry Pi OS
 	# lacks; the Bluetooth applet where Raspberry Pi's panel has its own
-	# plugin; and other authentication agents, as the session runs lxpolkit.
+	# plugin; nm-applet where its network plugin is used; and the
+	# authentication agents, as the sessions start their own (polkit_agent).
 	# A user can enable them again in Desktop Session Settings.
 	local -a pats=(volumeicon pasystray pnmixer diodon clipit parcellite
-		polkit-gnome-authentication-agent polkit-mate xfce-polkit)
+		polkit-gnome-authentication-agent polkit-mate xfce-polkit lxpolkit)
 	(( S_PI_PANEL || S_PI_STACK )) && pats+=(blueman)
+	(( USE_NETMAN )) && pats+=(nm-applet)
 	for id in "${pats[@]}"; do
 		for f in /etc/xdg/autostart/"$id"*.desktop; do
 			[[ -f $f ]] || continue
@@ -2879,19 +2965,23 @@ mkdir -p "\${XDG_DESKTOP_DIR:-\$HOME/Desktop}"
 EOF
 	cat <<'EOF' >>"$root$SHARE/session-env"
 
-# Panels saved by earlier versions name a specific browser: replace it with
-# the generic "Web Browser" launcher, once.
+# Panels saved by earlier versions name a specific browser, or the generic
+# "Web Browser" launcher by its path, which the X panels ask to execute:
+# name the generic launcher by its id instead, once. A browser chosen after
+# the first such change stays.
 web_browser() {
-	web=$share/data/applications/x-www-browser.desktop
-	[ -f "$web" ] && [ ! -e "$own/.web-browser" ] || return 0
-	b='firefox-esr|firefox|chromium|chromium-browser|lxde-x-www-browser'
+	[ -f "$share/data/applications/x-www-browser.desktop" ] && [ ! -e "$own/.web-browser-id" ] || return 0
+	b=$share/data/applications/x-www-browser
+	[ -e "$own/.web-browser" ] || b="$b|firefox-esr|firefox|chromium|chromium-browser|lxde-x-www-browser"
 	for f in "$config/lxpanel-pi/panels/panel" "$config/lxpanel/$profile/panels/panel"; do
-		[ -f "$f" ] && sed -i --follow-symlinks -E "s#^([[:space:]]*id=)($b)\.desktop\$#\1$web#" "$f"
+		[ -f "$f" ] && sed -i --follow-symlinks -E "s#^([[:space:]]*id=)($b)\.desktop\$#\1x-www-browser.desktop#" "$f"
 	done
-	for f in "$config/wf-panel-pi.ini" "$config/wf-panel-pi/wf-panel-pi.ini"; do
-		[ -f "$f" ] && sed -i --follow-symlinks -E "/^launchers=/ s/(=| )($b)( |\$)/\1x-www-browser\3/" "$f"
-	done
-	mkdir -p "$own" && : >"$own/.web-browser"
+	if [ ! -e "$own/.web-browser" ]; then
+		for f in "$config/wf-panel-pi.ini" "$config/wf-panel-pi/wf-panel-pi.ini"; do
+			[ -f "$f" ] && sed -i --follow-symlinks -E "/^launchers=/ s/(=| )(firefox-esr|firefox|chromium|chromium-browser|lxde-x-www-browser)( |\$)/\1x-www-browser\3/" "$f"
+		done
+	fi
+	mkdir -p "$own" && : >"$own/.web-browser" && : >"$own/.web-browser-id"
 }
 
 # Copy desktop settings saved under the session's profile to the file
@@ -2995,6 +3085,15 @@ if [ -f "$o" ] && [ ! -L "$o" ] && [ ! -e "$rc" ]; then
 fi
 if [ ! -e "$rc" ] || cmp -s "$rc" "$seen" 2>/dev/null; then
 	mkdir -p "$config/openbox" && cp "$share/openbox-rc.xml" "$rc" && cp "$share/openbox-rc.xml" "$seen"
+elif ! cmp -s "$share/openbox-rc.xml" "$seen" 2>/dev/null; then
+	# The user's copy has their own changes, and the session's settings
+	# changed since (an update): take the session's key bindings, keep the rest
+	awk 'FNR == NR { if (/<keyboard>/) k = 1; if (k) kb = kb $0 "\n"; if (/<\/keyboard>/) k = 0; next }
+		/<keyboard>/ { if (kb != "") { printf "%s", kb; skip = 1; next } }
+		skip { if (/<\/keyboard>/) skip = 0; next }
+		{ print }' "$share/openbox-rc.xml" "$rc" >"$rc.new" && cat "$rc.new" >"$rc"
+	rm -f "$rc.new"
+	cp "$share/openbox-rc.xml" "$seen"
 fi
 
 # Repair paths saved under the previous name, so the window manager starts.
@@ -3042,15 +3141,39 @@ fi
 web_browser
 fm_profile
 gtk4_on
+[ ! -x "$share/volume-key" ] || "$share/volume-key" init
 /usr/bin/lxsession -s "$profile" -e LXDE
 gtk4_off
+# The SSH agent of lxsession's keyring setting (as on Raspberry Pi OS) runs on
+# after logout and would keep the login session open, so that the login
+# screen shows the user as logged in: end the one of this login session
+s=$(cat /proc/self/sessionid 2>/dev/null)
+for p in $(pgrep -u "$(id -u)" -x ssh-agent); do
+	[ -n "$s" ] && [ "$p" != "$PPID" ] && [ "$(cat "/proc/$p/sessionid" 2>/dev/null)" = "$s" ] && kill "$p" 2>/dev/null
+done
+exit 0
 EOF
 	printf '#!/bin/sh\nexec openbox --config-file "${XDG_CONFIG_HOME:-$HOME/.config}/openbox/%s" "$@"\n' "$(ob_file)" \
 		| _write "$root$SHARE/openbox"
 	{
 		printf '#!/bin/sh\n'
-		(( S_PI_PANEL )) && printf 'if command -v lxpanel-pi >/dev/null; then exec lxpanel-pi; fi\n'
-		printf 'exec lxpanel --profile %s\n' "$S_PROFILE"
+		printf 'p="lxpanel --profile %s"\n' "$S_PROFILE"
+		(( S_PI_PANEL )) && printf 'if command -v lxpanel-pi >/dev/null; then p=lxpanel-pi; fi\n'
+		cat <<'EOF'
+# Raspberry Pi's build of Debian's panel can crash when it restarts
+# (lxpanelctl restart, as after a theme change), where Raspberry Pi OS's
+# session starts it again: do the same unless it quit normally or the
+# display has gone, and give up after five quick failures in a row.
+n=0
+while :; do
+	t=$(date +%s)
+	$p && exit 0
+	xprop -root >/dev/null 2>&1 || exit 0
+	if [ $(($(date +%s) - t)) -lt 5 ]; then n=$((n + 1)); else n=0; fi
+	[ "$n" -lt 5 ] || exit 1
+	sleep 0.5
+done
+EOF
 	} | _write "$root$SHARE/panel"
 	{
 		printf '#!/bin/sh\n# The desktop: wallpaper and icons.\n'
@@ -3237,6 +3360,19 @@ _session_wayland() {
 			}
 			print blk
 		}' "$rc" | _write "$rc"
+	# Volume keys through the helper; lock, airplane and mic keys (see keys_build)
+	sed -i -e "s#command=\"wfpanelctl volumepulse volu\"#command=\"$SHARE/volume-key up\"#" \
+		-e "s#command=\"wfpanelctl volumepulse vold\"#command=\"$SHARE/volume-key down\"#" \
+		-e "s#command=\"wfpanelctl volumepulse mute\"#command=\"$SHARE/volume-key mute\"#" "$rc"
+	local k c kb=""
+	for k in "XF86AudioMicMute|$SHARE/volume-key micmute" "XF86ScreenSaver|swaylock -p" "XF86RFKill|$SHARE/radio-key" \
+		"XF86WLAN|$SHARE/radio-key wlan"; do
+		grep -q "key=\"${k%%|*}\"" "$rc" && continue
+		c=${k#*|}; c=${c%% *}
+		[[ $c == "$SHARE"/* ]] || command -v "$c" >/dev/null || continue
+		kb+="    <keybind key=\"${k%%|*}\">\n      <action name=\"Execute\" command=\"${k#*|}\" />\n    </keybind>\n"
+	done
+	[[ -z $kb ]] || KB=$kb awk '!done && /<\/keyboard>/ { printf "%s", ENVIRON["KB"]; done = 1 } { print }' "$rc" | _write "$rc"
 	printf 'QT_WAYLAND_DISABLE_WINDOWDECORATION=1\nXCURSOR_THEME=%s\nXCURSOR_SIZE=%s\nLABWC_FALLBACK_OUTPUT=NOOP-1\n' \
 		"$T_ICONS" "$T_CURSOR_SIZE" | _write "$xdg/labwc/environment"
 	{
@@ -3246,6 +3382,10 @@ _session_wayland() {
 		# shellcheck disable=SC2016  # written as is, for the autostart file
 		command -v xsettingsd >/dev/null \
 			&& printf 'xsettingsd -c "${XDG_CONFIG_HOME:-$HOME/.config}/xsettingsd/xsettingsd.conf" &\n'
+		printf '%s &\n' "$(polkit_agent)"
+		# Displays off after 10 minutes without input, as X does by default
+		command -v swayidle >/dev/null && command -v wlopm >/dev/null \
+			&& printf "swayidle -w timeout 600 'wlopm --off \\*' resume 'wlopm --on \\*' &\n"
 		printf 'lxsession-xdg-autostart\n'
 	} | _write "$xdg/labwc/autostart"
 	{
@@ -3257,7 +3397,7 @@ _session_wayland() {
 	# tools (and the spacing before them), with the launchers installed here.
 	# wf-panel-pi reads only this path, and no other program reads it.
 	if [[ -f $x/etc/xdg/wf-panel-pi/wf-panel-pi.ini ]]; then
-		DROP=$WF_DROP B=${browser%.desktop} T=${term%.desktop} FM=$fm awk '
+		DROP="$(wf_drop)|$PANEL_UNPLACED" B=${browser%.desktop} T=${term%.desktop} FM=$fm awk '
 			/^widgets_(left|right)=/ {
 				n = split(substr($0, index($0, "=") + 1), w, " "); m = 0; out = ""
 				for (i = 1; i <= n; i++) {
@@ -3277,13 +3417,18 @@ _session_wayland() {
 				print "launchers=" out; next
 			}
 			{ print }' "$x/etc/xdg/wf-panel-pi/wf-panel-pi.ini" | _write "$root/etc/xdg/wf-panel-pi/wf-panel-pi.ini"
+		# Other size presets than Raspberry Pi OS's default (medium): the icon
+		# size, as Appearance Settings sets it (the panel's icon size minus 4)
+		if [[ ${S_SIZE:-medium} != medium ]]; then
+			_ini_set "$root/etc/xdg/wf-panel-pi/wf-panel-pi.ini" panel icon_size $(( T_PANEL_ICON - 4 ))
+		fi
 	fi
 	{
 		printf 'Net/ThemeName "%s"\nNet/IconThemeName "%s"\nGtk/CursorThemeName "%s"\nGtk/CursorThemeSize %s\n' \
 			"$T_GTK" "$T_ICONS" "$T_ICONS" "$T_CURSOR_SIZE"
 		printf 'Gtk/FontName "%s"\nGtk/ColorScheme "%s"\nNet/SoundThemeName "%s"\n' "$T_FONT" "$(color_scheme)" "$T_SOUND_THEME"
 		printf 'Net/EnableEventSounds 1\nNet/EnableInputFeedbackSounds 1\nGtk/ToolbarStyle 3\nGtk/ButtonImages 0\nGtk/MenuImages 0\n'
-		printf 'Gtk/AutoMnemonics 1\nGtk/EnableMnemonics 1\nGtk/ToolbarIconSize 3\nGtk/IconSizes "gtk-large-toolbar=24,24"\n'
+		printf 'Gtk/AutoMnemonics 1\nGtk/EnableMnemonics 1\nGtk/ToolbarIconSize 3\nGtk/IconSizes "gtk-large-toolbar=%s,%s"\n' "$T_TB_ICON" "$T_TB_ICON"
 		printf 'Xft/Antialias 1\nXft/Hinting 1\nXft/HintStyle "hintfull"\nXft/RGBA "rgb"\n'
 	} | _write "$root$SHARE/xsettingsd.conf"
 	cat <<'EOF' | _write "$root$SHARE/start-wayland"
@@ -3313,6 +3458,7 @@ xsettings_file
 # Apply a look that rpios-look-set saved while this session was not running
 [ ! -e "$own/.wayland-look" ] || { wayland_look; rm -f "$own/.wayland-look"; }
 gtk4_on
+[ ! -x "$share/volume-key" ] || "$share/volume-key" init
 /usr/bin/labwc -m
 gtk4_off
 EOF
@@ -3340,6 +3486,7 @@ _session_command() {
 	{
 		printf '#!/bin/bash\n# The look of the Raspberry Pi Desktop session for you, written by %s %s.\n' "$APP_NAME" "$APP_VERSION"
 		printf 'APP=%s PROFILE=%s SHARE=%s OBFILE=%s FMPROFILE=%s\n' "$APP_NAME" "$S_PROFILE" "$SHARE" "$(ob_file)" "$S_FM_PROFILE"
+		printf 'FONT_SIZE=%s\n' "$T_FONT_SIZE"
 		printf 'CURSOR_SIZE=%s WALL_4K=%s DESK_BG=%q DESK_FG=%q DESK_SHADOW=%q\n' "$T_CURSOR_SIZE" "$O_4K" "$T_DESK_BG" "$T_DESK_FG" "$T_DESK_SHADOW"
 		printf 'COLOR_SCHEME=%q\n' "$T_COLOR_SCHEME"
 		# Each theme's look, as set_theme defines it for this Debian release
@@ -3425,7 +3572,7 @@ set_openbox_font() {
 	seed "$obrc" "$SHARE/openbox-rc.xml"
 	sed -i -e "/<theme>/,/<\/theme>/ { /<font /,/<\/font>/ {
 		s|<name>[^<]*</name>|<name>$1</name>|; s|<weight>[^<]*</weight>|<weight>$2</weight>|
-		s|<slant>[^<]*</slant>|<slant>Normal</slant>|; s|<size>[^<]*</size>|<size>12</size>| } }" "$obrc"
+		s|<slant>[^<]*</slant>|<slant>Normal</slant>|; s|<size>[^<]*</size>|<size>$FONT_SIZE</size>| } }" "$obrc"
 }
 
 list() {
@@ -3488,11 +3635,15 @@ show() {
 		"$(short "$(get "$fm/desktop-items-0.conf" "$fm_sys/desktop-items-0.conf" '*' desktop_fg)")"
 }
 
-# Set Openbox's theme in the user's Openbox file
+# Set Openbox's theme in the user's Openbox file, with the theme's corners:
+# rounded unless its border.radius is 0 (see _ob_round in rpios-look)
 set_openbox_theme() {
+	local r
 	seed "$obrc" "$SHARE/openbox-rc.xml"
+	r=$(sed -n 's/^border\.radius:[[:space:]]*//p' "/usr/share/themes/$1/openbox-3/themerc" 2>/dev/null | head -n 1)
+	if [[ ${r:-0} == 0 ]]; then r=no; else r=yes; fi
 	# The theme name only, not the font names inside <font>
-	sed -i "/<theme>/,/<\/theme>/ { /<font /,/<\/font>/b; s|<name>[^<]*</name>|<name>$1</name>| }" "$obrc"
+	sed -i "/<theme>/,/<\/theme>/ { /<font /,/<\/font>/b; s|<name>[^<]*</name>|<name>$1</name>|; s|<roundCorners>[^<]*</roundCorners>|<roundCorners>$r</roundCorners>| }" "$obrc"
 }
 
 # Set the desktop settings per monitor, as Desktop Preferences keeps them:
@@ -3631,7 +3782,9 @@ if [[ $new_theme == "$old_theme" ]]; then
 	ini_set "$lxs" GTK sNet/ThemeName "$tmp"; sleep 1
 	ini_set "$lxs" GTK sNet/ThemeName "$new_theme"
 fi
-if running openbox; then openbox --reconfigure >/dev/null 2>&1 || true; fi
+# Openbox restarts in place rather than reloading its settings: a reload
+# leaves open windows without the theme's rounded corners (roundCorners)
+if running openbox; then openbox --restart >/dev/null 2>&1 || true; fi
 if running pcmanfm-pi; then
 	pcmanfm-pi --profile "$FMPROFILE" --reconfigure >/dev/null 2>&1 || true
 elif running pcmanfm; then
@@ -3678,6 +3831,382 @@ session_vars() {
 	if (( S_PI_FM )); then S_FM_PROFILE=default; fi
 }
 
+# The panel's pop-up windows inside the screen, on X. The panel places a
+# pop-up, such as the calendar, before it knows the pop-up's size, so the
+# pop-up can open partly off the screen, and Openbox keeps a window where it
+# asks to be. popup-keeper (Python, through Xlib) moves each pop-up of the
+# panel (a dropdown window of lxpanel or lxpanel-pi) that reaches past its
+# monitor back inside it as soon as Openbox lists it, before it is shown, for
+# any resolution, scale or number of monitors. GTK keeps menus and tooltips
+# inside the screen itself, and on Wayland the compositor does so for every
+# pop-up. Usage: popup_keeper_build ROOT
+popup_keeper_build() {
+	cat <<'EOF' | _write "$1$SHARE/popup-keeper"
+#!/usr/bin/python3
+# Keep the panel's pop-up windows inside their monitor (see rpios-look).
+# It talks to the X server through Xlib, so that it moves a pop-up as soon
+# as the window manager lists it, before the pop-up is drawn.
+import ctypes
+import ctypes.util
+import sys
+
+X = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+try:
+    XR = ctypes.CDLL(ctypes.util.find_library("Xrandr") or "libXrandr.so.2")
+except OSError:
+    XR = None
+
+ulong, vp = ctypes.c_ulong, ctypes.c_void_p
+
+
+class Prop(ctypes.Structure):       # XPropertyEvent; ConfigureNotify shares the head
+    _fields_ = [("type", ctypes.c_int), ("serial", ulong), ("send_event", ctypes.c_int),
+                ("display", vp), ("window", ulong), ("atom", ulong)]
+
+
+class Event(ctypes.Union):
+    _fields_ = [("type", ctypes.c_int), ("prop", Prop), ("pad", ctypes.c_long * 24)]
+
+
+class Attrs(ctypes.Structure):      # the head of XWindowAttributes
+    _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int), ("width", ctypes.c_int),
+                ("height", ctypes.c_int), ("pad", ctypes.c_long * 32)]
+
+
+class ClassHint(ctypes.Structure):
+    _fields_ = [("name", vp), ("cls", vp)]
+
+
+class Monitor(ctypes.Structure):    # XRRMonitorInfo
+    _fields_ = [("name", ulong), ("primary", ctypes.c_int), ("automatic", ctypes.c_int),
+                ("noutput", ctypes.c_int), ("x", ctypes.c_int), ("y", ctypes.c_int),
+                ("width", ctypes.c_int), ("height", ctypes.c_int),
+                ("mwidth", ctypes.c_int), ("mheight", ctypes.c_int), ("outputs", vp)]
+
+
+class Message(ctypes.Structure):    # XClientMessageEvent
+    _fields_ = [("type", ctypes.c_int), ("serial", ulong), ("send_event", ctypes.c_int),
+                ("display", vp), ("window", ulong), ("message_type", ulong),
+                ("format", ctypes.c_int), ("data", ctypes.c_long * 5)]
+
+
+X.XOpenDisplay.restype = vp
+X.XOpenDisplay.argtypes = [ctypes.c_char_p]
+X.XDefaultRootWindow.restype = ulong
+X.XDefaultRootWindow.argtypes = [vp]
+X.XInternAtom.restype = ulong
+X.XInternAtom.argtypes = [vp, ctypes.c_char_p, ctypes.c_int]
+X.XSelectInput.argtypes = [vp, ulong, ctypes.c_long]
+X.XNextEvent.argtypes = [vp, ctypes.POINTER(Event)]
+X.XGetWindowProperty.argtypes = [vp, ulong, ulong, ctypes.c_long, ctypes.c_long, ctypes.c_int, ulong,
+                                 ctypes.POINTER(ulong), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ulong),
+                                 ctypes.POINTER(ulong), ctypes.POINTER(vp)]
+X.XFree.argtypes = [vp]
+X.XGetClassHint.argtypes = [vp, ulong, ctypes.POINTER(ClassHint)]
+X.XGetWindowAttributes.argtypes = [vp, ulong, ctypes.POINTER(Attrs)]
+X.XTranslateCoordinates.argtypes = [vp, ulong, ulong, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int),
+                                    ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ulong)]
+X.XSendEvent.argtypes = [vp, ulong, ctypes.c_int, ctypes.c_long, ctypes.POINTER(Message)]
+X.XFlush.argtypes = [vp]
+X.XDisplayWidth.argtypes = X.XDisplayHeight.argtypes = [vp, ctypes.c_int]
+if XR:
+    XR.XRRGetMonitors.restype = ctypes.POINTER(Monitor)
+    XR.XRRGetMonitors.argtypes = [vp, ulong, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+    XR.XRRFreeMonitors.argtypes = [ctypes.POINTER(Monitor)]
+
+# A window can close while it is looked at: ignore the X errors that causes
+ERRORS = ctypes.CFUNCTYPE(ctypes.c_int, vp, vp)(lambda d, e: 0)
+X.XSetErrorHandler(ERRORS)
+
+dpy = X.XOpenDisplay(None)
+if not dpy:
+    sys.exit(0)
+root = X.XDefaultRootWindow(dpy)
+atom = lambda name: X.XInternAtom(dpy, name.encode(), 0)
+CLIENTS, TYPE = atom("_NET_CLIENT_LIST"), atom("_NET_WM_WINDOW_TYPE")
+DROPDOWN, MOVE = atom("_NET_WM_WINDOW_TYPE_DROPDOWN_MENU"), atom("_NET_MOVERESIZE_WINDOW")
+PANELS = {b"Lxpanel", b"lxpanel-pi", b"Lxpanel-pi"}
+PROPERTY_NOTIFY, CONFIGURE_NOTIFY = 28, 22
+
+
+def windows(w, prop):
+    """The window list or atom list in property PROP of window W."""
+    t, f, n, left, data = ulong(), ctypes.c_int(), ulong(), ulong(), vp()
+    if X.XGetWindowProperty(dpy, w, prop, 0, 4096, 0, 0, ctypes.byref(t), ctypes.byref(f),
+                            ctypes.byref(n), ctypes.byref(left), ctypes.byref(data)) != 0 or not data:
+        return []
+    out = list(ctypes.cast(data, ctypes.POINTER(ulong))[:n.value]) if f.value == 32 else []
+    X.XFree(data)
+    return out
+
+
+def popup(w):
+    """Whether W is a pop-up of the panel."""
+    hint = ClassHint()
+    if not X.XGetClassHint(dpy, w, ctypes.byref(hint)):
+        return False
+    cls = ctypes.string_at(hint.cls) if hint.cls else b""
+    for p in (hint.name, hint.cls):
+        if p:
+            X.XFree(p)
+    return cls in PANELS and DROPDOWN in windows(w, TYPE)
+
+
+def monitors():
+    """The monitors, as (x, y, width, height); the whole screen without RandR."""
+    out = []
+    if XR:
+        n = ctypes.c_int()
+        mons = XR.XRRGetMonitors(dpy, root, 1, ctypes.byref(n))
+        if mons:
+            out = [(m.x, m.y, m.width, m.height) for m in mons[:n.value]]
+            XR.XRRFreeMonitors(mons)
+    return out or [(0, 0, X.XDisplayWidth(dpy, 0), X.XDisplayHeight(dpy, 0))]
+
+
+def keep(w):
+    """Move pop-up W inside the monitor its top left corner is on."""
+    a, x, y, child = Attrs(), ctypes.c_int(), ctypes.c_int(), ulong()
+    if not X.XGetWindowAttributes(dpy, w, ctypes.byref(a)) or \
+            not X.XTranslateCoordinates(dpy, w, root, 0, 0, ctypes.byref(x), ctypes.byref(y), ctypes.byref(child)):
+        return
+    x, y, mons = x.value, y.value, monitors()
+    mx, my, mw, mh = next((m for m in mons if m[0] <= x < m[0] + m[2] and m[1] <= y < m[1] + m[3]), mons[0])
+    nx = max(mx, min(x, mx + mw - a.width))
+    ny = max(my, min(y, my + mh - a.height))
+    if (nx, ny) != (x, y):
+        # _NET_MOVERESIZE_WINDOW: move only (x and y flags), from a pager
+        m = Message(type=33, send_event=1, window=w, message_type=MOVE, format=32)
+        m.data[:] = [(1 << 8) | (1 << 9) | (2 << 12), nx, ny, 0, 0]
+        X.XSendEvent(dpy, root, 0, (1 << 19) | (1 << 20), ctypes.byref(m))
+        X.XFlush(dpy)
+
+
+X.XSelectInput(dpy, root, 1 << 22)                   # PropertyChangeMask
+seen, ev = set(windows(root, CLIENTS)), Event()
+while True:
+    X.XNextEvent(dpy, ctypes.byref(ev))
+    if ev.type == PROPERTY_NOTIFY and ev.prop.window == root and ev.prop.atom == CLIENTS:
+        now = set(windows(root, CLIENTS))
+        for w in now - seen:
+            if popup(w):
+                X.XSelectInput(dpy, w, 1 << 17)      # StructureNotifyMask: it can grow
+                keep(w)
+        seen = now
+    elif ev.type == CONFIGURE_NOTIFY and ev.prop.window in seen:
+        keep(ev.prop.window)
+EOF
+	chmod 0755 "$1$SHARE/popup-keeper"
+}
+
+# The media and laptop keys of the session (see _openbox_keys and
+# _session_wayland). volume-key passes the volume keys to the volume plugin of
+# the running panel, or to the sound server without one. On older ThinkPads
+# the firmware also changes its own volume and mute with these keys (its mute
+# key only mutes), so they fall out of step and the sound can stay muted:
+# thinkpad_acpi's volume_control option makes that volume a mixer control
+# (ThinkPadEC), which volume-key keeps at full, so the plugin alone sets the
+# volume, as on Raspberry Pi OS, and muted only while the sound is muted, so
+# that the firmware's beeps are silent then too. From login it follows mute
+# changes made in the plugin as well (volume-key watch).
+# radio-key switches every radio off, or all on again (airplane mode keys).
+# Usage: keys_build ROOT
+keys_build() {
+	local root=$1
+	cat <<'EOF' | _write "$root$SHARE/volume-key"
+#!/bin/sh
+# Usage: volume-key up|down|mute|micmute|init
+u=$(id -u)
+running() { pgrep -u "$u" -x "$1" >/dev/null 2>&1; }
+case $1 in up) a=volu ;; down) a=vold ;; mute) a=mute ;; *) a="" ;; esac
+if [ -n "$a" ]; then
+	if running wf-panel-pi; then wfpanelctl volumepulse "$a"
+	elif running lxpanel-pi; then lxpanelctl-pi command volumepulse "$a"
+	elif running lxpanel && ls /usr/lib/*/lxpanel/plugins/volumepulse.so >/dev/null 2>&1; then lxpanelctl command volumepulse "$a"
+	elif command -v wpctl >/dev/null; then
+		case $1 in up) wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+ ;; down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
+			*) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;; esac
+	elif command -v pactl >/dev/null; then
+		case $1 in up) pactl set-sink-volume @DEFAULT_SINK@ +5% ;; down) pactl set-sink-volume @DEFAULT_SINK@ -5% ;;
+			*) pactl set-sink-mute @DEFAULT_SINK@ toggle ;; esac
+	fi
+elif [ "$1" = micmute ]; then
+	if command -v wpctl >/dev/null; then wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+	elif command -v pactl >/dev/null; then pactl set-source-mute @DEFAULT_SOURCE@ toggle; fi
+fi
+# The firmware volume of older ThinkPads: at full, and muted with the sound,
+# since the firmware's own beeps (as on plugging in the charger) follow it
+ec() {
+	[ -e /proc/asound/ThinkPadEC ] && command -v amixer >/dev/null || return 0
+	m=unmute
+	if command -v wpctl >/dev/null; then
+		case $(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) in *MUTED*) m=mute ;; esac
+	elif [ "$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null)" = "Mute: yes" ]; then m=mute; fi
+	amixer -q -c ThinkPadEC sset Console 100% $m 2>/dev/null
+}
+# watch: follow mute changes made elsewhere, such as in the volume plugin's
+# menu, while the login session lasts (retrying at login while the sound
+# server starts). It runs in a process group of its own (setsid), which it
+# ends when the session closes, since the sound server outlives the session
+# and a leftover process would keep the session open.
+if [ "$1" = watch ]; then
+	sid=${XDG_SESSION_ID:-}
+	if [ -n "$sid" ] && command -v loginctl >/dev/null; then
+		(
+			while sleep 10; do
+				case $(loginctl show-session "$sid" -p State --value 2>/dev/null) in
+					active|online) ;;
+					*) kill -TERM -$$ 2>/dev/null; exit 0 ;;
+				esac
+			done
+		) &
+	fi
+	n=0
+	while [ $n -lt 12 ]; do
+		t=$(date +%s)
+		pactl subscribe 2>/dev/null | while read -r l; do
+			case $l in *" on sink #"*|*" on server"*) ec ;; esac
+		done
+		[ $(($(date +%s) - t)) -lt 30 ] || break
+		n=$((n + 1)); sleep 5
+	done
+	kill -TERM -$$ 2>/dev/null
+	exit 0
+fi
+ec
+if [ "$1" = init ] && [ -e /proc/asound/ThinkPadEC ] && command -v pactl >/dev/null; then
+	# An earlier watcher leads its own process group, with its pactl
+	for g in $(pgrep -u "$u" -f "^/bin/sh $0 watch\$"); do kill -TERM "-$g" 2>/dev/null; done
+	setsid "$0" watch >/dev/null 2>&1 </dev/null &
+fi
+exit 0
+EOF
+	cat <<'EOF' | _write "$root$SHARE/radio-key"
+#!/bin/sh
+# Usage: radio-key [wlan]. Without an argument (airplane mode key): every
+# radio off if any is on, else every radio on. With wlan (the Wi-Fi key, which
+# the firmware of many laptops handles itself by switching Wi-Fi): Bluetooth
+# follows Wi-Fi's new state, so the key switches every radio.
+rf=/usr/sbin/rfkill
+[ -x /usr/sbin/rfkill.distrib ] && rf=/usr/sbin/rfkill.distrib
+# Raspberry Pi's Bluetooth plugin reads the radio's state again only when an
+# adapter appears or its Discoverable property changes: once each adapter is
+# powered on, switch Discoverable on and off, so its icon turns blue again.
+refresh() {
+	command -v busctl >/dev/null || return 0
+	sleep 0.5
+	for a in $(busctl --list tree org.bluez 2>/dev/null | grep -E '^/org/bluez/hci[0-9]+$'); do
+		i=0
+		while [ $i -lt 20 ] && [ "$(busctl get-property org.bluez "$a" org.bluez.Adapter1 Powered 2>/dev/null)" != "b true" ]; do
+			sleep 0.25; i=$((i + 1))
+		done
+		busctl set-property org.bluez "$a" org.bluez.Adapter1 Discoverable b true 2>/dev/null &&
+			busctl set-property org.bluez "$a" org.bluez.Adapter1 Discoverable b false 2>/dev/null
+	done
+}
+# Wait while the Bluetooth switch of the laptop is being handed to the adapter
+# (bluetooth-switch, after a block), so that it does not block it again later.
+i=0
+while [ $i -lt 40 ] && pgrep -f '/bluetooth-switch ' >/dev/null 2>&1; do sleep 0.25; i=$((i + 1)); done
+if [ "${1:-}" = wlan ]; then
+	sleep 0.5
+	if "$rf" list wlan | grep -q 'Soft blocked: yes'; then "$rf" block bluetooth
+	elif "$rf" list wlan | grep -q 'Soft blocked: no'; then "$rf" unblock bluetooth && refresh; fi
+elif "$rf" list | grep -q 'Soft blocked: no'; then "$rf" block all
+else "$rf" unblock all && refresh; fi
+EOF
+	# magnifier opens the magnifier as the panel's plugin does by default, or
+	# closes it (Ctrl+Alt+M; the plugin is not on the panel, see PANEL_UNPLACED)
+	cat <<'EOF' | _write "$root$SHARE/magnifier"
+#!/bin/sh
+pkill -u "$(id -u)" -x mage-rpi && exit 0
+command -v mage-rpi >/dev/null || exit 0
+exec mage-rpi -r 350 350 -z 2
+EOF
+	chmod 0755 "$root$SHARE/volume-key" "$root$SHARE/radio-key" "$root$SHARE/magnifier"
+	# Older ThinkPads with a firmware volume (thinkpad_acpi's console audio):
+	# that volume as a mixer control, and every hotkey reported, as their
+	# firmware reports the volume keys only with all hotkeys enabled
+	[[ -e /proc/acpi/ibm/volume ]] || return 0
+	local dir=/lib/udev/rules.d
+	suite_ge "$H_SUITE" trixie && dir=/usr/lib/udev/rules.d
+	cat <<EOF | _write "$root/etc/modprobe.d/$APP_NAME-thinkpad.conf"
+# Written by $APP_NAME and removed with $APP_PKG: the firmware volume of this
+# ThinkPad as a mixer control, which the session keeps at full (volume-key).
+options thinkpad_acpi volume_control=1
+EOF
+	cat <<EOF | _write "$root$dir/90-$APP_NAME-thinkpad.rules"
+# Written by $APP_NAME and removed with $APP_PKG: every hotkey of this older
+# ThinkPad reported to the system, the volume keys included.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="thinkpad_acpi", TEST=="hotkey_all_mask", RUN+="/bin/sh -c 'cat /sys%p/hotkey_all_mask >/sys%p/hotkey_mask'"
+EOF
+}
+
+# Bluetooth turned off as on Raspberry Pi OS. Raspberry Pi's Bluetooth plugin
+# turns Bluetooth off with "rfkill block bluetooth", which also blocks a
+# laptop's own Bluetooth switch (thinkpad_acpi, dell, hp, asus and others).
+# Such a switch powers the adapter off, so the adapter is gone and the plugin
+# hides its icon, where Raspberry Pi OS shows it grey. A udev rule keeps the
+# laptop's switch on when it is blocked and blocks the adapter's own radio
+# instead: Bluetooth is off, the adapter stays, and the icon stays, grey. The
+# plugin reads the first "Soft blocked" line of "rfkill list bluetooth", which
+# is the laptop's switch, so an rfkill wrapper (Debian's rfkill diverted to
+# rfkill.distrib, see build_pkg) lists the adapters first. Only on computers
+# with such a switch. Usage: bt_switch_build ROOT
+bt_switch_build() {
+	local root=$1 dir=/lib/udev/rules.d r
+	BT_SWITCH=0
+	for r in /sys/class/rfkill/rfkill*; do
+		[[ $(cat "$r/type" 2>/dev/null) == bluetooth && $(readlink -f "$r") != */bluetooth/hci* ]] && BT_SWITCH=1
+	done
+	(( BT_SWITCH )) || return 0
+	suite_ge "$H_SUITE" trixie && dir=/usr/lib/udev/rules.d
+	cat <<'EOF' | _write "$root/usr/sbin/rfkill"
+#!/bin/sh
+# rfkill of the Raspberry Pi Desktop session (rpios-look-debian; Debian's is
+# rfkill.distrib): "rfkill list" shows the Bluetooth adapters before a
+# laptop's own Bluetooth switch, so that Raspberry Pi's Bluetooth plugin reads
+# the adapter's state. Everything else is Debian's rfkill unchanged.
+real=/usr/sbin/rfkill.distrib
+if [ "$1" = list ]; then
+	"$real" "$@" | awk '/^[0-9]+: / { n++; hci[n] = ($2 ~ /^hci/) } { blk[n] = blk[n] $0 "\n" }
+		END { for (i = 1; i <= n; i++) if (hci[i]) printf "%s", blk[i]
+		      for (i = 1; i <= n; i++) if (!hci[i]) printf "%s", blk[i] }'
+	exit 0
+fi
+exec "$real" "$@"
+EOF
+	chmod 0755 "$root/usr/sbin/rfkill"
+	cat <<EOF | _write "$root$dir/90-${APP_NAME}-bluetooth.rules"
+# Written by $APP_NAME and removed with $APP_PKG: a laptop's own Bluetooth
+# switch that is turned off stays on, and the Bluetooth adapter's radio is
+# turned off instead, so the adapter stays and the panel shows Bluetooth as off.
+ACTION=="change", SUBSYSTEM=="rfkill", ATTR{type}=="bluetooth", ATTR{soft}=="1", DEVPATH!="*/bluetooth/hci*", RUN+="$SHARE/bluetooth-switch %k"
+EOF
+	cat <<'EOF' | _write "$root$SHARE/bluetooth-switch"
+#!/bin/sh
+# Usage: bluetooth-switch RFKILL-NAME (from the udev rule). Turn the laptop's
+# own Bluetooth switch back on, then block the adapter's radio. The switch
+# had powered the adapter off, so the adapter comes back as a new device:
+# wait for it, and block it again a moment later, after systemd-rfkill has
+# restored its saved state.
+echo 0 >"/sys/class/rfkill/$1/soft"
+block() {
+	found=1
+	for r in /sys/class/rfkill/rfkill*; do
+		[ "$(cat "$r/type" 2>/dev/null)" = bluetooth ] || continue
+		case $(readlink -f "$r") in */bluetooth/hci*) echo 1 >"$r/soft"; found=0 ;; esac
+	done
+	return $found
+}
+i=0
+while [ $i -lt 50 ] && ! block; do sleep 0.1; i=$((i + 1)); done
+sleep 2
+block
+EOF
+	chmod 0755 "$root$SHARE/bluetooth-switch"
+}
+
 # Debian's LXDE session with Raspberry Pi's build of its panel (Debian 11
 # and 12, where that build replaces Debian's): the build draws Debian's
 # layout only in part, as it has no pager and no background image and names
@@ -3719,9 +4248,13 @@ session_build() {
 	_seed "$rc" "$SYS_ROOT"/etc/xdg/openbox/LXDE/rc.xml "$SYS_ROOT"/etc/xdg/openbox/rc.xml || die "Openbox's rc.xml is missing (install openbox)"
 	_openbox_rc "$rc"
 	_openbox_keys "$rc"
-	if (( S_PI_STACK )); then _pi_stack_layout; else _lxpanel_layout; fi | _write "$xdg/lxpanel/$S_PROFILE/panels/panel"
+	if (( S_PI_STACK )); then _pi_stack_layout; else _lxpanel_layout; fi | _panel_size | _write "$xdg/lxpanel/$S_PROFILE/panels/panel"
 	command -v pishutdown >/dev/null && printf '[Command]\nLogout=pishutdown\n' | _write "$xdg/lxpanel/$S_PROFILE/config"
-	(( S_PI_PANEL )) && _pi_panel_layout | _write "$xdg/lxpanel-pi/panels/panel"
+	(( S_PI_PANEL )) && _pi_panel_layout | _panel_size | _write "$xdg/lxpanel-pi/panels/panel"
+	# The terminal's font for the size preset; medium is lxterminal's own
+	if [[ ${S_SIZE:-medium} != medium ]]; then
+		printf '[general]\nfontname=%s\n' "$T_TERM_FONT" | _write "$xdg/lxterminal/lxterminal.conf"
+	fi
 	_session_files "$xdg"
 	_session_menu "$xdg" "$data"
 	_session_entries "$xdg" "$data"
@@ -3735,6 +4268,13 @@ session_build() {
 	_session_command "$root"
 	_session_dconf "$root"
 	if [[ $H_DISPLAY == wayland && -x /usr/bin/labwc && -x /usr/bin/wf-panel-pi ]]; then _session_wayland "$root"; fi
+}
+
+# Copy a panel layout from stdin with the size preset's icon size, panel
+# height and taskbar button width, as Appearance Settings sets them.
+_panel_size() {
+	sed -E -e "s/^([[:space:]]*)(iconsize|height)=[0-9]+[[:space:]]*\$/\1\2=$T_PANEL_ICON/" \
+		-e "s/^([[:space:]]*MaxTaskWidth)=[0-9]+[[:space:]]*\$/\1=$T_TASK_WIDTH/"
 }
 
 # Succeed if Raspberry Pi's own greeter is installed and can run here.
@@ -3885,6 +4425,31 @@ verify_repo() {
 	ok "Every file in packages/ matches SHA256SUMS"
 }
 
+# Decide whether Raspberry Pi OS's network plugin (netman) is used, as on
+# Raspberry Pi OS 12 and 13: with --pi-apps, where NetworkManager runs the
+# network (installed, or installed now for Wi-Fi), on Debian 12 with
+# Raspberry Pi's panel build and on Debian 13. It needs Raspberry Pi's build
+# of Debian's libnma, which is used only where its version is Debian's with
+# Raspberry Pi's patch (later Debian releases keep nm-applet). Sets
+# USE_NETMAN and NET_NAMES: libnma0, libnma-common and the other installed
+# packages of the libnma source.
+netman_decide() {
+	local rv dv
+	USE_NETMAN=0 NET_NAMES=()
+	(( O_PI_APPS )) && [[ -n $H_RPI_ARCH ]] || return 0
+	[[ $H_SUITE == trixie || ( $H_SUITE == bookworm && USE_STACK -eq 1 ) ]] || return 0
+	[[ -n $(installed_version network-manager) ]] \
+		|| { has_wifi && [[ -z $(installed_version connman)$(installed_version wicd) ]]; } || return 0
+	rv=$(index_candidates "$(rpi_aid)" "$H_SUITE" "$(rpi_arch)" libnma0 2>/dev/null | first_line | cut -f1)
+	dv=$(installed_version libnma0)
+	[[ -n $dv ]] || dv=$(LC_ALL=C apt-cache madison libnma0 2>/dev/null | awk -F' *[|] *' 'NR == 1 { print $2 }')
+	[[ -n $rv && -n $dv && ${rv%+rpt*} == "${dv%+rpt*}" ]] || return 0
+	USE_NETMAN=1
+	mapfile -t NET_NAMES < <({ printf '%s\n' libnma0 libnma-common
+		dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${source:Package}\n' 2>/dev/null \
+			| awk '$1 ~ /^.i/ && $3 == "libnma" { print $2 }'; } | awk '!seen[$0]++')
+}
+
 # Decide what to install. FETCH_PKGS holds the Raspberry Pi OS packages,
 # installed from verified .deb files: every theme with its icons, fonts,
 # wallpapers and login screen and, where they fit, Raspberry Pi's panel and
@@ -3908,16 +4473,22 @@ resolve_all() {
 		USE_STACK=1
 		mapfile -t STACK_NAMES < <(printf '%s\n' "${PI_STACK[@]}"; stack_extras)
 	fi
+	netman_decide
 	while read -r p; do
 		case $p in
 			pi-greeter) (( O_LOGIN && O_PI_GREETER )) && with_lightdm || continue ;;
 			lxpanel-pi|lpplug-*|pplug-*|pishutdown|gui-runcmd|pcmanfm-pi) (( O_PI_APPS )) || continue ;;
 			lxplug-*) (( USE_STACK )) || continue ;;
+			# The magnifier needs Raspberry Pi's panel plugin for it
+			mage-rpi) (( O_PI_APPS )) && { (( USE_STACK )) || suite_ge "$H_SUITE" trixie; } || continue ;;
 			wf-panel-pi|wfplug-*|pipanel|rpcc|sudopwd) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
 		esac
 		if _stack_member "$p" && (( ! USE_STACK )); then continue; fi
 		wanted+=("$p")
 	done < <(rpi_pkgs "$H_SUITE" "$(rpi_arch)" "$O_4K")
+	# The plugin's Edit Connections opens Raspberry Pi's connection editor,
+	# which its package for Debian 12 does not depend on
+	(( USE_NETMAN )) && wanted+=("${NET_NAMES[@]}" lp-connection-editor)
 	[[ -n $REPO ]] || mapfile -t wanted < <(with_rpi_deps "$H_SUITE" "$(rpi_arch)" "${wanted[@]}")
 	FETCH_PKGS=()
 	for p in "${wanted[@]}"; do IN_SET[$p]=1; done
@@ -3946,10 +4517,21 @@ resolve_all() {
 		# Leave out the packages only the Wayland session uses.
 		mapfile -t FETCH_PKGS < <(printf '%s\n' "${FETCH_PKGS[@]}" | grep -vxE 'wfplug-.*|pipanel|rpcc|sudopwd')
 	fi
+	# The network plugin needs every one of Raspberry Pi's libnma builds
+	if (( USE_NETMAN )); then
+		for p in "${NET_NAMES[@]}"; do
+			[[ " ${FETCH_PKGS[*]} " == *" $p "* ]] && continue
+			note "Debian's network icon (nm-applet) is used: Raspberry Pi OS has no build of $p for $H_SUITE/$H_ARCH."
+			USE_NETMAN=0 NET_NAMES=() kept=()
+			for q in "${FETCH_PKGS[@]}"; do [[ $q =~ netman|^libnma|^lp-connection-editor$ ]] || kept+=("$q"); done
+			FETCH_PKGS=("${kept[@]}")
+			break
+		done
+	fi
 	_refuse_debian_names "${FETCH_PKGS[@]}"
 
 	tray=$(tray_debs "$H_SUITE")
-	mapfile -t helpers < <(session_debs; theme_debs "$H_SUITE"; grep -E '^debian-reference' <<<"$tray"
+	mapfile -t helpers < <(session_debs; theme_debs "$H_SUITE"; { grep -E '^debian-reference' <<<"$tray" || true; }
 		if [[ $H_DISPLAY == wayland ]]; then wayland_debs; fi)
 	(( O_QT )) && helpers+=(qt5-gtk-platformtheme qt6-gtk-platformtheme)
 	# LightDM's greeter reads each user's session choice from AccountsService;
@@ -3960,7 +4542,7 @@ resolve_all() {
 	fi
 	# Hardware support: the X server, network and Bluetooth tools, sound,
 	# missing firmware and the login screen.
-	mapfile -t HW_PKGS < <(x11_debs; grep -vE '^debian-reference' <<<"$tray"; audio_debs "$H_SUITE"; login_debs; firmware_debs)
+	mapfile -t HW_PKGS < <(x11_debs; { grep -vE '^debian-reference' <<<"$tray" || true; }; audio_debs "$H_SUITE"; thinkpad_debs; login_debs; firmware_debs)
 	for p in "${HW_PKGS[@]}"; do
 		if [[ $(pkg_category "$p") == firmware ]] && ! apt_has "$p"; then
 			note "$p holds firmware this computer needs: add 'non-free-firmware' (Debian 12 and later; 'non-free' before) to your APT sources, then run this again."
@@ -3996,12 +4578,12 @@ resolve_all() {
 _stack_member() { [[ $1 =~ ^(lxplug-|lxpanel|pcmanfm|libfm) && $1 != *-pi ]]; }
 
 # A Raspberry Pi package must never replace a package from the APT sources,
-# except its builds of Debian's panel and file manager (STACK_NAMES), which
-# --pi-apps installs in their place. Usage: _refuse_debian_names PACKAGE...
+# except its builds of Debian's panel and file manager (STACK_NAMES) and of
+# libnma (NET_NAMES), which --pi-apps installs in their place. Usage: _refuse_debian_names PACKAGE...
 _refuse_debian_names() {
 	local p
 	for p; do
-		[[ " ${STACK_NAMES[*]} " != *" $p "* ]] || continue
+		[[ " ${STACK_NAMES[*]} ${NET_NAMES[*]} " != *" $p "* ]] || continue
 		if [[ -n $(apt-cache madison "$p" 2>/dev/null) ]]; then
 			die "refusing to install $p from Raspberry Pi OS: your APT sources provide a package with that name"
 		fi
@@ -4033,8 +4615,8 @@ pkg_category() {
 		pi-greeter|lightdm*|desktop-base) echo greeter ;;
 		pcmanfm-pi|pcmanfm|libfm*)   echo files ;;
 		lxpanel*|lpplug-*|pplug-*|lxplug-*|wf-panel-pi|wfplug-*|rpcc|pipanel|sudopwd|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
-		network-manager*|nm-connection-editor|wpasupplicant|iw|wireless-regdb|rfkill|bluez*|blueman|libspa-0.2-bluetooth|pulseaudio-module-bluetooth) echo network ;;
-		lxsession*|lxpolkit|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|dconf-cli|libglib2.0-bin) echo session ;;
+		network-manager*|nm-connection-editor|wpasupplicant|iw|wireless-regdb|rfkill|bluez*|blueman|libspa-0.2-bluetooth|pulseaudio-module-bluetooth|libnma*|lp-connection-editor) echo network ;;
+		lxsession*|lxpolkit|mate-polkit*|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|swaylock|swayidle|wlopm|python3|dconf-cli|libglib2.0-bin|alsa-utils) echo session ;;
 		xserver-*|x11-*|libgl1-mesa-dri) echo display ;;
 		*icon-theme*|*-icons)        echo icons ;;
 		*-theme)                     echo themes ;;
@@ -4121,8 +4703,8 @@ with_rpi_deps() {
 # (--no-remove) and, offline, never downloads (--no-download). Every package
 # installed is recorded for --uninstall.
 install_all() {
-	local p f cur sim had
-	local -a files=() opts=("${APT_OPTS[@]}") new=()
+	local p f q cur sim had
+	local -a files=() opts=("${APT_OPTS[@]}") new=() left=() kept=()
 	if [[ -n $REPO ]]; then step "Preparing packages"; else step "Downloading and verifying packages"; fi
 	if [[ -z $REPO ]]; then
 		info "Refreshing APT package lists"
@@ -4141,11 +4723,22 @@ install_all() {
 			f=$(compat_fix "$f")
 			f=$(fm_coinstall "$f")
 			f=$(rpcc_session "$f")
-			f=$(scripts_coinstall "$f") || continue
+			f=$(scripts_coinstall "$f") || { left+=("$p"); continue; }
 		fi
 		f=$(data_coinstall "$f")
 		files+=("$f")
 	done
+	# The network plugin needs all of its packages: without one, nm-applet
+	if (( USE_NETMAN )) && [[ " ${left[*]} " =~ \ (libnma[^\ ]*|[^\ ]*netman[^\ ]*|lp-connection-editor)\  ]]; then
+		note "Debian's network icon (nm-applet) is used: a package of Raspberry Pi's network plugin was left out."
+		USE_NETMAN=0 NET_NAMES=()
+		for f in "${files[@]}"; do [[ $(dpkg-deb -f "$f" Package) =~ netman|^libnma|^lp-connection-editor$ ]] || kept+=("$f"); done
+		files=("${kept[@]}") kept=()
+		for p in "${FETCH_PKGS[@]}"; do [[ $p =~ netman|^libnma|^lp-connection-editor$ ]] || kept+=("$p"); done
+		FETCH_PKGS=("${kept[@]}")
+		q=$(nm_applet_pkg "$H_SUITE")
+		if [[ -z $(installed_version "$q") ]] && apt_has "$q"; then APT_PKGS+=("$q"); fi
+	fi
 	(( O_LOGIN )) && _login_art
 	if [[ -n $REPO ]]; then
 		# Offline, APT must not download anything; it would otherwise fetch
@@ -4257,6 +4850,9 @@ build_pkg() {
 	done
 	session_build "$stage"
 	lxde_panel_build "$stage"
+	bt_switch_build "$stage"
+	keys_build "$stage"
+	popup_keeper_build "$stage"
 	if (( O_LOGIN )) && [[ -n $(installed_version lightdm) ]]; then login_build "$stage"; fi
 
 	ver="${APP_VERSION}+$(date -u +%Y%m%d%H%M%S)"
@@ -4285,6 +4881,8 @@ EOF
 		printf '\t\tfor p in %s; do\n' "$DEBIAN_APPLETS"
 		printf '\t\t\tf=${d%%/lxpanel-pi}/lxpanel/plugins/$p.so\n\t\t\t[ -f "$f" ] && [ ! -e "$d/$p.so" ] && ln -s "$f" "$d/$p.so" || true\n'
 		printf '\t\tdone\n\tdone\nfi\n'
+		# udev reads the Bluetooth rule (bt_switch_build) after a reload.
+		printf 'if [ "$1" = configure ] && command -v udevadm >/dev/null; then udevadm control --reload || true; fi\n'
 		# Raspberry Pi's panel reads the application menu only when it starts,
 		# so the trigger restarts running panels when applications change.
 		cat <<'EOF_TRIG'
@@ -4300,6 +4898,16 @@ fi
 EOF_TRIG
 	} >"$stage/DEBIAN/postinst"
 	printf 'interest-noawait /usr/share/applications\n' >"$stage/DEBIAN/triggers"
+	# Debian's rfkill, diverted while the package carries its wrapper (bt_switch_build)
+	{
+		printf '#!/bin/sh\nset -e\n'
+		if (( BT_SWITCH )); then
+			printf 'dpkg-divert --package %s --add --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null\n' "$APP_PKG"
+		else
+			printf 'if dpkg-divert --listpackage /usr/sbin/rfkill | grep -qx %s; then\n' "$APP_PKG"
+			printf '\tdpkg-divert --package %s --remove --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null || true\nfi\n' "$APP_PKG"
+		fi
+	} >"$stage/DEBIAN/preinst"
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = remove ] || [ "$1" = purge ]; then\n'
 		printf '\tfor l in /usr/lib/*/lxpanel-pi/*.so; do\n\t\tcase $(readlink "$l" || true) in /usr/lib/*/lxpanel/plugins/*) rm -f "$l" ;; esac\n\tdone\n'
@@ -4307,8 +4915,12 @@ EOF_TRIG
 			printf '\trm -f /usr/share/icons/%s/icon-theme.cache\n\trmdir /usr/share/icons/%s 2>/dev/null || true\n' "$f" "$f"
 		done
 		printf '\t:\nfi\n'
+		printf 'if [ "$1" = remove ] && command -v udevadm >/dev/null; then udevadm control --reload || true; fi\n'
+		printf 'if [ "$1" = remove ] || [ "$1" = purge ] || [ "$1" = abort-install ]; then\n'
+		printf '\tif dpkg-divert --listpackage /usr/sbin/rfkill | grep -qx %s; then\n' "$APP_PKG"
+		printf '\t\tdpkg-divert --package %s --remove --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null || true\n\tfi\nfi\n' "$APP_PKG"
 	} >"$stage/DEBIAN/postrm"
-	chmod 0755 "$stage/DEBIAN/postinst" "$stage/DEBIAN/postrm"
+	chmod 0755 "$stage/DEBIAN/postinst" "$stage/DEBIAN/postrm" "$stage/DEBIAN/preinst"
 	build_deb "$stage" "$WORKDIR/${APP_PKG}_${ver}_all.deb"
 	printf '%s\n' "$WORKDIR/${APP_PKG}_${ver}_all.deb"
 }
@@ -4326,18 +4938,22 @@ install_pkg() {
 }
 
 # Reload the running Raspberry Pi Desktop session so that the new look appears
-# at once: Openbox reads its settings again, and the panel and desktop
-# restart. Open windows are not affected.
+# at once: Openbox, the panel and the desktop restart. Openbox restarts in
+# place, so that open windows get the theme's corners too (a reload leaves
+# them square). Open windows stay open.
 reload_session() {
 	[[ ${DESKTOP_SESSION:-} == "$SESSION_ID" && -n ${DISPLAY:-} ]] || return 0
 	local p
-	_running openbox && openbox --reconfigure >/dev/null 2>&1 || true
+	_running openbox && openbox --restart >/dev/null 2>&1 || true
 	for p in lxpanel-pi lxpanel; do
 		if _running "$p"; then "${p/lxpanel/lxpanelctl}" restart 2>/dev/null || true; fi
 	done
 	for p in pcmanfm-pi pcmanfm; do
 		_running "$p" && "$p" --desktop-off 2>/dev/null || true
 	done
+	# With Raspberry Pi's network plugin, nm-applet no longer starts in the
+	# session; one started before would show a second network icon
+	if (( USE_NETMAN )); then pkill -u "$(id -u)" -x nm-applet 2>/dev/null || true; fi
 	# Start the desktop with the session's own environment, not this script's,
 	# and without the script's run lock (file descriptor 9).
 	setsid -f sh -c ". $SHARE/session-env; exec $SHARE/desktop" >/dev/null 2>&1 9<&- || true
@@ -4700,7 +5316,7 @@ apply_gtk_files() {
 		gtk-cursor-theme-name "$T_ICONS" gtk-cursor-theme-size "$T_CURSOR_SIZE" gtk-font-name "$T_FONT"
 	_ini_set "$f" Settings gtk-sound-theme-name "$T_SOUND_THEME" gtk-enable-event-sounds 1 gtk-enable-input-feedback-sounds 1
 	_ini_set "$f" Settings gtk-toolbar-style GTK_TOOLBAR_BOTH_HORIZ gtk-toolbar-icon-size GTK_ICON_SIZE_LARGE_TOOLBAR \
-		gtk-icon-sizes gtk-large-toolbar=24,24 gtk-button-images 0 gtk-menu-images 0 \
+		gtk-icon-sizes "gtk-large-toolbar=$T_TB_ICON,$T_TB_ICON" gtk-button-images 0 gtk-menu-images 0 \
 		gtk-xft-antialias 1 gtk-xft-hinting 1 gtk-xft-hintstyle hintfull gtk-xft-rgba rgb
 	f=$HOME/.config/gtk-4.0/settings.ini
 	_ini_set "$f" Settings gtk-icon-theme-name "$T_ICONS" gtk-cursor-theme-name "$T_ICONS" \
@@ -4714,7 +5330,7 @@ apply_gtk_files() {
 	_kv_set "$f" gtk-font-name "$T_FONT" '"'
 	_kv_set "$f" gtk-toolbar-style GTK_TOOLBAR_BOTH_HORIZ
 	_kv_set "$f" gtk-toolbar-icon-size GTK_ICON_SIZE_LARGE_TOOLBAR
-	_kv_set "$f" gtk-icon-sizes "gtk-large-toolbar=24,24" '"'
+	_kv_set "$f" gtk-icon-sizes "gtk-large-toolbar=$T_TB_ICON,$T_TB_ICON" '"'
 	_kv_set "$f" gtk-button-images 0
 	_kv_set "$f" gtk-menu-images 0
 	_kv_set "$f" gtk-xft-antialias 1
@@ -4761,7 +5377,7 @@ apply_de_lxde() {
 	if _seed "$rc" /etc/xdg/openbox/LXDE/rc.xml /etc/xdg/openbox/lxde-rc.xml /etc/xdg/openbox/rc.xml; then
 		_openbox_buttons "$T_GTK"
 		_openbox_rc "$rc" 1
-		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --reconfigure >/dev/null 2>&1 || true; fi
+		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --restart >/dev/null 2>&1 || true; fi
 	fi
 	# The desktop. A running pcmanfm takes a new wallpaper at once and then
 	# saves all its settings, so the file is backed up first and written last.
@@ -4789,7 +5405,7 @@ apply_de_xfce() {
 	xf_set xsettings /Gtk/CursorThemeName string "$T_ICONS"
 	xf_set xsettings /Gtk/CursorThemeSize int "$T_CURSOR_SIZE"
 	xf_set xsettings /Gtk/ToolbarStyle string both-horiz
-	xf_set xsettings /Gtk/IconSizes string gtk-large-toolbar=24,24
+	xf_set xsettings /Gtk/IconSizes string "gtk-large-toolbar=$T_TB_ICON,$T_TB_ICON"
 	xf_set xsettings /Gtk/ButtonImages bool false
 	xf_set xsettings /Gtk/MenuImages bool false
 	xf_set xsettings /Xft/Antialias int 1
@@ -4870,7 +5486,7 @@ apply_de_openbox() {
 	if _seed "$rc" /etc/xdg/openbox/rc.xml; then
 		_openbox_buttons "$T_GTK"
 		_openbox_rc "$rc"
-		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --reconfigure >/dev/null 2>&1 || true; fi
+		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --restart >/dev/null 2>&1 || true; fi
 		ok "Openbox configured"
 	else
 		warn "no Openbox rc.xml found; skipping Openbox"
@@ -5296,14 +5912,17 @@ restore_debian_stack() {
 	local p v src
 	local -a args=() kept=() plugins=() autos=()
 	while read -r p v src; do
-		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC)$ ]] || continue
+		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC|libnma)$ ]] || continue
 		v=$(LC_ALL=C apt-cache madison "$p" 2>/dev/null | awk -F' *[|] *' 'NR == 1 { print $2 }')
 		if [[ -n $v ]]; then args+=("$p=$v"); else kept+=("$p"); fi
 	done < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version} ${source:Package}\n' 2>/dev/null | awk '$1 ~ /^.i/ { $1 = ""; print }')
 	(( ${#args[@]} + ${#kept[@]} )) || return 0
 	if (( ${#args[@]} )); then
-		step "Putting Debian's panel and file manager back"
-		mapfile -t plugins < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'lxplug-*' 2>/dev/null | awk '$1 ~ /^.i/ { print $2 }')
+		step "Putting Debian's panel, file manager and libnma back"
+		# Raspberry Pi's plugins for its panel build, and the network plugins
+		# and connection editor, which need its libnma build
+		mapfile -t plugins < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'lxplug-*' '*-netman' lp-connection-editor 2>/dev/null \
+			| awk '$1 ~ /^.i/ { print $2 }')
 		if (( ${#plugins[@]} )); then as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "${plugins[@]}" >/dev/null || true; fi
 		if [[ -f $SYS_DIR/stack-auto ]]; then
 			mapfile -t autos < <(printf '%s\n' "${args[@]%%=*}" | grep -xF -f "$SYS_DIR/stack-auto" || true)
@@ -5440,6 +6059,8 @@ uninstall() {
 	rm -f -- "$f/dconf/${APP_NAME//-/}" "$f/xsettingsd/xsettingsd.conf"
 	# Files and folders the sessions left empty; rmdir keeps folders with content
 	[[ ! -f $f/gtk-4.0/gtk.css || -s $f/gtk-4.0/gtk.css ]] || rm -f -- "$f/gtk-4.0/gtk.css"
+	# Empty temporary files of a sed -i that the end of a session cut short
+	find "$f/gtk-4.0" -maxdepth 1 -type f -name 'sed??????' -empty -delete 2>/dev/null || true
 	rmdir -- "$f/gtk-4.0" "$f/pcmanfm/default" "$f/pcmanfm" "$f/xsettingsd" "$f/dconf" "$f/labwc" "$f/lxpanel" \
 		"$f/lxsession" "$f/openbox" "$d/themes" "$d/desktop-directories" "$d/flatpak/db" "$d/flatpak" 2>/dev/null || true
 
@@ -5541,6 +6162,8 @@ parse_args() {
 			--login-background) (( $# >= 2 )) || die "$opt needs a value"
 				set_option login-background "$2" || die "invalid login background '$2' (raspios, debian or a full path)"; GIVEN[login-background]=1; shift; eq=0 ;;
 			--qt|--no-qt)     set_option qt "$([[ $opt == --qt ]] && echo 1 || echo 0)"; GIVEN[qt]=1 ;;
+			--size)           (( $# >= 2 )) || die "$opt needs a value"
+				set_option size "${2,,}" || die "unknown size '$2' (small, medium, large or larger)"; GIVEN[size]=1; shift; eq=0 ;;
 			--wayland|--no-wayland|--auto|--auto-wayland)   # --auto-wayland: the earlier name of --auto
 				case $opt in --wayland) val=on ;; --no-wayland) val=off ;; *) val=auto ;; esac
 				set_option wayland "$val"; GIVEN[wayland]=1 ;;
@@ -5772,6 +6395,7 @@ main() {
 	esac
 	pick_suite
 	load_options
+	size_resolve
 	case $O_MODE in
 		prepare-upgrade) prepare_upgrade ;;
 		*)               install_mode ;;
