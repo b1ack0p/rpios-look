@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Title       : rpios-look.sh
-# Description : Makes Debian look like Raspberry Pi OS, without breaking
+# Description : Makes Debian on 32-bit (x86, i386) and 64-bit (x64, amd64)
+#               PCs look like Raspberry Pi OS, without breaking
 #               Debian: the official PiXflat, PiXnoir, PiXtrix, PiXonyx and
 #               PiX themes with their icons, cursors, fonts, wallpapers,
 #               panel, file manager and login screen, as a "Raspberry Pi
-#               Desktop" session on the login screen. Debian's LXDE, Openbox,
-#               labwc, Xfce and MATE can be given the same look on request.
+#               Desktop" session on the login screen.
 #
 # Usage       : bash rpios-look.sh                   install or update
 #               bash rpios-look.sh --refresh         list available updates, then
@@ -20,56 +20,28 @@
 #               bash rpios-look.sh --help            this text
 #               Safe to re-run.
 #
-# Options     : -t, --theme NAME     pixflat, pixnoir, pixtrix, pixonyx, pix or auto
-#                                    (auto: pixtrix on Debian 13 and later, else pixflat),
-#                                    with everything Raspberry Pi OS gives it: icons,
-#                                    cursor, font, window frames and wallpaper.
-#                                    Every theme is always installed; this option
-#                                    only chooses the look, and the install does
-#                                    not ask for one at the end
-#                   --4k | --no-4k   the 4K wallpapers (about 196 MB) or the standard ones
-#                   --pi-apps | --no-pi-apps
-#                                    Raspberry Pi's own panel and file manager: beside
-#                                    Debian's on Debian 13 and later, in place of
-#                                    Debian's on Debian 10 to 12; or Debian's
-#                   --login-screen | --no-login-screen
-#                                    the Raspberry Pi OS login screen style (LightDM, installed
-#                                    where no other login manager is used), or none
-#                   --pi-greeter | --no-pi-greeter
-#                                    Raspberry Pi's own login box, which has no session
-#                                    chooser, or Debian's greeter in its style (default)
-#                   --login-background B
-#                                    the picture behind the login box: debian (Debian's
-#                                    own login artwork, default), raspios or a full path
-#                   --wayland | --no-wayland | --auto
-#                                    the session on Wayland (labwc), as Raspberry Pi OS
-#                                    13 has it (Debian 13 and later), or on X (Openbox)
-#                                    only. Default (auto): Wayland where this computer
-#                                    suits it, X on older computers and older Debian.
-#                                    X is always installed: the login screen runs on it
-#                   --qt | --no-qt   Qt applications follow the theme in the session
-#                   --size SIZE      small, medium, large or larger: Raspberry Pi OS's
+# Look        : The look is Raspberry Pi OS's for this Debian release:
+#               PiXtrix on Debian 13 and later, else PiXflat, with its icons,
+#               cursor, font, window frames and wallpaper. Every theme is
+#               installed; each user can change theirs with
+#               rpios-look-set --theme NAME. The session runs on Wayland
+#               (labwc) where the computer suits it, else on X (Openbox).
+#
+# Options     :     --size SIZE      small, medium, large or larger: Raspberry Pi OS's
 #                                    size presets for fonts, icons, the panel and the
-#                                    cursor. Default: medium, Raspberry Pi OS's own
-#               An install run saves the options above; later runs reuse them
-#               unless given again, e.g. --theme auto.
-#               -d, --desktop LIST   also give these desktops the look, for you only:
-#                                    lxde, openbox, labwc, xfce, mate, all or none
-#                                    (this run only)
-#                   --bundle LIST    with --download: only these release/architecture
-#                                    pairs, e.g. bookworm/i386,trixie/amd64
-#                   --no-log         no run log
-#               -y, --yes            answer yes to every question
+#                                    cursor. Default: medium, Raspberry Pi OS's own.
+#                                    An install run saves it; later runs reuse it
+#                                    unless it is given again
 #               -v, --verbose        also print the commands run as root, the
 #                                    files downloaded and other details
 #               -V, --version        print the version
 #
 # Offline     : Run --download on any machine with internet access; it builds
-#               packages/ for Debian 10 to 13 on amd64, arm64, armhf and i386.
+#               packages/ for Debian 10 to 12 on amd64 and i386, and 13 on amd64.
 #               Copy this script and packages/ to the target; run --offline there.
 #
 # Refresh     : --refresh lists what an update would change: newer official
-#               packages, missing ones, a Debian change, changed options. It
+#               packages, missing ones, a Debian change, a changed size. It
 #               asks before applying anything.
 #
 # Undo        : bash rpios-look.sh --uninstall removes the session, the
@@ -86,10 +58,10 @@
 #   2. Helpers      messages, questions, records, run lock
 #   3. Packages     themes, package sets, host and release
 #   4. Archives     signed indexes, resolution, download, repacking
-#   5. Artwork      Xfwm4 themes, icon sets with the Debian logo
+#   5. Artwork      icon sets with the Debian logo
 #   6. Session      the Raspberry Pi Desktop session and login screen
 #   7. Install      packages, the generated package, records
-#   8. Desktops     the look for other desktops, per user
+#   8. User state   backups for --uninstall
 #   9. Offline      --download, --offline
 #  10. Refresh      --refresh, --prepare-upgrade
 #  11. Uninstall    --uninstall
@@ -108,32 +80,34 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.11.0"
+readonly APP_VERSION="3.12.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
-# Records of the install: installed packages, saved options, replaced files.
+# Records of the install: installed packages, the saved size, replaced files.
 readonly SYS_DIR="/var/lib/rpios-look"
 # Configuration and data of the session, shipped in the generated package.
 readonly SHARE="/usr/share/rpios-look"
 readonly SESSION_ID="rpios-look"
-# Names used by earlier versions: pixflat-theme (2.x) and raspios-look
-# (3.0.0). An install made by either is taken over.
-readonly OLD_NAME="pixflat-theme" OLD_PKG="pixflat-theme-debian" OLD_SYS_DIR="/var/lib/pixflat-theme"
-readonly PREV_NAME="raspios-look" PREV_PKG="raspios-look-debian" PREV_SYS_DIR="/var/lib/raspios-look"
 # APT options: never remove a package, never ask, and wait for another
 # package manager to finish. Recommended packages are not installed: every
 # needed package is named explicitly, and a recommendation (Raspberry Pi's
 # plugins recommend PulseAudio) must not replace installed software.
 readonly APT_OPTS=(-y --no-remove --no-install-recommends -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=300)
 readonly RPI_ARCHIVE="https://archive.raspberrypi.org/debian"
+# Raspberry Pi's archive in APT, so that "apt full-upgrade" updates the
+# Raspberry Pi packages that this script installed unchanged (see apt_files)
+readonly APT_SRC="/etc/apt/sources.list.d/rpios-look.sources" APT_PIN="/etc/apt/preferences.d/rpios-look"
+readonly APT_HOOK="/etc/apt/apt.conf.d/50rpios-look" APT_KEY="/usr/share/keyrings/rpios-look-archive-keyring.gpg"
 readonly RPI_KEY_URL="${RPI_ARCHIVE}/raspberrypi.gpg.key"
 readonly RPI_KEY_FPR="CF8A1AF502A2AA2D763BAE7E82B129927FA3303E"
 # Raspberry Pi OS configuration packages. They are downloaded and verified
-# but never installed: rpd-common provides the login screen wallpaper and its
-# licence, rpd-x-core the panel layout, and rpd-wayland-core the settings of
+# but never installed: rpd-common provides the menu (Raspberry Pi OS 13 and
+# later), rpd-x-core the panel layout, and rpd-wayland-core the settings of
 # the Wayland session (Raspberry Pi OS 13 and later).
 readonly ART_PKG="rpd-common" PANEL_PKG="rpd-x-core" WAYLAND_PKG="rpd-wayland-core"
+# Supported PC architectures, as grep -E alternatives.
+readonly PC_ARCHES="amd64|i386"
 readonly DEBIAN_ARCHIVE="https://deb.debian.org/debian"
 # Debian's server for releases that have reached their end of life.
 readonly DEBIAN_OLD_ARCHIVE="https://archive.debian.org/debian"
@@ -143,15 +117,13 @@ readonly DEBIAN_OLD_KEYRING="/usr/share/keyrings/debian-archive-removed-keys.gpg
 # Debian releases by major version. Debian's distro-info-data, if installed,
 # adds releases named after this script was written.
 readonly KNOWN_RELEASES=(9:stretch 10:buster 11:bullseye 12:bookworm 13:trixie 14:forky 15:duke)
-# OLDEST is the oldest Debian release accepted as a host (pick_suite) and the
-# oldest Raspberry Pi OS release whose indexes are read (releases). Debian 9 is
-# accepted but not supported: the documented minimum is Debian 10, which is
-# also the oldest release --download bundles (OFFLINE_OLDEST).
+# OLDEST: the oldest Debian host accepted (pick_suite) and the oldest Raspberry
+# Pi OS release whose indexes are read. Debian 9 is accepted but unsupported;
+# the documented minimum, and the oldest release --download bundles, is 10.
 readonly OLDEST=9 OFFLINE_OLDEST=10
 # Raspberry Pi OS theme packages that are built per architecture but contain
 # no compiled code, so the build of any Raspberry Pi OS release can be used.
 readonly DATA_PKGS=(pixflat-theme pixtrix-theme pix-theme)
-readonly DE_OTHER=(lxde openbox labwc xfce mate)
 
 # Dependency names missing from some Debian releases, mapped to the packages
 # that provide them there; the first available candidate is used. A newer
@@ -166,17 +138,16 @@ declare -rA DEP_RENAMES=(
 	[libpng12-0]="libpng16-16t64 libpng16-16"
 	[gtk-update-icon-cache]="libgtk-3-bin"
 )
-# Dependencies of Raspberry Pi packages that only a Raspberry Pi needs; they
-# are dropped. The battery plugin of Raspberry Pi OS 10 and 11 uses
-# raspi-config only to detect a pi-top; without it, it reads the computer's
-# own battery.
+# Dependencies only a Raspberry Pi needs; they are dropped. The battery and CPU
+# temperature plugins (Raspberry Pi OS 10, 11) use raspi-config only to detect
+# a pi-top or a Raspberry Pi; without it they read the PC's battery and sensors.
 declare -rA DEP_DROPS=(
 	[lxplug-ptbatt]="raspi-config"
+	[lxplug-cputemp]="raspi-config"
 )
 
-# Cursor names that toolkits request, mapped to equivalents that may exist in
-# the official cursor themes. A missing name becomes a symlink to an official
-# file.
+# Cursor names that toolkits request, mapped to equivalents in the official
+# cursor themes. A missing name becomes a symlink to an official file.
 readonly CURSOR_ALIASES=(
 	"default:left_ptr arrow"            "left_ptr:default arrow"
 	"pointer:hand2 hand1 hand"          "hand1:pointer hand2"          "hand2:pointer hand1"
@@ -251,53 +222,38 @@ readonly ICON_ALIASES=(
 	"!bluetooth-disabled-symbolic:bluetooth-offline" "bluetooth-disconnected-symbolic:bluetooth-inactive"
 	"!rpi:system-shutdown"
 )
-# Icon names that the Raspberry Pi OS icon sets draw as the Raspberry Pi logo
-# for the menu button; each shows the Debian logo instead. The remaining one,
-# "rpi", is the window icon of the Shutdown dialog before Raspberry Pi OS 13;
-# it shows the Shutdown icon instead, as from Raspberry Pi OS 13 (see
-# ICON_ALIASES and _session_icons).
+# Icon names drawn as the Raspberry Pi logo for the menu button; each shows the
+# Debian logo instead. "rpi" (the Shutdown dialog's icon before Raspberry Pi OS
+# 13) shows the Shutdown icon, as from 13 on (see ICON_ALIASES).
 readonly LOGO_ICONS=(start-here distributor-logo gnome-main-menu launch rpi-logo)
 
-# Options (O_*). An install run saves the remembered ones (SAVED_KEYS) in
-# $SYS_DIR/options; later runs reuse them unless they are given again.
+# Options (O_*). An install run saves the size in $SYS_DIR/options; later
+# runs reuse it unless --size is given again.
 O_MODE="install"        # install | refresh | uninstall | prepare-upgrade | download | offline
-O_THEME="auto"
-O_4K=0
-O_PI_APPS=1             # Raspberry Pi's own panel and file manager, where they fit
-O_LOGIN=1               # the Raspberry Pi OS login screen, where LightDM is used
-O_PI_GREETER=0          # Raspberry Pi's own greeter, which has no session chooser
-O_LOGIN_BG="debian"     # the login screen's background: debian, raspios or a path
-O_QT=0
-O_SIZE=medium          # the size preset: small, medium (Raspberry Pi OS's default), large or larger
-S_SIZE=""               # the size preset in use (size_resolve)
-O_WAYLAND=auto          # the Wayland session: auto (where the computer suits it), 1 or 0
-O_DESKTOPS="none"       # other desktops to give the look, for the running user
-O_BUNDLE=""             # --download: release/architecture pairs, empty = all
-O_LOG=1
-O_YES=0
+O_SIZE=medium           # the size preset: small, medium (Raspberry Pi OS's default), large or larger
+O_SIZE_GIVEN=0          # 1 when --size is given on this command line
 O_VERBOSE=0
 O_INTERACTIVE=0
-readonly SAVED_KEYS=(theme 4k pi-apps login-screen pi-greeter login-background qt wayland size)
-declare -A GIVEN=()     # remembered options given on this command line
 
 # Host (H_*) and run state. The theme variables (T_*) are set by set_theme.
-H_ARCH="" H_ID="" H_LIKE="" H_CODENAME="" H_PRETTY="" H_SUITE="" H_RPI_ARCH=""
+H_ARCH="" H_ID="" H_LIKE="" H_CODENAME="" H_PRETTY="" H_SUITE=""
 # The computer (see detect_machine) and the display system chosen for it.
 H_MODEL="" H_CPU="" H_MEM_MB=0 H_OLD_CPU=0 H_GPU="" H_GPU_DRV="" H_GPU_DRVS="" H_RENDER=0 H_KMS=0
 H_VIRT="" H_KERNEL="" H_EDITION="" H_DM="" H_DISPLAY="x11" H_DISPLAY_WHY=""
 FETCH_PKGS=()           # installed from verified .deb files
-HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound, firmware, login screen)
+PIN_PKGS=()             # those installed as Raspberry Pi ships them, which APT updates
+NO_APT_SOURCE=0         # 1 to build the package without Raspberry Pi's archive in APT
+HW_PKGS=()              # hardware support (X server, network, Bluetooth, sound, login screen)
 POLICY_RC=""            # the policy-rc.d file a purge made, removed on exit
 ROOT_PKGS=()            # what is installed for its own sake, not as a dependency
 APT_PKGS=()             # installed by name from the APT sources
-BT_SWITCH=0             # 1 when the computer has a laptop Bluetooth switch (bt_switch_build)
 USE_NETMAN=0            # 1 when Raspberry Pi's network plugin and its libnma build are used
 NET_NAMES=()            # those Raspberry Pi builds that carry Debian's names (libnma)
 USE_STACK=0             # 1 when Raspberry Pi's builds replace Debian's panel and file manager (PI_STACK)
 STACK_NAMES=()          # those packages, with the other installed packages of their sources
 declare -A PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
 declare -A IDX_LOADED=() IDX_FAILED=() IN_SET=()
-WORKDIR="" KEYRING="" DEP_INDEX="" BUILD_STAGE="" LOG_FILE="" REPO=""
+WORKDIR="" KEYRING="" DEP_INDEX="" BUILD_STAGE="" LOG_FILE="" REPO="" PKG_DEB=""
 ARGV=()
 NOTES=()                # lines for the summary at the end
 STEP=0                  # the number of the step being shown
@@ -339,13 +295,11 @@ _q() { local a out=""; for a; do out+="${out:+ }$(printf '%q' "$a")"; done; prin
 as_root() { debug "sudo $(_q "$@")"; sudo -- "$@"; }
 
 # Ask a yes/no question on the terminal, also when the script is read from a
-# pipe. With --yes, the answer is always yes; without a terminal, the default
-# answer is taken.
+# pipe. Without a terminal, the default answer is taken.
 # Usage: ask QUESTION y|n
 ask() {
 	local q=$1 def=$2 ans hint="[y/N]"
 	[[ $def == y ]] && hint="[Y/n]"
-	if (( O_YES )); then return 0; fi
 	if (( ! O_INTERACTIVE )); then [[ $def == y ]]; return; fi
 	read -r -p "$(printf '%s?%s %s %s ' "$C_C" "$C_0" "$q" "$hint")" ans </dev/tty || ans=""
 	ans=${ans,,}
@@ -370,16 +324,34 @@ installed_names() {
 	dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 2>/dev/null | awk '$1 ~ /^.i/ { print $2 }' | LC_ALL=C sort
 }
 
+# The lookups below leave out Raspberry Pi's archive, which the install adds
+# to APT: they ask what Debian and the system have.
+
+# Print the versions of a package in the APT sources.
+apt_versions() {
+	LC_ALL=C apt-cache madison "$1" 2>/dev/null \
+		| awk -F' *[|] *' -v rpi="${RPI_ARCHIVE#*://}" 'index($3, rpi) == 0 { print $2 }'
+}
+
+# Succeed if a package is installed or in the APT sources.
+_apt_known() {
+	LC_ALL=C apt-cache showpkg "$1" 2>/dev/null | awk -v rpi="${RPI_ARCHIVE#*://}" '
+		BEGIN { sub(/\/.*/, "", rpi) }
+		/^Versions:/        { s = 1; next }
+		/^[A-Z][A-Za-z ]*:/ { s = 0; next }
+		s && NF { n = split($0, f, "("); for (i = 2; i <= n; i++) if (index(f[i], rpi) == 0) found = 1 }
+		END { exit !found }'
+}
+
 # Succeed if APT knows a package or a package that provides it.
 apt_has() {
-	local out
-	out=$(LC_ALL=C apt-cache showpkg "$1" 2>/dev/null) || return 1
-	awk '
-		/^Versions:/          { s = "v";  next }
-		/^Reverse Provides:/  { s = "rp"; next }
-		/^[A-Z][A-Za-z ]*:/   { s = "";   next }
-		(s == "v" || s == "rp") && NF { found = 1 }
-		END { exit !found }' <<<"$out"
+	local p
+	_apt_known "$1" && return 0
+	for p in $(LC_ALL=C apt-cache showpkg "$1" 2>/dev/null \
+		| awk '/^Reverse Provides:/ { s = 1; next } /^[A-Z][A-Za-z ]*:/ { s = 0 } s && NF { print $1 }' | sort -u); do
+		_apt_known "$p" && return 0
+	done
+	return 1
 }
 
 # Write stdin to a root-owned, world-readable system file. The file is written
@@ -399,53 +371,24 @@ sys_write() {
 # Usage: record_add FILE
 record_add() { { cat "$1" 2>/dev/null || true; cat; } | LC_ALL=C sort -u | sys_write "$1"; }
 
-# Read the saved options into the O_* variables not given on the command line.
-# The file is parsed, never sourced; invalid values are ignored.
-load_options() {
-	local key val
-	[[ -f $SYS_DIR/options ]] || return 0
-	# Only an update reuses them; a fresh install decides for this computer.
-	[[ -n $(installed_version "$APP_PKG")$(installed_version "$PREV_PKG")$(installed_version "$OLD_PKG") ]] || return 0
-	while IFS='=' read -r key val; do
-		[[ " ${SAVED_KEYS[*]} " == *" $key "* && -z ${GIVEN[$key]:-} ]] || continue
-		set_option "$key" "$val" 2>/dev/null || debug "ignoring saved option $key=$val"
-	done <"$SYS_DIR/options"
+# Succeed if a size preset name is valid.
+size_ok() { [[ $1 == small || $1 == medium || $1 == large || $1 == larger ]]; }
+
+# Read the saved size, unless --size is given. Only the line "size=" of the
+# file is read; the file is parsed, never sourced, and other lines are ignored.
+load_size() {
+	local val
+	(( ! O_SIZE_GIVEN )) && [[ -f $SYS_DIR/options ]] || return 0
+	# Only an update reuses it; a fresh install starts from the default.
+	[[ -n $(installed_version "$APP_PKG") ]] || return 0
+	val=$(sed -n 's/^size=//p' "$SYS_DIR/options" 2>/dev/null | first_line) || val=""
+	if size_ok "$val"; then O_SIZE=$val; else debug "ignoring saved size '$val'"; fi
 }
 
-# Set one remembered option; fail on an invalid value.
-# Usage: set_option KEY VALUE
-set_option() {
-	case $1:$2 in
-		theme:auto|theme:pixflat|theme:pixnoir|theme:pixtrix|theme:pixonyx|theme:pix) O_THEME=$2 ;;
-		4k:[01]) O_4K=$2 ;;
-		pi-apps:[01]) O_PI_APPS=$2 ;;
-		login-screen:[01]) O_LOGIN=$2 ;;
-		pi-greeter:[01]) O_PI_GREETER=$2 ;;
-		login-background:raspios|login-background:debian) O_LOGIN_BG=$2 ;;
-		login-background:/?*)
-			[[ $2 =~ ^[A-Za-z0-9._/+-]+$ && $2 != *..* ]] || return 1
-			O_LOGIN_BG=$2 ;;
-		qt:[01]) O_QT=$2 ;;
-		size:small|size:medium|size:large|size:larger) O_SIZE=$2 ;;
-		size:auto) O_SIZE=medium ;;   # the default, as earlier versions saved it
-		wayland:auto|wayland:on) O_WAYLAND=${2/on/1} ;;
-		wayland:off|wayland:0) O_WAYLAND=0 ;;
-		# Written by 3.2.0 and earlier, where the Wayland session was the default.
-		wayland:1) O_WAYLAND=auto ;;
-		*) return 1 ;;
-	esac
-}
-
-# Print the remembered options in the format of the options file.
-option_lines() {
-	printf 'theme=%s\n4k=%s\npi-apps=%s\nlogin-screen=%s\npi-greeter=%s\nlogin-background=%s\nqt=%s\nwayland=%s\nsize=%s\n' \
-		"$O_THEME" "$O_4K" "$O_PI_APPS" "$O_LOGIN" "$O_PI_GREETER" "$O_LOGIN_BG" "$O_QT" "$(case $O_WAYLAND in 1) echo on ;; 0) echo off ;; *) echo auto ;; esac)" "$O_SIZE"
-}
-
-# Save the options of this install run for later runs.
-save_options() {
-	if ! option_lines | cmp -s - "$SYS_DIR/options" 2>/dev/null; then
-		option_lines | sys_write "$SYS_DIR/options" || note "The options could not be saved; give them again next time."
+# Save the size of this install run for later runs.
+save_size() {
+	if ! printf 'size=%s\n' "$O_SIZE" | cmp -s - "$SYS_DIR/options" 2>/dev/null; then
+		printf 'size=%s\n' "$O_SIZE" | sys_write "$SYS_DIR/options" || note "The size could not be saved; give --size again next time."
 	fi
 }
 
@@ -477,8 +420,8 @@ prepare_root() {
 }
 
 # Use the user's session bus and display when the script runs outside the
-# desktop (SSH, a text console), so that the desktop can be reloaded and the
-# settings of other desktops reach the running session.
+# desktop (SSH, a text console), so that the session can be reloaded and the
+# settings that --uninstall resets reach the running desktop.
 adopt_session() {
 	local uid pid p c line w x
 	uid=$(id -u)
@@ -493,10 +436,8 @@ adopt_session() {
 			DISPLAY=*|WAYLAND_DISPLAY=*|XAUTHORITY=*|XDG_CURRENT_DESKTOP=*|DESKTOP_SESSION=*|LABWC_PID=*) export "${line?}" ;;
 		esac
 	done < <(cat -- "/proc/$pid/environ" 2>/dev/null || true)
-	# A Wayland compositor sets WAYLAND_DISPLAY (and labwc LABWC_PID) only for
-	# the programs it starts, not in its own environment: LABWC_PID is the
-	# compositor itself, and the display is taken from its first child that
-	# has one.
+	# labwc sets WAYLAND_DISPLAY and LABWC_PID only for its children: LABWC_PID
+	# is labwc itself, and the display is read from its first child that has one.
 	if [[ $p == labwc && -z ${LABWC_PID:-} ]]; then export LABWC_PID=$pid; fi
 	[[ -z ${WAYLAND_DISPLAY:-} && $p == labwc ]] || return 0
 	for c in $(pgrep -u "$uid" -P "$pid" 2>/dev/null || true); do
@@ -515,8 +456,8 @@ adopt_session() {
 # 3. Packages: themes, package sets, host and release
 ###############################################################################
 
-# Set the T_* variables for a theme. T_GTK names the GTK, Openbox, labwc and
-# Xfwm4 themes alike; the icons, cursor, font and wallpaper follow the theme.
+# Set the T_* variables for a theme. T_GTK names the GTK, Openbox and labwc
+# themes alike; the icons, cursor, font and wallpaper follow the theme.
 # Usage: set_theme THEME
 set_theme() {
 	case $1 in
@@ -535,7 +476,7 @@ set_theme() {
 	# Raspberry Pi OS's size presets, from its Appearance Settings (Defaults):
 	# font, cursor, panel icons and taskbar buttons, toolbar, file manager and
 	# terminal. Medium is Raspberry Pi OS's default.
-	case ${S_SIZE:-medium} in
+	case ${O_SIZE:-medium} in
 		small)  T_FONT_SIZE=8  T_CURSOR_SIZE=24 T_PANEL_ICON=20 T_TASK_WIDTH=150 T_TB_ICON=16 \
 		        T_FOLDER_ICON=32 T_SMALL_ICON=16 T_PANE_ICON=16 T_THUMB=64 T_TERM_FONT="Monospace 8" ;;
 		large)  T_FONT_SIZE=16 T_CURSOR_SIZE=36 T_PANEL_ICON=52 T_TASK_WIDTH=300 T_TB_ICON=48 \
@@ -564,6 +505,8 @@ set_theme() {
 	# The adapted icon set, with the Debian logo and the icon names that
 	# Debian's programs use (see gen_icon_overlay).
 	T_ICONS=$T_ICON_BASE-Debian
+	# Dark themes show Debian's white logo, where Debian ships it
+	if (( T_DARK )) && _white_logo; then T_ICONS=$T_GTK-Debian; fi
 	# Values that Raspberry Pi OS uses (raspberrypi-ui-mods, rpd-x-core).
 	T_COLOR_SCHEME='selected_bg_color:#878791919b9b\nselected_fg_color:#f0f0f0f0f0f0\nbar_bg_color:#ededececebeb\nbar_fg_color:#000000000000\n'
 	T_DESK_BG="#d6d6d3d3dede" T_DESK_FG="#e8e8e8e8e8e8" T_DESK_SHADOW="#d6d6d3d3dede"
@@ -571,41 +514,42 @@ set_theme() {
 }
 
 # Print the Raspberry Pi OS packages for a release: every theme with its icons,
-# fonts, GTK 2 engines, wallpapers and login greeter, and the panel and file
-# manager (Raspberry Pi's own programs from Raspberry Pi OS 13, its builds of
+# fonts, GTK 2 engines and wallpapers, and the panel and file manager
+# (Raspberry Pi's own programs from Raspberry Pi OS 13, its builds of
 # Debian's before; see pi_apps and pi_stack).
-# Usage: rpi_pkgs SUITE ARCH [4K]
+# Usage: rpi_pkgs SUITE ARCH
 rpi_pkgs() {
 	printf '%s\n' pixflat-theme pixtrix-theme pix-theme pixflat-icons pixtrix-icons rpd-icons \
-		gtk2-engines-pixflat gtk2-engines-clearlookspix fonts-piboto fonts-nunito-sans pi-greeter
-	# The wallpaper sets of this and every later release, which hold no code.
+		gtk2-engines-pixflat gtk2-engines-clearlookspix fonts-piboto fonts-nunito-sans
+	# The standard wallpaper sets (no code) of this and every later release.
 	local s
 	for s in $(releases); do
 		suite_ge "$s" "$1" || continue
-		if (( ${3:-0} )); then index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper.*-4k$' || true
-		else index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper' | grep -v -- '-4k$' || true; fi
+		index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper' | grep -v -- '-4k$' || true
 	done | awk '!seen[$0]++'
 	if suite_ge "$1" trixie; then pi_apps "$1" "$2"; wayland_pkgs "$1" "$2"; else pi_stack "$1" "$2"; fi
-	# The magnifier (Ctrl+Alt+M), where Raspberry Pi OS has it
-	index_names "$(rpi_aid)" "$1" "$2" | grep -x mage-rpi || true
 }
 
 # Print Raspberry Pi's Wayland panel and every plugin that Raspberry Pi OS
-# installs with it (rpd-wayland-core) and that works on Debian. pipanel
-# (Appearance Settings) runs inside rpcc (Control Centre) and needs sudopwd.
+# installs with it (rpd-wayland-core) and that works on Debian, and its
+# screenshot tool, which its Print key runs. pipanel (Appearance Settings)
+# runs inside rpcc (Control Centre) and needs sudopwd.
 # Usage: wayland_pkgs SUITE ARCH
 wayland_pkgs() {
-	printf '%s\n' wf-panel-pi pipanel rpcc sudopwd
+	printf '%s\n' wf-panel-pi pipanel rpcc sudopwd gui-screenshot
 	index_candidates "$(rpi_aid)" "$1" "$2" "$WAYLAND_PKG" 2>/dev/null | first_line | cut -f6 | depnames \
 		| grep '^wfplug-' | grep -vxE "wfplug-($(wf_drop))" || true
 }
 # Print the Debian packages of the Wayland session: compositor, wallpaper,
 # display settings, XSETTINGS for X applications, and Xwayland.
 # Screen lock and blanking as in Raspberry Pi OS 13: swaylock, swayidle and,
-# where Debian has it, wlopm to switch displays off.
+# where Debian has it, wlopm to switch displays off. ALL (1) prints every
+# one, for packages/. Usage: wayland_debs [ALL]
 wayland_debs() {
 	printf '%s\n' labwc swaybg kanshi xsettingsd wlr-randr xwayland swaylock swayidle
-	if apt_has wlopm; then echo wlopm; fi
+	if (( ${1:-0} )) || apt_has wlopm; then echo wlopm; fi
+	# MATE's authentication agent, as Raspberry Pi OS uses on Wayland
+	if (( ${1:-0} )) || apt_has mate-polkit; then echo mate-polkit; fi
 }
 # Print the Debian packages of the X server, which the login screen always
 # needs, and Mesa's 3D drivers.
@@ -616,12 +560,22 @@ x11_debs() { printf '%s\n' xserver-xorg x11-utils libgl1-mesa-dri; }
 # packages/.
 # Usage: login_debs [ALL]
 login_debs() {
-	(( O_LOGIN )) || [[ ${1:-0} == 1 ]] || return 0
 	if [[ ${1:-0} == 1 || -z $H_DM || $H_DM == lightdm ]]; then printf '%s\n' lightdm lightdm-gtk-greeter; fi
-	[[ $O_LOGIN_BG != debian && ${1:-0} != 1 ]] || echo desktop-base
+	echo desktop-base
 }
 # Succeed if LightDM is installed or is about to be.
 with_lightdm() { [[ -n $(installed_version lightdm) ]] || grep -qx lightdm <<<"$(login_debs)"; }
+
+# Print Raspberry Pi's magnifier for a release, which Raspberry Pi OS offers
+# in Recommended Software: mage-rpi (Raspberry Pi OS 12 and later), else mage
+# where Debian has no package of that name. Its panel plugin is left off the
+# panel (see _pi_layout), for the user to add. Usage: magnifier_pkg SUITE ARCH
+magnifier_pkg() {
+	local names
+	names=$(index_names "$(rpi_aid)" "$1" "$2")
+	if grep -qx mage-rpi <<<"$names"; then echo mage-rpi
+	elif grep -qx mage <<<"$names" && ! _debian_has mage; then echo mage; fi
+}
 
 # Print Raspberry Pi's own programs (Raspberry Pi OS 13 and later): the file
 # manager, which draws the desktop and is installed beside Debian's (see
@@ -639,24 +593,26 @@ pi_apps() {
 	} | awk '!seen[$0]++'
 }
 
-# Print the plugin types of Raspberry Pi OS's panel layout for a release that
-# work on Debian, without those built into the panel program. A default list
-# is used when the layout cannot be read. Usage: panel_plugins SUITE ARCH
-panel_plugins() {
-	local f
-	f=$(pi_unpack "$PANEL_PKG" "$1" "$2" 2>/dev/null) && f+=/etc/xdg/lxpanel-pi/panels/panel && [[ -f $f ]] \
-		|| { printf '%s\n' smenu ejecter bluetooth volumepulse clock batt magnifier | _no_battery; return 0; }
-	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$(panel_drop)|space|separator|launchbar|taskbar|tray" | awk '!seen[$0]++' | _no_battery
+# Print the plugin types of Raspberry Pi OS's panel layout (PATH in PACKAGE)
+# that work on Debian, without the panel program's own (BUILT-IN), or the
+# DEFAULT list if the layout cannot be read.
+# Usage: _layout_plugins SUITE ARCH PACKAGE PATH BUILT-IN DEFAULT...
+_layout_plugins() {
+	local suite=$1 arch=$2 pkg=$3 path=$4 builtin=$5 f
+	shift 5
+	f=$(pi_unpack "$pkg" "$suite" "$arch" 2>/dev/null) && f+=/$path && [[ -f $f ]] \
+		|| { printf '%s\n' "$@" | _no_battery; return 0; }
+	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$(panel_drop)|$builtin" | awk '!seen[$0]++' | _no_battery
 }
-
-# The same for a Raspberry Pi OS release before 13, whose layout is in
-# raspberrypi-ui-mods. Usage: lx_panel_plugins SUITE ARCH
+# Raspberry Pi OS 13's panel (lxpanel-pi). Usage: panel_plugins SUITE ARCH
+panel_plugins() {
+	_layout_plugins "$1" "$2" "$PANEL_PKG" etc/xdg/lxpanel-pi/panels/panel 'space|separator|launchbar|taskbar|tray' \
+		smenu ejecter bluetooth volumepulse clock batt magnifier
+}
+# Raspberry Pi OS 10 to 12's panel, from raspberrypi-ui-mods. Usage: lx_panel_plugins SUITE ARCH
 lx_panel_plugins() {
-	local f
-	f=$(pi_unpack raspberrypi-ui-mods "$1" "$2" 2>/dev/null) && f+=/etc/xdg/lxpanel/LXDE-pi/panels/panel && [[ -f $f ]] \
-		|| { printf '%s\n' smenu ejecter bluetooth volumepulse batt magnifier | _no_battery; return 0; }
-	sed -n 's/^[[:space:]]*type=//p' "$f" | grep -vxE "$(panel_drop)|space|separator|launchbar|taskbar|tray|menu|dclock" \
-		| awk '!seen[$0]++' | _no_battery
+	_layout_plugins "$1" "$2" raspberrypi-ui-mods etc/xdg/lxpanel/LXDE-pi/panels/panel \
+		'space|separator|launchbar|taskbar|tray|menu|dclock' smenu ejecter bluetooth volumepulse batt magnifier
 }
 
 # Copy plugin types from stdin, without the battery plugins where this
@@ -664,19 +620,28 @@ lx_panel_plugins() {
 _no_battery() { if [[ $O_MODE == download ]] || has_battery; then cat; else grep -vxE 'batt|ptbatt' || true; fi; }
 
 # Print Raspberry Pi OS's panel and file manager before Raspberry Pi OS 13:
-# its builds of Debian's packages (PI_STACK), of the other installed packages
-# of the same sources, and the plugins of its panel layout that Raspberry Pi
-# publishes (lxplug-*; the menu plugin is lxplug-menu).
+# its builds of Debian's packages (PI_STACK, with the other installed packages
+# of their sources), the lxplug-* plugins of its panel layout, and the plugins
+# raspberrypi-ui-mods recommends (such as CPU temperature) that work on Debian.
 # Usage: pi_stack SUITE ARCH
 pi_stack() {
-	local t names
+	local t names drop
 	printf '%s\n' "${PI_STACK[@]}"
 	[[ $O_MODE == download ]] || stack_extras
 	names=$(index_names "$(rpi_aid)" "$1" "$2")
-	for t in $(lx_panel_plugins "$1" "$2"); do
-		t=lxplug-${t/#smenu/menu}
+	# The dhcpcd network plugin (dhcpcdui) is the package lxplug-network
+	drop=$(panel_drop); drop=${drop//dhcpcdui/network}
+	for t in $(lx_panel_plugins "$1" "$2" | sed 's/^smenu$/menu/'
+		awk 'BEGIN { RS = ""; FS = "\n" } $0 ~ /(^|\n)Package: raspberrypi-ui-mods(\n|$)/ {
+			for (i = 1; i <= NF; i++) if ($i ~ /^Recommends: /) print substr($i, 13) }' \
+			"$WORKDIR/index/$(rpi_aid)/$1/Packages-$2" 2>/dev/null | depnames | sed -n 's/^lxplug-//p' \
+			| grep -vxE "$drop" | _no_battery); do
+		t=lxplug-$t
 		if grep -qxF "$t" <<<"$names"; then echo "$t"; fi
-	done
+	done | awk '!seen[$0]++'
+	# Raspberry Pi OS's Appearance Settings and Shutdown dialog for that panel
+	if grep -qx pipanel <<<"$names"; then echo pipanel; fi
+	if grep -qx pishutdown <<<"$names"; then echo pishutdown; fi
 }
 # Print the other installed packages built from the sources of PI_STACK.
 stack_extras() {
@@ -704,40 +669,28 @@ has_battery() {
 # The network plugins of Raspberry Pi OS's panels: netman (NetworkManager,
 # Raspberry Pi OS 12 and later) and dhcpcdui (dhcpcd, before).
 readonly PANEL_NET="netman|dhcpcdui"
-# Print the plugins of Raspberry Pi OS's panel that are left out here (grep -E
-# alternatives): the updater, which needs Raspberry Pi's system tools; the
-# power plugin, which reports Raspberry Pi power supply problems, except on a
-# Raspberry Pi; and the network plugins unless netman can be used (see
-# USE_NETMAN), where the tray shows nm-applet instead. --download keeps all.
+# Print the panel plugins left out (grep -E alternatives): the updater (needs
+# Raspberry Pi's system tools), power (reports Raspberry Pi supply problems),
+# and the network plugins unless netman is used (USE_NETMAN; else nm-applet).
+# --download keeps netman from Debian 12, as the offline computer decides.
 panel_drop() {
-	local d=updater
-	[[ $O_MODE == download ]] && { echo "$d"; return 0; }
-	on_pi || d+="|power"
-	if (( USE_NETMAN )); then d+="|dhcpcdui"; else d+="|$PANEL_NET"; fi
+	local d="updater|power"
+	if [[ $O_MODE == download ]]; then
+		if suite_ge "$H_SUITE" bookworm; then d+="|dhcpcdui"; else d+="|$PANEL_NET"; fi
+	elif (( USE_NETMAN )); then d+="|dhcpcdui"; else d+="|$PANEL_NET"; fi
 	echo "$d"
 }
 # The same for the Wayland panel, with the Raspberry Pi Connect and on-screen
 # keyboard plugins, which need Raspberry Pi's own services.
 wf_drop() { echo "$(panel_drop)|connect|squeek"; }
-# The plugins installed but not placed on the panel: the magnifier, which
-# Raspberry Pi OS shows only once the magnifier (mage-rpi) is installed, and
-# which is installed here for Ctrl+Alt+M (see _openbox_keys).
-readonly PANEL_UNPLACED="magnifier"
-# Succeed on a Raspberry Pi.
-on_pi() { [[ $H_MODEL == *"Raspberry Pi"* ]] || grep -qs 'Raspberry Pi' /proc/device-tree/model; }
 # Before Raspberry Pi OS 13, Raspberry Pi's panel and file manager are its own
 # builds of Debian's packages, under Debian's names. From Raspberry Pi OS 11
 # they use GTK 3, while Debian 11 and 12 build theirs and their plugins for
-# GTK 2, so the two cannot be mixed. With --pi-apps on Debian 10 to 12 they
-# replace Debian's, together with the other installed packages of their
-# sources; --uninstall and --prepare-upgrade restore Debian's.
+# GTK 2, so the two cannot be mixed. On Debian 10 to 12 they replace Debian's,
+# together with the other installed packages of their sources; --uninstall
+# and --prepare-upgrade restore Debian's.
 readonly PI_STACK=(lxpanel lxpanel-data pcmanfm libfm4 libfm-gtk4 libfm-modules libfm-data libfm-gtk-data libfm-extra4)
 readonly PI_STACK_SRC="lxpanel|libfm|pcmanfm"
-# Debian panel applets that work in Raspberry Pi's panel.
-readonly DEBIAN_APPLETS="xkb weather volume thermal monitors deskno cpufreq"
-# The same for the Wayland panel, with the Raspberry Pi Connect and on-screen
-# keyboard plugins, which need Raspberry Pi's own services.
-
 # Print the Raspberry Pi OS programs that this script installed and that are
 # built against the libraries of one Debian release; --prepare-upgrade removes
 # them. The themes and their GTK 2 engines, which need only GTK 2, stay.
@@ -746,7 +699,7 @@ release_bound_pkgs() {
 	while read -r p; do
 		[[ $(dpkg-query -W -f='${Architecture}' "$p" 2>/dev/null) != all ]] || continue
 		[[ " ${DATA_PKGS[*]} " != *" $p "* && $p != gtk2-engines-* ]] || continue
-		if [[ -z $(apt-cache madison "$p" 2>/dev/null) ]]; then echo "$p"; fi   # not in the APT sources
+		if [[ -z $(apt_versions "$p") ]]; then echo "$p"; fi   # not in the APT sources
 	done < <(cat "$SYS_DIR/installed-packages" 2>/dev/null)
 }
 
@@ -755,13 +708,16 @@ release_bound_pkgs() {
 # Pi's), gvfs for Trash and drives in the file managers, the appearance
 # settings, and dconf for the session's settings. No compositor is installed:
 # Raspberry Pi OS starts xcompmgr with an option that Debian's lacks.
+# ALL (1) prints every one, for packages/. Usage: session_debs [ALL]
 session_debs() {
-	printf '%s\n' lxsession openbox lxpanel pcmanfm gvfs-backends gvfs-fuse lxappearance dconf-cli libglib2.0-bin python3
-	# MATE's authentication agent, as Raspberry Pi OS uses (lxpolkit without it)
-	if apt_has mate-polkit; then echo mate-polkit; fi
+	printf '%s\n' lxsession lxpolkit openbox lxpanel pcmanfm gvfs-backends gvfs-fuse lxappearance dconf-cli libglib2.0-bin python3
+	# The power helper on X (power_build): blanking, idle time and, with
+	# LightDM, the screen lock
+	printf '%s\n' x11-xserver-utils libxss1
+	if (( ${1:-0} )) || with_lightdm; then echo light-locker; fi
 }
-# Print the authentication agent the sessions start: MATE's, as Raspberry Pi
-# OS uses, else LXDE's lxpolkit.
+# Print the authentication agent of the Wayland session: MATE's, as Raspberry
+# Pi OS uses there, else LXDE's lxpolkit. Its X session uses lxpolkit.
 polkit_agent() {
 	local f
 	f=$(dpkg -L mate-polkit 2>/dev/null | grep -m1 '/polkit-mate-authentication-agent-1$' || true)
@@ -775,10 +731,13 @@ theme_debs() {
 	printf '%s\n' gtk2-engines-pixbuf libgtk2.0-bin gnome-icon-theme sound-theme-freedesktop "$(mono_font_pkg "$1")"
 	if suite_ge "$1" trixie; then printf '%s\n' adwaita-icon-theme-legacy; fi
 }
-# Succeed if this computer has a Wi-Fi or a Bluetooth adapter.
+# Print the Debian packages that let Qt applications follow the GTK theme in
+# the session (QT_QPA_PLATFORMTHEME=gtk3); a release may lack one.
+qt_debs() { printf '%s\n' qt5-gtk-platformtheme qt6-gtk-platformtheme; }
+# Succeed if this computer has a Wi-Fi adapter.
 has_wifi() { compgen -G '/sys/class/ieee80211/*' >/dev/null; }
-# A Bluetooth adapter, or a Bluetooth radio that rfkill blocks: some laptops
-# (ThinkPads) power the adapter off while blocked, so it is not listed then.
+# Succeed if this computer has a Bluetooth adapter, or a Bluetooth radio that
+# rfkill blocks (some laptops power the adapter off while it is blocked).
 has_bluetooth() {
 	local t
 	compgen -G '/sys/class/bluetooth/hci*' >/dev/null && return 0
@@ -807,7 +766,7 @@ tray_debs() {
 		echo bluez
 		(( rfkill )) || echo rfkill
 		if (( all )) || [[ -n $(installed_version pipewire) ]]; then echo libspa-0.2-bluetooth; fi
-		if [[ -n $(installed_version pulseaudio) ]]; then echo pulseaudio-module-bluetooth; fi
+		if (( all )) || [[ -n $(installed_version pulseaudio) ]]; then echo pulseaudio-module-bluetooth; fi
 		# Raspberry Pi's panel has its own Bluetooth plugin.
 		suite_ge "$1" trixie || (( USE_STACK )) || echo blueman
 	fi
@@ -816,46 +775,15 @@ tray_debs() {
 # Print the Debian packages for sound, where a sound card exists and no sound
 # server is installed: PipeWire from Debian 12, PulseAudio before. Raspberry Pi
 # OS's volume plugin needs the PulseAudio interface, which both provide.
-# Usage: audio_debs SUITE
+# ALL (1) prints it regardless, for packages/. Usage: audio_debs SUITE [ALL]
 audio_debs() {
-	compgen -G '/sys/class/sound/card*' >/dev/null || return 0
-	[[ -z $(installed_version pipewire-pulse)$(installed_version pulseaudio) ]] || return 0
+	if (( ! ${2:-0} )); then
+		compgen -G '/sys/class/sound/card*' >/dev/null || return 0
+		[[ -z $(installed_version pipewire-pulse)$(installed_version pulseaudio) ]] || return 0
+	fi
 	if suite_ge "$1" bookworm; then echo pipewire-audio; else echo pulseaudio; fi
 }
 
-# Print the firmware files that the kernel failed to load during this boot,
-# from its log. Without them, a device such as a Wi-Fi, Bluetooth or sound
-# adapter has a driver but does not work.
-missing_firmware() {
-	{ as_root journalctl -k -b -q -o cat 2>/dev/null || as_root dmesg 2>/dev/null || true; } \
-		| sed -nE 's/.*firmware: failed to load ([^ ]+).*/\1/p; s/.*Direct firmware load for ([^ ]+) failed.*/\1/p' | sort -u
-}
-
-# Print the Debian packages holding the firmware files that the kernel missed,
-# from the signed Contents index of this release's firmware component
-# (non-free-firmware; non-free before Debian 12). Debian only: derivatives
-# ship firmware their own way. It never fails, since its caller lists other
-# packages after it: on any problem it prints nothing.
-firmware_debs() {
-	local names comp=non-free-firmware suite=$H_CODENAME d sha out
-	[[ $H_ID == debian && -n $suite && -z $REPO ]] || return 0
-	names=$(missing_firmware) || return 0
-	[[ -n $names ]] || return 0
-	[[ $suite == sid ]] || suite_ge "$suite" bookworm || comp=non-free
-	release_load debian "$suite" || return 0
-	d=$WORKDIR/index/debian/$suite
-	sha=$(awk -v f="$comp/Contents-all.gz" '/^SHA256:/ { s = 1; next } /^[^ ]/ { s = 0 } s && $3 == f { print $1; exit }' "$d/Release" 2>/dev/null) || return 0
-	[[ -n $sha ]] && fetch "$(archive_url debian "$suite")/dists/$suite/$comp/Contents-all.gz" "$d/firmware.gz" 2>/dev/null || return 0
-	[[ $(sha256sum "$d/firmware.gz" 2>/dev/null | cut -d' ' -f1) == "$sha" ]] || return 0
-	out=$(gzip -dc "$d/firmware.gz" | NAMES=$names awk '
-		BEGIN { n = split(ENVIRON["NAMES"], a, "\n"); for (i = 1; i <= n; i++) want["lib/firmware/" a[i]] = 1 }
-		{ f = $1; sub(/^usr\//, "", f); if (f in want) { p = $NF; sub(/.*\//, "", p); print p } }' | sort -u) || return 0
-	[[ -z $out ]] || printf '%s\n' "$out"
-}
-
-# Print amixer's package on older ThinkPads with a firmware volume, which
-# volume-key keeps at full (see keys_build).
-thinkpad_debs() { if [[ -e /proc/acpi/ibm/volume ]]; then echo alsa-utils; fi; }
 # Print the Debian package that provides nm-applet (network-manager-gnome is
 # a transitional package from Debian 13).
 nm_applet_pkg() { if suite_ge "$1" trixie; then echo network-manager-applet; else echo network-manager-gnome; fi; }
@@ -904,6 +832,7 @@ os_release() { sed -n "s/^$1=//p" /etc/os-release | first_line | sed -e 's/^"//'
 detect_host() {
 	command -v dpkg >/dev/null && command -v apt-get >/dev/null || die "Debian or a derivative is needed (dpkg and apt not found)"
 	H_ARCH=$(dpkg --print-architecture)
+	[[ $H_ARCH =~ ^($PC_ARCHES)$ ]] || die "this script is for 32-bit (x86, i386) and 64-bit (x64, amd64) PCs; this system is $H_ARCH"
 	if [[ -r /etc/os-release ]]; then
 		H_ID=$(os_release ID) H_LIKE=$(os_release ID_LIKE)
 		H_CODENAME=$(os_release VERSION_CODENAME) H_PRETTY=$(os_release PRETTY_NAME)
@@ -919,8 +848,8 @@ detect_host() {
 detect_machine() {
 	local d drv slot name t
 	H_KERNEL=$(uname -r)
-	H_MODEL=$( { tr -d '\0' </proc/device-tree/model; } 2>/dev/null || true)
-	if [[ -z $H_MODEL && -r /sys/class/dmi/id/product_name ]]; then
+	H_MODEL=""
+	if [[ -r /sys/class/dmi/id/product_name ]]; then
 		# Firmware placeholders such as "To be filled by O.E.M." are dropped.
 		H_MODEL=$(cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_version /sys/class/dmi/id/product_name 2>/dev/null \
 			| grep -viE '^[[:space:]]*((to be filled|system (product|manufacturer|version)|default string|not specified).*|none[[:space:]]*)?$' \
@@ -932,7 +861,7 @@ detect_machine() {
 	H_MEM_MB=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo)
 	# PC processors without SSE4.2 predate 2009.
 	H_OLD_CPU=0
-	if [[ $H_ARCH == amd64 || $H_ARCH == i386 ]] && ! grep -qw sse4_2 /proc/cpuinfo; then H_OLD_CPU=1; fi
+	if ! grep -qw sse4_2 /proc/cpuinfo; then H_OLD_CPU=1; fi
 	H_VIRT=$(systemd-detect-virt 2>/dev/null || true)
 	[[ -n $H_VIRT ]] || H_VIRT=none
 	# The first real graphics driver, not the boot framebuffer.
@@ -969,25 +898,18 @@ detect_machine() {
 	[[ -n $H_DM && $H_DM != display-manager ]] || H_DM=$(basename "$(cat /etc/X11/default-display-manager 2>/dev/null)" 2>/dev/null)
 }
 
-# Choose Wayland or X for the session, with the reason: Wayland on every
-# Raspberry Pi, as Raspberry Pi OS does, and on capable PCs with Debian 13 and
-# later; X otherwise.
+# Choose Wayland or X for the session, with the reason: Wayland on capable
+# PCs with Debian 13 and later; X otherwise.
 pick_display() {
 	local why=""
 	H_DISPLAY=x11
 	if ! suite_ge "$H_SUITE" trixie; then why="the Wayland session needs Debian 13 or later"
-	elif [[ $O_WAYLAND == 0 ]]; then why="--no-wayland"
 	elif (( ! H_KMS )) && [[ $H_GPU_DRV == nvidia ]]; then
 		why="NVIDIA's driver has kernel modesetting off, which Wayland needs"
-		[[ $O_WAYLAND != 1 ]] || note "Wayland cannot start: NVIDIA's driver has kernel modesetting off. See 'X or Wayland' in the README to enable it."
 	elif (( ! H_KMS )); then
 		why="the graphics have no kernel modesetting, which Wayland needs"
-		[[ $O_WAYLAND != 1 ]] || note "Wayland cannot start here: $why."
-	elif [[ $O_WAYLAND == 1 ]]; then H_DISPLAY=wayland H_DISPLAY_WHY="--wayland"; return 0
-	elif [[ $H_MODEL == "Raspberry Pi"* ]]; then
-		H_DISPLAY=wayland H_DISPLAY_WHY="Raspberry Pi OS uses Wayland on every Raspberry Pi"; return 0
 	elif (( H_MEM_MB < 2000 )); then why="less than 2 GB of memory"
-	elif [[ $H_ARCH == i386 || $H_ARCH == armhf || $H_ARCH == armel ]]; then why="a 32-bit system"
+	elif [[ $H_ARCH == i386 ]]; then why="a 32-bit system"
 	elif (( H_OLD_CPU )); then why="an older processor (without SSE4.2)"
 	elif [[ $H_GPU_DRV == nvidia ]]; then why="NVIDIA's own driver works best with X"
 	elif [[ $H_GPU_DRV == nouveau ]]; then why="the open NVIDIA driver (nouveau) is more reliable with X"
@@ -996,7 +918,7 @@ pick_display() {
 	else
 		case $H_GPU_DRV in
 			radeon) why="older AMD graphics (radeon driver)" ;;
-			i915|xe|amdgpu|virtio_gpu|vmwgfx|vc4|v3d|msm|panfrost|panthor|lima|etnaviv|rockchip|rockchip-drm|mediatek-drm|meson|sun4i-drm|imx-drm)
+			i915|xe|amdgpu|virtio_gpu|vmwgfx)
 				H_DISPLAY=wayland ;;
 			*) why="the graphics ($H_GPU_DRV) are untested with Wayland" ;;
 		esac
@@ -1041,9 +963,7 @@ host_rank() {
 # newest release, up to this Debian release, for which Raspberry Pi publishes
 # the themes. A Debian release that Raspberry Pi OS has not reached yet thus
 # uses the newest Raspberry Pi OS, and moves on once Raspberry Pi publishes
-# its own. On an architecture that Raspberry Pi does not publish, only the
-# packages without compiled code are used, from another architecture's
-# indexes. Hosts older than Debian $OLDEST are rejected here.
+# its own. Hosts older than Debian $OLDEST are rejected here.
 pick_suite() {
 	local rank s
 	rank=$(host_rank) && (( rank >= OLDEST )) || die "Debian $OLDEST or later is needed (found ${H_PRETTY:-an unknown release})"
@@ -1058,16 +978,18 @@ pick_suite() {
 		(( $(suite_rank "$s") > rank )) || break
 	done
 	[[ -n $H_SUITE ]] || die "Raspberry Pi publishes nothing of the look${REPO:+ in packages/}"
-	H_RPI_ARCH=$H_ARCH
-	if ! grep -qxF "$H_ARCH" <<<"$(rpi_arches "$H_SUITE")"; then
-		H_RPI_ARCH=""
-		note "Raspberry Pi publishes no builds for $H_ARCH: the themes, icons, fonts and wallpapers are installed, but not its panel, file manager, login screen and GTK 2 engines."
+	# packages/ holds Debian's packages of each stable release; testing and
+	# unstable change daily
+	if [[ $(rpi_aid) == local ]] && (( $(suite_rank "$H_SUITE") != rank )); then
+		die "packages/ has nothing for ${H_PRETTY:-this release}; it holds Debian's stable releases. Install online instead."
 	fi
-	debug "Debian $rank on $H_ARCH: Raspberry Pi OS $H_SUITE, ${H_RPI_ARCH:-architecture-independent packages only}"
+	grep -qxF "$H_ARCH" <<<"$(rpi_arches "$H_SUITE")" || die "Raspberry Pi publishes no $H_ARCH packages for $H_SUITE${REPO:+ in packages/}"
+	debug "Debian $rank on $H_ARCH: Raspberry Pi OS $H_SUITE"
 }
 
-# Print the architectures that Raspberry Pi publishes for a release, as listed
-# by its signed Release file or by packages/. Usage: rpi_arches SUITE
+# Print the PC architectures (PC_ARCHES) that Raspberry Pi publishes for a
+# release, as listed by its signed Release file or by packages/.
+# Usage: rpi_arches SUITE
 rpi_arches() {
 	local d
 	if [[ $(rpi_aid) == local ]]; then
@@ -1075,10 +997,8 @@ rpi_arches() {
 	else
 		release_load rpi "$1" || return 0
 		sed -n 's/^Architectures:[[:space:]]*//p' "$WORKDIR/index/rpi/$1/Release" | tr ' ' '\n' | grep -v '^$'
-	fi
+	fi | grep -xE "$PC_ARCHES" || true
 }
-# Print the architecture whose Raspberry Pi indexes are used for this system.
-rpi_arch() { printf '%s\n' "${H_RPI_ARCH:-$(rpi_arches "$H_SUITE" | first_line)}"; }
 
 # Succeed if Raspberry Pi publishes the look for a release (its themes, icons
 # or GTK 2 engines; a new release starts empty), for the given architecture,
@@ -1092,16 +1012,9 @@ rpi_populated() {
 	[[ -n $a ]] && grep -qxE 'pix(flat|trix)?-(theme|icons)|rpd-icons|gtk2-engines-pixflat' <<<"$(index_names rpi "$1" "$a")"
 }
 
-# Print the default theme for this release: PiXtrix (the Raspberry Pi OS
-# Trixie look) on Debian 13 and later, PiXflat (Bookworm) otherwise.
-# Set S_SIZE, the size preset in use: the one chosen with --size, else
-# Raspberry Pi OS's default (medium). The screen is not looked at.
-size_resolve() { S_SIZE=$O_SIZE; }
 
+# Print the theme of the look: PiXtrix on Debian 13 and later, else PiXflat.
 default_theme() { if suite_ge "$H_SUITE" trixie; then echo pixtrix; else echo pixflat; fi; }
-
-# Print the theme chosen by the options.
-chosen_theme() { if [[ $O_THEME == auto ]]; then default_theme; else echo "$O_THEME"; fi; }
 
 ###############################################################################
 # 4. Archives: signed indexes, resolution, download, repacking
@@ -1137,8 +1050,10 @@ release_load() {
 	[[ $aid != rpi ]] || setup_keyring
 	for base in $(archive_bases "$aid"); do
 		fetch "$base/dists/$suite/InRelease" "$d/InRelease" 2>/dev/null || continue
-		verify_inrelease "$aid" "$d/InRelease" "$d/Release"
-		release_ok "$d/Release" "$suite" "$base" || die "the signed index at $base/dists/$suite is not a current $suite index"
+		# Release is trusted when present, so it is written only once verified
+		verify_inrelease "$aid" "$d/InRelease" "$d/Release.new"
+		release_ok "$d/Release.new" "$suite" "$base" || die "the signed index at $base/dists/$suite is not a current $suite index"
+		mv -f -- "$d/Release.new" "$d/Release"
 		BASE[$aid/$suite]=$base
 		return 0
 	done
@@ -1183,7 +1098,7 @@ fetch() {
 		|| die "refusing to download from an unofficial source: $url"
 	debug "GET $url"
 	if command -v curl >/dev/null; then
-		local -a a=(-f --proto '=https' --max-redirs 0 --retry 3 --retry-delay 2 --connect-timeout 20 -o "$out")
+		local -a a=(-f -L --proto '=https' --max-redirs 0 --retry 3 --retry-delay 2 --connect-timeout 20 -o "$out")
 		if (( progress )) && [[ -t 2 ]]; then a+=(--progress-bar); else a+=(-sS); fi
 		curl "${a[@]}" "$url"
 	elif command -v wget >/dev/null; then
@@ -1204,7 +1119,8 @@ sha256_check() {
 
 # Fetch the Raspberry Pi archive key once and convert it to a gpgv keyring.
 setup_keyring() {
-	[[ -n $KEYRING ]] && return 0
+	# On disk, as subshells (rpi_arches) set it up too
+	if [[ -s $WORKDIR/rpi.gpg ]]; then KEYRING=$WORKDIR/rpi.gpg; return 0; fi
 	fetch "$RPI_KEY_URL" "$WORKDIR/rpi.asc" || die "cannot download the Raspberry Pi archive key from $RPI_KEY_URL"
 	# Dearmor without gpg: decode the base64 body, without headers or checksum
 	awk '/^-----BEGIN PGP PUBLIC KEY BLOCK-----/ { b = 1; next }
@@ -1215,7 +1131,8 @@ setup_keyring() {
 	KEYRING=$WORKDIR/rpi.gpg
 }
 
-# Verify an InRelease file and write its signed content. Raspberry Pi indexes
+# Verify an InRelease file and write its signed content. As with APT, one good
+# signature by a trusted key suffices and a bad one fails. Raspberry Pi indexes
 # must be signed by the pinned key; Debian indexes by debian-archive-keyring.
 # Usage: verify_inrelease ARCHIVE IN OUT
 verify_inrelease() {
@@ -1228,8 +1145,7 @@ verify_inrelease() {
 	fi
 	rm -f -- "$out"
 	status=$(gpgv --status-fd 1 "${keys[@]}" --output "$out" "$in" 2>/dev/null) || true
-	if grep -qE '^\[GNUPG:\] (BADSIG|EXPSIG|EXPKEYSIG|REVKEYSIG|ERRSIG)' <<<"$status" \
-		|| ! grep -q '^\[GNUPG:\] VALIDSIG' <<<"$status"; then
+	if grep -qE '^\[GNUPG:\] (BADSIG|REVKEYSIG)' <<<"$status" || ! grep -q '^\[GNUPG:\] GOODSIG' <<<"$status"; then
 		die "signature verification failed for $in"
 	fi
 	if [[ $aid == rpi ]]; then
@@ -1387,12 +1303,8 @@ _deps_satisfiable() {
 #  * Newer Raspberry Pi OS releases: architecture-independent packages (icons,
 #    fonts, wallpapers) and, built for this architecture, the theme packages
 #    without compiled code (DATA_PKGS).
-#  * Only if neither has the package: older releases, then the armhf indexes,
-#    which list every Raspberry Pi package. The same restriction applies, so
-#    they never supply another architecture's binary.
-#  * On an architecture that Raspberry Pi does not publish: the amd64 indexes,
-#    for the architecture-independent packages and the theme packages, which
-#    are repacked without the GTK 2 engines (see data_coinstall).
+#  * Only if neither has the package: older releases, with the same
+#    restriction.
 # Offline, the local repository is the only source and is used as built.
 # Usage: resolve_pkg PACKAGE [ARCHIVE]
 resolve_pkg() {
@@ -1401,16 +1313,10 @@ resolve_pkg() {
 	[[ " ${DATA_PKGS[*]} " == *" $pkg "* ]] && data=1
 	local -a newer=() older=()
 	if [[ $aid == rpi ]]; then
-		arch=${H_RPI_ARCH:-amd64}
 		for s in $(releases); do
 			if (( $(suite_rank "$s") > $(suite_rank "$H_SUITE") )); then newer+=("$s/$arch")
 			elif (( $(suite_rank "$s") < $(suite_rank "$H_SUITE") )); then older+=("$s/$arch"); fi
 		done
-		if [[ $arch != armhf ]]; then
-			for s in $(releases); do
-				if (( $(suite_rank "$s") <= $(suite_rank "$H_SUITE") )); then older+=("$s/armhf"); fi
-			done
-		fi
 	fi
 	for x in "$H_SUITE/$arch" "${newer[@]}" "${older[@]}"; do
 		[[ -n $best && " ${older[*]} " == *" $x "* ]] && break   # older releases are only a fallback
@@ -1423,16 +1329,13 @@ resolve_pkg() {
 			# file manager; Raspberry Pi's serve only when they replace Debian's
 			# (USE_STACK). lxpanel-pi and pcmanfm-pi are separate programs.
 			if [[ $aid == local && $v == *+rpt* && $pkg =~ ^(lxpanel|pcmanfm|libfm) && $pkg != *-pi ]] && (( ! USE_STACK )); then continue; fi
-			# Raspberry Pi's builds of these, with their plugins and data, come
-			# from the target release only, since they must match each other
-			if [[ $x != "$H_SUITE/$arch" && $pkg =~ ^(lxpanel|pcmanfm|libfm|lxplug-|libnma) && $pkg != *-pi ]]; then continue; fi
-			if [[ $aid == rpi && -z $H_RPI_ARCH ]]; then
-				# Another architecture's build: only packages without compiled code
-				[[ $a == all ]] || (( data )) || continue
-				(( data )) && d=$(no_engines "$d")
-			else
-				[[ $x == "$H_SUITE/$arch" || $a == all ]] || { [[ $a == "$arch" ]] && (( data )); } || continue
-			fi
+			# The same for its build of libnma, which serves only its network plugin
+			if [[ $aid == local && $v == *+rpt* && $pkg == libnma* ]] && (( ! USE_NETMAN )); then continue; fi
+			# Raspberry Pi's builds of these, with their plugins and data, and
+			# the magnifier of its plugin, come from the target release only,
+			# since they must match each other
+			if [[ $x != "$H_SUITE/$arch" && $pkg =~ ^(lxpanel|pcmanfm|libfm|lxplug-|libnma|mage) && $pkg != *-pi ]]; then continue; fi
+			[[ $x == "$H_SUITE/$arch" || $a == all ]] || { [[ $a == "$arch" ]] && (( data )); } || continue
 			if [[ $aid != local ]] && ! _deps_satisfiable "$d"; then
 				[[ -n $skipped ]] || skipped=$v
 				continue
@@ -1454,10 +1357,6 @@ resolve_pkg() {
 	PKG_VER[$pkg]=$v PKG_FILE[$pkg]=$f PKG_SHA[$pkg]=$sha PKG_SIZE[$pkg]=${z:-0}
 	PKG_SUITE[$pkg]=$s PKG_AID[$pkg]=$aid
 }
-
-# Print a Depends field without the Raspberry Pi GTK 2 engines, which are
-# compiled code. Usage: no_engines DEPENDS
-no_engines() { drop_deps "$1" gtk2-engines-pixflat gtk2-engines-clearlookspix; }
 
 # Print a Depends field without the given packages. Usage: drop_deps DEPENDS NAME...
 drop_deps() {
@@ -1510,7 +1409,6 @@ download_pkg() {
 # environment:
 #   BASE=priority  also start from the Debian base system (priority required,
 #                  important and standard)
-#   RECOMMENDS=1   also follow Recommends, as APT does by default
 #   INSTALLED=1    skip dependencies that installed packages already satisfy
 #   HAVE=FILE      skip dependencies satisfied by the names in FILE
 # Usage: _closure INDEX [ROOT]...
@@ -1522,7 +1420,7 @@ _closure() {
 			| awk '$1 ~ /^.i/ { $1 = ""; gsub(/\([^)]*\)|,/, " "); n = split($0, a, " "); for (i = 1; i <= n; i++) print a[i] }' \
 			| sort -u >"$inst"
 	fi
-	ROOTS="$*" INST=$inst RECOMMENDS=${RECOMMENDS:-} awk '
+	ROOTS="$*" INST=$inst awk '
 		function resolve(x) { if (x in real) return x; if (x in prov) return prov[x]; return "" }
 		function clean(x) { gsub(/\(.*\)/, "", x); sub(/:[a-z0-9]+/, "", x); gsub(/[ \t]/, "", x); return x }
 		BEGIN {
@@ -1533,7 +1431,7 @@ _closure() {
 			n = d = pr = pri = ""
 			for (i = 1; i <= NF; i++) {
 				if ($i ~ /^Package: /) n = substr($i, 10)
-				else if ($i ~ /^(Pre-)?Depends: / || (ENVIRON["RECOMMENDS"] == "1" && $i ~ /^Recommends: /)) {
+				else if ($i ~ /^(Pre-)?Depends: /) {
 					x = $i; sub(/^[^:]*: /, "", x); d = d (d == "" ? "" : ",") x
 				}
 				else if ($i ~ /^Provides: /) pr = substr($i, 11)
@@ -1691,43 +1589,48 @@ fm_coinstall() {
 	deb_pack
 }
 
-# Hide the menu entry of Raspberry Pi's Control Centre (rpcc) in every desktop;
-# the Raspberry Pi Desktop session shows its own copy. Prints the path of the
-# package to install.
+# Hide the menu entry of Raspberry Pi's Control Centre (rpcc) and Appearance
+# Settings (pipanel) in every desktop; the Raspberry Pi Desktop session shows
+# its own copy. Prints the path of the package to install.
 rpcc_session() {
-	local deb=$1 f
-	[[ $(dpkg-deb -f "$deb" Package) == rpcc ]] || { printf '%s\n' "$deb"; return 0; }
+	local deb=$1 f p
+	p=$(dpkg-deb -f "$deb" Package)
+	[[ $p == rpcc || $p == pipanel ]] || { printf '%s\n' "$deb"; return 0; }
 	deb_unpack "$deb" session
-	f=$R_DIR/usr/share/applications/rpcc.desktop
+	f=$R_DIR/usr/share/applications/$p.desktop
 	if [[ -f $f ]]; then sed -i '/^OnlyShowIn=/d; /^NoDisplay=/d' "$f"; sed -i '$a NoDisplay=true' "$f"; fi
 	deb_pack
 }
 
-# Succeed if Debian has a package of that name: in the Debian index when
-# building packages/, else in the APT sources.
+# Succeed if Debian has a package of that name, in a version that satisfies
+# OP VERSION when given: in the Debian index when building packages/, else in
+# the APT sources. Usage: _debian_has NAME [OP VERSION]
 _debian_has() {
-	if [[ -n $DEP_INDEX ]]; then awk -v n="$1" '$1 == n { f = 1; exit } END { exit !f }' "$DEP_INDEX"
-	else [[ -n $(apt-cache madison "$1" 2>/dev/null) ]]; fi
+	local v
+	while read -r v; do
+		[[ -z ${2:-} ]] || { [[ $v != - ]] && dpkg --compare-versions "$v" "$2" "$3"; } && return 0
+	done < <(if [[ -n $DEP_INDEX ]]; then awk -v n="$1" '$1 == n { print ($2 == "" ? "-" : $2) }' "$DEP_INDEX"
+		else apt_versions "$1"; fi)
+	return 1
 }
 
 # Check that a Raspberry Pi package leaves Debian's alone. It may not replace,
 # break, conflict with or stand in for a Debian package (Raspberry Pi's file
 # manager is repacked first, see fm_coinstall), except for the builds of
-# Debian's panel and file manager (PI_STACK) and of libnma that --pi-apps
-# installs in their place. Its maintainer scripts may not edit a file under /etc that the
-# package does not ship. pi-greeter's postinst, which only lists the users in
-# Debian's lightdm.conf, is removed instead, since this script's own LightDM
-# settings do the same. Any other such package is refused. Prints the path of
-# the package to install; fails for a refused one.
+# Debian's panel and file manager (PI_STACK) and of libnma that are installed
+# in their place. Its maintainer scripts may not edit a file under /etc that
+# the package does not ship. Any other such package is refused. Prints the
+# path of the package to install; fails for a refused one.
 scripts_coinstall() {
 	local deb=$1 dir=$WORKDIR/scripts s f n bad="" paths
-	# Raspberry Pi's builds of Debian's panel and file manager (PI_STACK) and
-	# of libnma replace Debian's on purpose; their relations are those of
-	# Debian's packages
+	# Raspberry Pi's builds of PI_STACK and libnma replace Debian's on purpose.
+	# A versioned relation counts only where a Debian version satisfies it.
 	stack_deb "$deb" || [[ $(dpkg-deb -f "$deb" Source) == libnma* ]] || for s in Replaces Breaks Conflicts Provides; do
-		for n in $(dpkg-deb -f "$deb" "$s" | depnames); do
-			if _debian_has "$n"; then bad+="$s:$n "; fi
-		done
+		while read -r n op v; do
+			[[ -n $n ]] || continue
+			[[ $s != Provides ]] || op="" v=""
+			if _debian_has "$n" $op $v; then bad+="$s:$n "; fi
+		done < <(dpkg-deb -f "$deb" "$s" | tr ',|' '\n' | sed -E 's/^( *[^ :(]+):[^ (]*/\1/; s/\( *([<>=]+) */ \1 /; s/\)//')
 	done
 	rm -rf -- "$dir"; mkdir -p "$dir"
 	dpkg-deb -e "$deb" "$dir"
@@ -1739,32 +1642,8 @@ scripts_coinstall() {
 		done < <(grep -oE '/etc/[A-Za-z0-9._/+-]*[A-Za-z0-9_]' "$dir/$s" | sort -u)
 	done
 	if [[ -z $bad ]]; then printf '%s\n' "$deb"; return 0; fi
-	if [[ $(dpkg-deb -f "$deb" Package) == pi-greeter && $bad == "postinst:/etc/lightdm/lightdm.conf " ]]; then
-		deb_unpack "$deb" own
-		rm -f -- "$R_DIR/DEBIAN/postinst"
-		deb_pack
-		return 0
-	fi
 	warn "$(dpkg-deb -f "$deb" Package) is left out: it would change Debian's packages or files (${bad% })"
 	return 1
-}
-
-# On an architecture that Raspberry Pi does not publish, a theme package built
-# for another one serves as well, since none of its files are compiled. Repack
-# it as architecture-independent and without its dependencies on the Raspberry
-# Pi GTK 2 engines, which are compiled; GTK 2 applications then keep their
-# default look. Prints the path of the package to install.
-data_coinstall() {
-	local deb=$1 f
-	[[ -z $H_RPI_ARCH && " ${DATA_PKGS[*]} " == *" $(dpkg-deb -f "$deb" Package) "* \
-		&& $(dpkg-deb -f "$deb" Architecture) != all ]] || { printf '%s\n' "$deb"; return 0; }
-	deb_unpack "$deb" all
-	while IFS= read -r -d '' f; do
-		[[ $(head -c4 -- "$f") != $'\x7fELF' ]] || die "$(basename "$deb") holds compiled code (${f#"$R_DIR"})"
-	done < <(find "$R_DIR" -path "$R_DIR/DEBIAN" -prune -o -type f -print0)
-	control_set Architecture all
-	control_set Depends "$(no_engines "$(dpkg-deb -f "$deb" Depends)")"
-	deb_pack
 }
 
 # Print the package names of a Depends-style field read from stdin, one per
@@ -1772,177 +1651,8 @@ data_coinstall() {
 depnames() { tr ',|' '\n' | sed 's/(.*//; s/:.*//; s/[[:space:]]//g' | awk 'NF' | sort -u; }
 
 ###############################################################################
-# 5. Artwork: Xfwm4 themes, icon sets with the Debian logo
+# 5. Artwork: icon sets with the Debian logo
 ###############################################################################
-
-# Print an Openbox theme colour (#rgb or #rrggbb) as lower-case #rrggbb, or the
-# default if the key is missing or not a colour.
-# Usage: _ob_color THEMERC KEY DEFAULT
-_ob_color() {
-	local v
-	v=$(awk -v k="$2" '{ key = $0; sub(/:.*/, "", key) }
-		tolower(key) == tolower(k) { v = $0; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t\r]+$/, "", v) }
-		END { print v }' "$1")
-	if [[ $v =~ ^#[0-9A-Fa-f]{6}$ ]]; then printf '%s\n' "${v,,}"
-	elif [[ $v =~ ^#([0-9A-Fa-f])([0-9A-Fa-f])([0-9A-Fa-f])$ ]]; then
-		printf '#%s%s%s%s%s%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" \
-			"${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[3]}" | tr 'A-F' 'a-f'
-	else printf '%s\n' "$3"; fi
-}
-
-# Blend two colours. Usage: _mix #rrggbb #rrggbb PERCENT-OF-SECOND
-_mix() {
-	local a=${1#\#} b=${2#\#} p=$3 out="#" i
-	for i in 0 2 4; do
-		printf -v out '%s%02x' "$out" $(( (16#${a:i:2} * (100 - p) + 16#${b:i:2} * p) / 100 ))
-	done
-	printf '%s\n' "$out"
-}
-
-# Repeat a character. Usage: _rep CHAR COUNT
-_rep() { local s; (( $2 > 0 )) || return 0; printf -v s '%*s' "$2" ''; printf '%s' "${s// /$1}"; }
-
-# Write an XPM image. Usage: _xpm FILE CHAR=COLOUR... -- ROW...
-_xpm() {
-	local file=$1 p i; shift
-	local -a pal=()
-	while [[ $1 != -- ]]; do pal+=("$1"); shift; done; shift
-	{
-		printf '/* XPM */\nstatic char * xpm[] = {\n"%d %d %d 1",\n' "${#1}" "$#" "${#pal[@]}"
-		for p in "${pal[@]}"; do printf '"%s c %s",\n' "${p%%=*}" "${p#*=}"; done
-		for (( i = 1; i <= $#; i++ )); do
-			if (( i < $# )); then printf '"%s",\n' "${!i}"; else printf '"%s"};\n' "${!i}"; fi
-		done
-	} >"$file"
-}
-
-# Write an XPM image of identical rows.
-# Usage: _xpm_tile FILE HEIGHT ROW CHAR=COLOUR...
-_xpm_tile() {
-	local file=$1 h=$2 row=$3 i; shift 3
-	local -a rows=()
-	for (( i = 0; i < h; i++ )); do rows+=("$row"); done
-	_xpm "$file" "$@" -- "${rows[@]}"
-}
-
-# Print an XBM bitmap as rows of '#' (set) and '.' (clear). Fails for a file
-# that is not a complete XBM bitmap. Usage: _xbm_rows FILE
-_xbm_rows() {
-	local f=$1 w h x y b bpr row
-	w=$(sed -n 's/^#define[[:space:]]\{1,\}[^[:space:]]*_width[[:space:]]\{1,\}\([0-9]\{1,\}\).*/\1/p' "$f")
-	h=$(sed -n 's/^#define[[:space:]]\{1,\}[^[:space:]]*_height[[:space:]]\{1,\}\([0-9]\{1,\}\).*/\1/p' "$f")
-	[[ -n $w && -n $h ]] || return 1
-	local -a bytes
-	mapfile -t bytes < <(sed '/^#define/d' "$f" | grep -oiE '0x[0-9a-f]{1,2}')
-	bpr=$(( (w + 7) / 8 ))
-	(( ${#bytes[@]} >= bpr * h )) || return 1
-	for (( y = 0; y < h; y++ )); do
-		row=""
-		for (( x = 0; x < w; x++ )); do
-			b=$(( bytes[y * bpr + x / 8] ))
-			if (( (b >> (x % 8)) & 1 )); then row+="#"; else row+="."; fi
-		done
-		printf '%s\n' "$row"
-	done
-}
-
-# Print a button glyph as rows of '#' and '.', from an Openbox bitmap, or a
-# built-in glyph for buttons that Openbox themes do not draw.
-# Usage: _glyph OPENBOX-DIR XBM-NAME|builtin:NAME
-_glyph() {
-	local dir=$1 name=$2
-	if [[ $name != builtin:* && -f $dir/$name.xbm ]] && _xbm_rows "$dir/$name.xbm"; then return 0; fi
-	case ${name#builtin:} in
-		shade*_toggled*) printf '%s\n' "########" "########" "........" "..####.." "..####.." "...##..." "...##..." "........" ;;
-		shade*)          printf '%s\n' "########" "########" "........" "........" "........" "........" "........" "........" ;;
-		stick*_toggled*) printf '%s\n' "........" "..####.." ".######." ".######." ".######." ".######." "..####.." "........" ;;
-		stick*)          printf '%s\n' "........" "..####.." ".##..##." ".#....#." ".#....#." ".##..##." "..####.." "........" ;;
-		menu*)           printf '%s\n' "........" "........" "########" "########" ".######." "..####.." "...##..." "........" ;;
-		*)               printf '%s\n' "........" ;;
-	esac
-}
-
-# Write a button image with the glyph read from stdin centred on it.
-# Usage: _xpm_button FILE WIDTH HEIGHT BG FG
-_xpm_button() {
-	local file=$1 w=$2 h=$3 bg=$4 fg=$5 gw gh ox oy y line
-	local -a g=() rows=()
-	mapfile -t g
-	gh=${#g[@]} gw=${#g[0]}
-	ox=$(( (w - gw) / 2 )) oy=$(( (h - gh) / 2 ))
-	for (( y = 0; y < h; y++ )); do
-		if (( y >= oy && y < oy + gh )); then
-			line="$(_rep . "$ox")${g[y - oy]}$(_rep . $(( w - gw - ox )))"
-			rows+=("${line//#/+}")
-		else
-			rows+=("$(_rep . "$w")")
-		fi
-	done
-	_xpm "$file" ".=$bg" "+=$fg" -- "${rows[@]}"
-}
-
-# Generate an Xfwm4 theme from the colours and bitmaps of an Openbox theme.
-# Usage: gen_xfwm4 OPENBOX-DIR OUTPUT-DIR THEME-NAME
-gen_xfwm4() {
-	local src=$1 out=$2 name=$3 rc=$1/themerc
-	[[ -f $rc ]] || return 1
-	local a_bg a_fg a_btn i_bg i_fg i_btn a_bd i_bd a_cl i_cl
-	a_bg=$(_ob_color "$rc" window.active.title.bg.color '#87919b')
-	a_fg=$(_ob_color "$rc" window.active.label.text.color '#f0f0f0')
-	a_btn=$(_ob_color "$rc" window.active.button.unpressed.image.color "$a_fg")
-	i_bg=$(_ob_color "$rc" window.inactive.title.bg.color '#eeefee')
-	i_fg=$(_ob_color "$rc" window.inactive.label.text.color '#70747d')
-	i_btn=$(_ob_color "$rc" window.inactive.button.unpressed.image.color "$i_fg")
-	a_bd=$(_ob_color "$rc" window.active.border.color '#d0d0d0')
-	i_bd=$(_ob_color "$rc" window.inactive.border.color "$a_bd")
-	a_cl=$(_ob_color "$rc" window.active.client.color "$i_bg")
-	i_cl=$(_ob_color "$rc" window.inactive.client.color "$a_cl")
-
-	local H=26 W=26 n st bg bd cl
-	mkdir -p "$out"
-	for st in active inactive; do
-		if [[ $st == active ]]; then bg=$a_bg bd=$a_bd cl=$a_cl; else bg=$i_bg bd=$i_bd cl=$i_cl; fi
-		for n in 1 2 3 4 5; do _xpm_tile "$out/title-$n-$st.xpm" "$H" "bb" "b=$bg"; done
-		_xpm_tile "$out/top-left-$st.xpm"  "$H" "dbb" "d=$bd" "b=$bg"
-		_xpm_tile "$out/top-right-$st.xpm" "$H" "bbd" "d=$bd" "b=$bg"
-		_xpm_tile "$out/left-$st.xpm"      2 "dcc" "d=$bd" "c=$cl"
-		_xpm_tile "$out/right-$st.xpm"     2 "ccd" "d=$bd" "c=$cl"
-		_xpm "$out/bottom-$st.xpm"       "d=$bd" "c=$cl" -- "cc" "cc" "dd"
-		_xpm "$out/bottom-left-$st.xpm"  "d=$bd" "c=$cl" -- "dcc" "dcc" "ddd"
-		_xpm "$out/bottom-right-$st.xpm" "d=$bd" "c=$cl" -- "ccd" "ccd" "ddd"
-	done
-
-	# Xfwm4 button name -> Openbox bitmap name, or a built-in glyph
-	local -A ob=([close]=close [hide]=iconify [maximize]=max [maximize-toggled]=max_toggled
-		[menu]=menu [shade]=builtin:shade [shade-toggled]=builtin:shade_toggled
-		[stick]=builtin:stick [stick-toggled]=builtin:stick_toggled)
-	local b glyph hover
-	for b in "${!ob[@]}"; do
-		glyph=${ob[$b]} hover="${ob[$b]}_hover"
-		[[ $glyph != builtin:* && ! -f $src/$hover.xbm ]] && hover=$glyph
-		_glyph "$src" "$glyph" | _xpm_button "$out/$b-active.xpm"   "$W" "$H" "$a_bg" "$a_btn"
-		_glyph "$src" "$glyph" | _xpm_button "$out/$b-inactive.xpm" "$W" "$H" "$i_bg" "$i_btn"
-		_glyph "$src" "$hover" | _xpm_button "$out/$b-prelight.xpm" "$W" "$H" "$(_mix "$a_bg" "$a_btn" 18)" "$a_btn"
-		_glyph "$src" "$hover" | _xpm_button "$out/$b-pressed.xpm"  "$W" "$H" "$(_mix "$a_bg" "$a_btn" 32)" "$a_btn"
-	done
-
-	cat >"$out/themerc" <<EOF
-# Xfwm4 theme generated from the official Raspberry Pi OS "$name" Openbox theme
-# by $APP_NAME $APP_VERSION. It is regenerated on every install; do not edit.
-active_text_color=$a_fg
-inactive_text_color=$i_fg
-title_alignment=center
-full_width_title=true
-title_shadow_active=false
-title_shadow_inactive=false
-title_horizontal_offset=0
-title_vertical_offset_active=0
-title_vertical_offset_inactive=0
-button_offset=0
-button_spacing=0
-maximized_offset=0
-EOF
-}
 
 # Print the other Raspberry Pi OS icon sets that an icon set falls back to.
 # Only the legacy PiX does, to PiXflat, the set closest to it in style. The
@@ -1985,9 +1695,8 @@ _icon_aliases() {
 	# nm-applet's animation frames while connecting, and those of its VPN icon
 	for n in 01 02 03; do for i in $(seq -w 1 11); do pairs+=("nm-stage$n-connecting$i:network-idle"); done; done
 	for i in $(seq -w 1 14); do pairs+=("nm-vpn-connecting$i:nm-vpn-active-lock"); done
-	# File types: the official sets use the old GNOME names
-	# (gnome-mime-application-pdf), while current programs ask for the
-	# freedesktop.org names (application-pdf); these are linked to those images.
+	# File types: the official sets use the old GNOME names (gnome-mime-*);
+	# current programs ask for the freedesktop.org names, linked to those images.
 	pairs+=("application-octet-stream:unknown"    "application-x-generic:unknown"
 		"text-plain:text-x-generic"              "application-x-zerosize:empty"
 		"inode-x-empty:empty"
@@ -2027,12 +1736,13 @@ _icon_aliases() {
 # desktop-base, else from the hicolor theme, else from
 # /usr/share/pixmaps/debian-logo.png, as in _logo_path. Files are looked for
 # under SYS_ROOT; the links point to their paths on the installed system.
-# Usage: _logo_aliases OUT-DIR
+# VARIANT -white takes Debian's white logo, for dark themes, and fails if
+# Debian has none. Usage: _logo_aliases OUT-DIR [VARIANT]
 _logo_aliases() {
-	local out=$1 t f dir size ext n found=0
+	local out=$1 v=${2:-} t f dir size ext n found=0
 	for t in desktop-base hicolor; do
-		for f in "$SYS_ROOT/usr/share/icons/$t"/*/emblems/emblem-debian.png \
-			"$SYS_ROOT/usr/share/icons/$t/scalable/emblems/emblem-debian.svg"; do
+		for f in "$SYS_ROOT/usr/share/icons/$t"/*/emblems/emblem-debian"$v".png \
+			"$SYS_ROOT/usr/share/icons/$t/scalable/emblems/emblem-debian$v.svg"; do
 			[[ -f $f ]] || continue
 			f=${f#"$SYS_ROOT"}
 			size=${f#/usr/share/icons/"$t"/}; size=${size%%/*}
@@ -2043,10 +1753,38 @@ _logo_aliases() {
 		done
 		(( ! found )) || return 0
 	done
+	[[ -z $v ]] || return 1
 	if [[ -f $SYS_ROOT/usr/share/pixmaps/debian-logo.png ]]; then
 		mkdir -p "$out/48x48/places"
 		for n in "${LOGO_ICONS[@]}"; do ln -sfn /usr/share/pixmaps/debian-logo.png "$out/48x48/places/$n.png"; done
 	fi
+}
+
+# Succeed if Debian ships its white logo (desktop-base), for dark themes.
+_white_logo() {
+	local t
+	for t in desktop-base hicolor; do
+		compgen -G "$SYS_ROOT/usr/share/icons/$t/*/emblems/emblem-debian-white.png" >/dev/null && return 0
+		[[ -f $SYS_ROOT/usr/share/icons/$t/scalable/emblems/emblem-debian-white.svg ]] && return 0
+	done
+	return 1
+}
+
+# Create a dark theme's icon theme: the light theme's adapted set with
+# Debian's white logo, hidden from the appearance settings. Fails without
+# the white logo. Usage: gen_logo_overlay NAME LIGHT-SET OUTPUT-DIR
+gen_logo_overlay() {
+	local name=$1 light=$2 out=$3 d dirs=""
+	_logo_aliases "$out" -white || return 1
+	for d in "$out"/*/places; do dirs+="${dirs:+,}${d#"$out"/}"; done
+	{
+		printf '[Icon Theme]\nName=%s\nComment=%s with the white Debian logo\nInherits=%s\nHidden=true\nDirectories=%s\n' \
+			"$name" "$light" "$light" "$dirs"
+		for d in ${dirs//,/ }; do
+			if [[ $d == scalable/* ]]; then printf '\n[%s]\nSize=64\nMinSize=8\nMaxSize=512\nContext=Places\nType=Scalable\n' "$d"
+			else printf '\n[%s]\nSize=%s\nContext=Places\nType=Fixed\n' "$d" "${d%%x*}"; fi
+		done
+	} >"$out/index.theme"
 }
 
 # Create the "<Base>-Debian" icon theme: it inherits the official set and adds
@@ -2137,38 +1875,6 @@ _ini_set() {
 	done
 }
 
-# Set a key in a "key=value" file without sections.
-# Usage: _kv_set FILE KEY VALUE [QUOTE-CHAR]
-_kv_set() {
-	local file=$1 key=$2 val=$3 quote=${4:-}
-	_track_file "$file"
-	{ [[ -f $file ]] && cat -- "$file"; true; } \
-		| K=$key V="$quote$val$quote" awk '
-			BEGIN { k = ENVIRON["K"]; v = ENVIRON["V"] }
-			index($0, "=") {
-				kk = substr($0, 1, index($0, "=") - 1); gsub(/^[ \t]+|[ \t]+$/, "", kk)
-				if (kk == k) { if (!done) print k "=" v; done = 1; next }
-			}
-			{ print }
-			END { if (!done) print k "=" v }' \
-		| _write "$file"
-}
-
-# Replace or append a block between marker comments.
-# Usage: _block_set FILE TAG CONTENT
-_block_set() {
-	local file=$1 tag=$2 content=$3 b e
-	case $file in *.css) b="/* >>> $tag >>> */" e="/* <<< $tag <<< */" ;; *) b="# >>> $tag >>>" e="# <<< $tag <<<" ;; esac
-	_track_file "$file"
-	{ [[ -f $file ]] && cat -- "$file"; true; } \
-		| B=$b E=$e C=$content awk '
-			$0 == ENVIRON["B"] { skip = 1; next }
-			$0 == ENVIRON["E"] { skip = 0; next }
-			!skip { print }
-			END { print ENVIRON["B"]; print ENVIRON["C"]; print ENVIRON["E"] }' \
-		| _write "$file"
-}
-
 # Copy the first existing system default into place, if the file is missing.
 # Usage: _seed FILE DEFAULT...
 _seed() {
@@ -2177,7 +1883,6 @@ _seed() {
 	[[ -e $dst ]] && return 0
 	for src; do
 		if [[ -f $src ]]; then
-			_track_file "$dst"
 			mkdir -p "$(dirname "$dst")"
 			cp -- "$src" "$dst"
 			return 0
@@ -2210,8 +1915,8 @@ _xml_child() {
 		{ print }' "$1" | _write "$1"
 }
 
-# Print <font> elements for the given places, as Raspberry Pi OS sets them
-# (theme font, size 12). Usage: _xml_fonts PLACE...
+# Print <font> elements for the given places, as Raspberry Pi OS sets them,
+# with the theme's font and size. Usage: _xml_fonts PLACE...
 _xml_fonts() {
 	local p
 	for p; do
@@ -2232,15 +1937,12 @@ _ob_round() {
 }
 
 # Apply the Raspberry Pi OS Openbox settings (lxde-pi-rc.xml / rpd-rc.xml):
-# the <theme> section with the theme's corners and invisible handles, and,
-# unless THEME-ONLY is set, one desktop and the focus and placement settings.
-# Usage: _openbox_rc FILE [THEME-ONLY]
+# the <theme> section with the theme's corners and invisible handles, one
+# desktop and the focus and placement settings. Usage: _openbox_rc FILE
 _openbox_rc() {
-	local file=$1 theme_only=${2:-0} fonts
-	_track_file "$file"
+	local file=$1 fonts
 	fonts=$(_xml_fonts ActiveWindow InactiveWindow MenuHeader MenuItem ActiveOnScreenDisplay InactiveOnScreenDisplay)
 	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>%s</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$(_ob_round "$T_GTK")" "$fonts")"
-	(( theme_only )) && return 0
 	# Use Openbox's own menu when LXDE's is missing
 	if [[ ! -f /usr/share/lxde/openbox/menu.xml ]]; then
 		sed -i 's#<file>/usr/share/lxde/openbox/menu.xml</file>#<file>menu.xml</file>#' "$file"
@@ -2252,12 +1954,18 @@ _openbox_rc() {
 
 # Bind the Openbox keys of Raspberry Pi OS (lxde-pi-rc.xml / rpd-rc.xml) whose
 # program is installed: the panel's menu and dialogs, the terminal, the task
-# manager and the Shutdown dialog. A key's existing binding is replaced.
-# Usage: _openbox_keys RC-XML
+# manager and the Shutdown dialog; Ctrl+Alt+L and the lock key of keyboards
+# and laptops to lock the screen, the wireless key for the wireless radios and
+# the power button (see power_build). A key's existing binding is replaced.
+# With RASPBERRY-PI-FILE set, the file is Raspberry Pi OS's own and keeps its
+# keys; only the session's own are added. Usage: _openbox_keys RC-XML [RASPBERRY-PI-FILE]
 _openbox_keys() {
 	local file=$1 k c ctl=lxpanelctl
 	local -a keys
-	if (( S_PI_PANEL )); then
+	if [[ -n ${2:-} ]]; then
+		keys=("C-A-L|$SHARE/power lock" "XF86ScreenSaver|$SHARE/power lock" "XF86WLAN|$SHARE/power wireless-radio"
+			"XF86PowerOff|$SHARE/power power-key")
+	elif (( S_PI_PANEL )); then
 		ctl=lxpanelctl-pi
 		keys=("Super_L|$ctl command smenu menu" "C-Escape|$ctl command smenu menu" "A-F2|gui-runcmd"
 			"C-A-B|$ctl command bluetooth menu")
@@ -2268,28 +1976,52 @@ _openbox_keys() {
 	else
 		keys=("Super_L|$ctl menu" "C-Escape|$ctl menu" "A-F2|$ctl run")
 	fi
-	keys+=("C-A-M|$SHARE/magnifier" "C-A-S|$ctl move" "C-A-T|x-terminal-emulator" "C-S-Escape|lxtask" "Print|scrot"
-		"C-A-End|pishutdown" "C-A-Delete|pishutdown")
-	# Media and laptop keys (see keys_build): volume through the volume
-	# plugin, lock, display settings, all radios and the microphone
-	keys+=("XF86AudioRaiseVolume|$SHARE/volume-key up" "XF86AudioLowerVolume|$SHARE/volume-key down"
-		"XF86AudioMute|$SHARE/volume-key mute" "XF86AudioMicMute|$SHARE/volume-key micmute"
-		"XF86ScreenSaver|lxlock" "XF86RFKill|$SHARE/radio-key" "XF86WLAN|$SHARE/radio-key wlan")
-	(( USE_NETMAN )) && keys+=("C-A-W|$ctl command netman menu")
-	if command -v arandr >/dev/null; then keys+=("XF86Display|arandr"); elif command -v lxrandr >/dev/null; then keys+=("XF86Display|lxrandr"); fi
+	[[ -n ${2:-} ]] || keys+=("C-A-S|$ctl move" "C-A-T|x-terminal-emulator" "C-S-Escape|lxtask" "Print|scrot"
+		"C-A-End|pishutdown" "C-A-Delete|pishutdown" "C-A-L|$SHARE/power lock" "XF86ScreenSaver|$SHARE/power lock" "XF86WLAN|$SHARE/power wireless-radio"
+		"XF86PowerOff|$SHARE/power power-key")
+	# The volume keys and the magnifier, through the panel's plugins
+	if [[ -z ${2:-} ]] && (( S_PI_PANEL || S_PI_STACK )); then
+		keys+=("XF86AudioRaiseVolume|$ctl command volumepulse volu" "XF86AudioLowerVolume|$ctl command volumepulse vold"
+			"XF86AudioMute|$ctl command volumepulse mute" "C-A-M|$ctl command magnifier toggle")
+	fi
+	[[ -n ${2:-} ]] || ! (( USE_NETMAN )) || keys+=("C-A-W|$ctl command netman menu")
 	for k in "${keys[@]}"; do
 		c=${k#*|} k=${k%%|*}
-		[[ ${c%% *} == "$SHARE"/* ]] || command -v "${c%% *}" >/dev/null || [[ -x $SYS_ROOT/usr/bin/${c%% *} ]] || continue
+		# The session's own helpers are installed with it
+		[[ $c == "$SHARE"/* ]] || command -v "${c%% *}" >/dev/null || [[ -x $SYS_ROOT/usr/bin/${c%% *} ]] || continue
+		# Every binding of the key is replaced, however its modifiers are
+		# ordered (C-A-Delete and A-C-Delete are the same keys to Openbox)
 		K=$k C=$c awk '
+			function norm(s,  n, p, i, j, t) {
+				n = split(s, p, "-")
+				for (i = 1; i < n - 1; i++) for (j = i + 1; j < n; j++) if (p[j] < p[i]) { t = p[i]; p[i] = p[j]; p[j] = t }
+				t = ""; for (i = 1; i <= n; i++) t = t (i > 1 ? "-" : "") p[i]
+				return t
+			}
 			BEGIN {
-				k = "<keybind key=\"" ENVIRON["K"] "\""
+				want = norm(ENVIRON["K"])
 				nb = "    <keybind key=\"" ENVIRON["K"] "\">\n      <action name=\"Execute\">\n        <command>" ENVIRON["C"] "</command>\n      </action>\n    </keybind>"
 			}
-			!done && index($0, k) { inb = 1; if ($0 ~ /<\/keybind>/) { inb = 0; print nb; done = 1 }; next }
-			inb { if ($0 ~ /<\/keybind>/) { inb = 0; print nb; done = 1 }; next }
+			!inb && match($0, /<keybind key="[^"]+"/) && norm(substr($0, RSTART + 14, RLENGTH - 15)) == want {
+				if (!done) { print nb; done = 1 }
+				inb = ($0 !~ /<\/keybind>/); next
+			}
+			inb { if ($0 ~ /<\/keybind>/) inb = 0; next }
 			!done && /<\/keyboard>/ { print nb; done = 1 }
 			{ print }' "$file" | _write "$file"
 	done
+	# Remove the keys of Raspberry Pi OS whose program is not installed
+	SH=$SHARE awk '
+		/<keybind[ >]/ && !inb { blk = $0; inb = 1; if ($0 ~ /<\/keybind>/) { inb = 0; flush() }; next }
+		inb { blk = blk "\n" $0; if ($0 ~ /<\/keybind>/) { inb = 0; flush() }; next }
+		{ print }
+		function flush(  c) {
+			if (match(blk, /<command>[^< ]+/)) {
+				c = substr(blk, RSTART + 9, RLENGTH - 9)
+				if (index(c, ENVIRON["SH"] "/") != 1 && system("command -v \"" c "\" >/dev/null 2>&1") != 0) return
+			}
+			print blk
+		}' "$file" | _write "$file"
 }
 
 # Print the first installed application launcher (.desktop file) of a list.
@@ -2302,9 +2034,8 @@ _launcher() {
 }
 # Print the browser launcher: the generic "Web Browser" entry when Debian has
 # a default browser, as in Raspberry Pi OS; otherwise an installed browser.
-# Panels name it by id, which they find in the session's applications folder
-# although it is hidden from the menu, as on Raspberry Pi OS; by path, the X
-# panels would ask whether to execute the file.
+# Panels name it by id (found in the session's applications folder although
+# hidden from the menu); by path, the X panels would ask to execute the file.
 _browser() {
 	if [[ -x /usr/bin/x-www-browser ]]; then echo x-www-browser.desktop
 	else _launcher firefox-esr.desktop chromium.desktop lxde-x-www-browser.desktop; fi
@@ -2349,14 +2080,14 @@ _panel_tasks() {
 }
 
 # Print the Raspberry Pi OS panel for Debian's lxpanel: the menu with the
-# Debian logo, launchers, taskbar, tray, volume, keyboard layout, clock and,
+# Debian logo, launchers, taskbar, tray, volume, clock and,
 # if there is a battery, the battery, spaced as in Raspberry Pi OS. Plugins
 # only Raspberry Pi has are left out; network and Bluetooth appear in the
 # tray through Debian's applets.
 _lxpanel_layout() {
 	local plugins="$SYS_ROOT/usr/lib/*/lxpanel/plugins"
 	_panel_global point_at_menu=0
-	_panel_plugin menu padding=4 "image=${S_LOGO:-start-here}" "system {" "}" "separator {" "}" \
+	_panel_plugin menu padding=4 image=start-here "system {" "}" "separator {" "}" \
 		"item {" "  image=system-run" "  command=run" "}" "separator {" "}" \
 		"item {" "  image=system-shutdown" "  command=logout" "}"
 	[[ $T_ERA == trixie ]] && _panel_plugin separator
@@ -2373,8 +2104,11 @@ _lxpanel_layout() {
 # layout if that package is unavailable.
 _pi_panel_layout() {
 	local f
-	f=$(pi_unpack "$PANEL_PKG" "$(config_suite)" "$(rpi_arch)" 2>/dev/null)/etc/xdg/lxpanel-pi/panels/panel
-	if [[ -f $f ]]; then _pi_layout "$f" lxpanel-pi; else _pi_panel_builtin; fi
+	if f=$(pi_unpack "$PANEL_PKG" "$(config_suite)" "$H_ARCH" 2>/dev/null) && f+=/etc/xdg/lxpanel-pi/panels/panel && [[ -f $f ]]; then
+		_pi_layout "$f" lxpanel-pi
+	else
+		_pi_panel_builtin
+	fi
 }
 # The same before Raspberry Pi OS 13, for Raspberry Pi's build of Debian's
 # panel (PI_STACK), from this release's raspberrypi-ui-mods, or the Debian
@@ -2387,15 +2121,15 @@ _pi_stack_layout() {
 # Pi OS's settings before 13); fail if it is missing. Usage: _pi_stack_file PATH
 _pi_stack_file() {
 	local x
-	x=$(pi_unpack raspberrypi-ui-mods "$H_SUITE" "$(rpi_arch)" 2>/dev/null) && [[ -f $x/$1 ]] && printf '%s\n' "$x/$1"
+	x=$(pi_unpack raspberrypi-ui-mods "$H_SUITE" "$H_ARCH" 2>/dev/null) && [[ -f $x/$1 ]] && printf '%s\n' "$x/$1"
 }
 
-# Print a Raspberry Pi OS panel layout unchanged, with its spaces and
-# separators, so that later releases' layouts are followed, except: plugins
-# that are left out (panel_drop), plugins not installed and, without
-# a battery, the battery plugin are removed, with any space left doubled;
-# where nm-applet is used, the tray takes the network plugin's place; and the
-# launchers name the browser, file manager and terminal installed here. Usage: _pi_layout FILE PLUGIN-DIR (under /usr/lib/*/)
+# Print a Raspberry Pi OS panel layout with its spaces and separators, so that
+# later releases' layouts are followed. Removed, keeping their spaces as on
+# Raspberry Pi OS: plugins left out (panel_drop), the magnifier (for the user
+# to add), plugins not installed and, without a battery, the battery plugin.
+# The launchers name the browser, file manager and terminal installed here.
+# Usage: _pi_layout FILE PLUGIN-DIR (under /usr/lib/*/)
 _pi_layout() {
 	local f=$1 dir=$2 t keep="" fm=pcmanfm.desktop nobatt=0
 	(( S_PI_FM )) && fm=pcmanfm-pi.desktop
@@ -2403,13 +2137,9 @@ _pi_layout() {
 		if compgen -G "$SYS_ROOT/usr/lib/*/$dir/$t.so" >/dev/null; then keep+="$t|"; fi
 	done < <(sed -n 's/^[[:space:]]*type=//p' "$f" | sort -u)
 	has_battery || nobatt=1
-	KEEP="${keep}space|separator|launchbar|taskbar|tray|menu|dclock" DROP="$(panel_drop)|$PANEL_UNPLACED" NET=$( (( USE_NETMAN )) || echo "$PANEL_NET") FM=$fm \
+	KEEP="${keep}space|separator|launchbar|taskbar|tray|menu|dclock" DROP="$(panel_drop)|magnifier" FM=$fm \
 	NOBATT=$nobatt B=$(_browser || true) \
 	T=$(_launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop || true) awk '
-		function put(i) {
-			if (typ[i] == "space" && last == "space") return
-			out[++m] = blk[i]; last = typ[i]
-		}
 		depth == 0 && !/\{/ { if (n == 0) head = head $0 "\n"; next }
 		{
 			if (depth == 0) { n++; blk[n] = ""; typ[n] = "" }
@@ -2425,18 +2155,13 @@ _pi_layout() {
 			depth += gsub(/\{/, "{") - gsub(/\}/, "}")
 		}
 		END {
-			keep = "^(" ENVIRON["KEEP"] ")$"; drop = "^(" ENVIRON["DROP"] ")$"; netre = "^(" ENVIRON["NET"] ")$"
-			for (i = 1; i <= n; i++) { if (typ[i] == "tray") tray = i; if (ENVIRON["NET"] != "" && typ[i] ~ netre && !net) net = i }
+			keep = "^(" ENVIRON["KEEP"] ")$"; drop = "^(" ENVIRON["DROP"] ")$"
 			printf "%s", head
 			for (i = 1; i <= n; i++) {
-				if (i == net && tray) { put(tray); continue }
-				if (i == tray && net) continue
 				if (typ[i] != "" && (typ[i] ~ drop || typ[i] !~ keep)) continue
 				if (ENVIRON["NOBATT"] == 1 && typ[i] ~ /^(batt|ptbatt)$/) continue
-				put(i)
+				printf "%s", blk[i]
 			}
-			if (last == "space") m--   # no space at the end
-			for (i = 1; i <= m; i++) printf "%s", out[i]
 		}' "$f"
 }
 
@@ -2487,15 +2212,15 @@ menu_pkg() { if suite_ge "$H_SUITE" trixie; then echo "$ART_PKG $(config_suite)"
 # Write the Raspberry Pi OS application menu from this release's package, so
 # that later releases' changes are followed: the menu file, its category
 # names and the application entries it renames or moves (raspi-ui-overrides),
-# for installed applications only. Entries that only hide a program are not
-# taken: Raspberry Pi OS hides Debian's settings tools in favour of its
-# Control Centre, which Debian lacks. Without the package, the built-in menu
+# for installed applications only. Debian's settings tools, which Raspberry
+# Pi OS hides in favour of its Control Centre, stay shown, as Debian lacks
+# that. Without the package, the built-in menu
 # is written. Usage: _session_menu XDG-DIR DATA-DIR
 _session_menu() {
 	local xdg=$1 data=$2 prefix x f
 	prefix=$(menu_prefix)
 	# shellcheck disable=SC2046  # package and release
-	x=$( (pi_unpack $(menu_pkg) "$(rpi_arch)") 2>/dev/null ) || x=""
+	x=$( (pi_unpack $(menu_pkg) "$H_ARCH") 2>/dev/null ) || x=""
 	if [[ ! -f $x/etc/xdg/menus/${prefix}applications.menu ]]; then _menu_write "$xdg" "$data"; return 0; fi
 	_write "$xdg/menus/${prefix}applications.menu" <"$x/etc/xdg/menus/${prefix}applications.menu"
 	for f in "$x"/usr/share/desktop-directories/*.directory; do
@@ -2503,7 +2228,9 @@ _session_menu() {
 	done
 	for f in "$x"/usr/share/raspi-ui-overrides/applications/*.desktop; do
 		[[ -f $f && -f /usr/share/applications/${f##*/} ]] && grep -q '^Exec=' "$f" || continue
-		grep -vE '^(NoDisplay|Hidden)=true' "$f" | _write "$data/applications/${f##*/}"
+		# Settings tools stay shown; other hidden entries (duplicates) stay hidden
+		if grep -q '^Categories=.*Settings' "$f"; then grep -vE '^(NoDisplay|Hidden)=true' "$f"; else cat -- "$f"; fi \
+			| _write "$data/applications/${f##*/}"
 	done
 	[[ ! -f $x/usr/share/raspi-ui-overrides/applications/mimeapps.list ]] \
 		|| _write "$xdg/mimeapps.list" <"$x/usr/share/raspi-ui-overrides/applications/mimeapps.list"
@@ -2589,33 +2316,34 @@ _greeter_logo() {
 	_logo_path
 }
 
-# Print the theme's wallpaper in the requested resolution if installed, else
-# in the other one; print nothing (and warn) if neither is installed.
+# Print the theme's wallpaper; print nothing (and warn) if it is not installed.
 _wallpaper_path() {
-	local w std uhd
-	std=/usr/share/rpd-wallpaper/$T_WALL_DEFAULT uhd=${std%.jpg}_4k.jpg
-	if (( O_4K )); then w=$uhd; [[ -f $w || ! -f $std ]] || w=$std
-	else w=$std; [[ -f $w || ! -f $uhd ]] || w=$uhd; fi
+	local w=/usr/share/rpd-wallpaper/$T_WALL_DEFAULT
 	if [[ -f $w ]]; then printf '%s\n' "$w"; else warn "Wallpaper $w not found; the desktop shows its background colour."; fi
 }
 
 # Write the session's lxsession profile: Raspberry Pi OS's desktop.conf with
 # the chosen theme, and the autostart list. Usage: _session_profile XDG-DIR
 _session_profile() {
-	local dir=$1/lxsession/$S_PROFILE ctl=lxpanelctl images=1
+	local dir=$1/lxsession/$S_PROFILE ctl=lxpanelctl images=1 fm=pcmanfm
 	(( S_PI_PANEL )) && ctl=lxpanelctl-pi
+	(( S_PI_FM )) && fm=pcmanfm-pi
 	# Raspberry Pi OS turns menu images off, and Raspberry Pi's panels show
 	# menu icons regardless; Debian's panel shows them only when it is on
 	(( S_PI_PANEL || S_PI_STACK )) && images=0
 	{
-		# lxsession starts only agents it knows by name (lxpolkit); another
-		# one starts from the autostart list below
-		printf '[Session]\nwindow_manager=%s/openbox\ndisable_autostart=no\npolkit/command=%s\n' "$SHARE" \
-			"$( [[ $(polkit_agent) == lxpolkit ]] && echo lxpolkit )"
+		# LXDE's authentication agent, as in Raspberry Pi OS's X session
+		printf '[Session]\nwindow_manager=%s/openbox\ndisable_autostart=no\npolkit/command=lxpolkit\n' "$SHARE"
 		printf 'clipboard/command=lxclipboard\nxsettings_manager/command=build-in\nproxy_manager/command=build-in\n'
 		printf 'keyring/command=ssh-agent\nquit_manager/command=lxsession-logout\n'
 		printf 'quit_manager/image=/usr/share/lxde/images/logout-banner.png\nquit_manager/layout=top\n'
-		printf 'lock_manager/command=lxlock\nterminal_manager/command=x-terminal-emulator\nlauncher_manager/command=%s\n\n' "$ctl"
+		printf 'lock_manager/command=%s/power lock\nterminal_manager/command=x-terminal-emulator\nlauncher_manager/command=%s\n' "$SHARE" "$ctl"
+		# The session's own applications that lxsession starts only on request,
+		# for its settings window; those it starts at login are left empty
+		printf 'file_manager/command=%s\nwebbrowser/command=x-www-browser\n' "$fm"
+		# LXDE's task manager, which Debian's LXDE desktop installs
+		if command -v lxtask >/dev/null; then printf 'tasks/command=lxtask\n'; fi
+		printf '\n'
 		printf '[GTK]\nsNet/ThemeName=%s\nsNet/IconThemeName=%s\nsGtk/FontName=%s\n' "$T_GTK" "$T_ICONS" "$T_FONT"
 		printf 'iGtk/ToolbarStyle=3\niGtk/ButtonImages=0\niGtk/MenuImages=%s\niGtk/CursorThemeSize=%s\n' "$images" "$T_CURSOR_SIZE"
 		printf 'iXft/Antialias=1\niGtk/AutoMnemonics=1\niGtk/EnableMnemonics=1\nsGtk/ColorScheme=%s\n' "$(color_scheme)"
@@ -2626,10 +2354,8 @@ _session_profile() {
 		printf '[State]\nguess_default=true\n\n[Dbus]\nlxde=true\n\n[Environment]\nmenu_prefix=%s\n' "$(menu_prefix)"
 	} | _write "$dir/desktop.conf"
 	{
-		printf '@%s/panel\n@%s/desktop\n' "$SHARE" "$SHARE"
-		command -v xscreensaver >/dev/null && printf '@xscreensaver -no-splash\n'
-		printf '@%s/popup-keeper\n' "$SHARE"
-		[[ $(polkit_agent) == lxpolkit ]] || printf '@%s\n' "$(polkit_agent)"
+		# The session's power helper in place of Raspberry Pi OS's xscreensaver
+		printf '@%s/panel\n@%s/desktop\n@%s/power\n@%s/popup-keeper\n' "$SHARE" "$SHARE" "$SHARE" "$SHARE"
 	} | _write "$dir/autostart"
 }
 
@@ -2650,9 +2376,10 @@ _session_files() {
 		done
 		f=$d/pcmanfm.conf
 		if (( S_PI_STACK )) && [[ $d != */default ]] && src=$(_pi_stack_file etc/xdg/pcmanfm/LXDE-pi/pcmanfm.conf); then
-			# Raspberry Pi OS's own settings for its build, without the
-			# commands Debian lacks (gksu, its appearance settings)
-			grep -vE '^(su_cmd|prefs_app)=' "$src" | _write "$f"
+			# Raspberry Pi OS's own settings for its build, without gksu,
+			# which Debian lacks, and its Appearance Settings where missing
+			if command -v pipanel >/dev/null; then grep -v '^su_cmd=' "$src"; else grep -vE '^(su_cmd|prefs_app)=' "$src"; fi \
+				| _write "$f"
 		else
 			_ini_set "$f" config bm_open_method 0
 			_ini_set "$f" volume mount_on_startup 0 mount_removable 0 autorun 0
@@ -2689,8 +2416,8 @@ _fm_shared_conf() {
 # Write the session's application entries and autostart overrides, as
 # Raspberry Pi OS keeps them in raspi-ui-overrides: Debian Reference in the
 # Help menu, Raspberry Pi's file manager as "File Manager" for folders and
-# Desktop Preferences, the appearance settings that reload the panel, and
-# hidden tray applets that Raspberry Pi OS does not show.
+# Desktop Preferences, the appearance settings with the session's themes, and
+# hidden Blueman windows and tray applets that Raspberry Pi OS does not show.
 # Usage: _session_entries XDG-DIR DATA-DIR
 _session_entries() {
 	local xdg=$1 apps=$2/applications f id
@@ -2723,21 +2450,41 @@ _session_entries() {
 		done
 	fi
 	# Appearance settings: the Control Centre on Wayland, as in Raspberry Pi
-	# OS 13; Customize Look and Feel on X (Openbox)
+	# OS 13; on X, Raspberry Pi's Appearance Settings (pipanel) where it is
+	# installed (Raspberry Pi OS 10 to 12), else Customize Look and Feel
 	f=/usr/share/applications/rpcc.desktop
 	[[ ! -f $f ]] || { sed '/^NoDisplay=/d; /^OnlyShowIn=/d' "$f"; echo 'OnlyShowIn=labwc;'; } | _write "$apps/rpcc.desktop"
-	f=$apps/lxappearance.desktop
-	[[ -f $f ]] || f=/usr/share/applications/lxappearance.desktop
+	f=/usr/share/applications/pipanel.desktop
 	if [[ -f $f ]]; then
+		{ sed '/^NoDisplay=/d; /^OnlyShowIn=/d' "$f"; echo 'OnlyShowIn=LXDE;'; } | _write "$apps/pipanel.desktop"
+		f=/usr/share/applications/lxappearance.desktop
+		[[ ! -f $f ]] || { sed '/^NoDisplay=/d' "$f"; echo 'NoDisplay=true'; } | _write "$apps/lxappearance.desktop"
+		f=""
+	else
+		f=$apps/lxappearance.desktop
+		[[ -f $f ]] || f=/usr/share/applications/lxappearance.desktop
+	fi
+	if [[ -n $f && -f $f ]]; then
 		sed -E "s|^Exec=.*|Exec=$SHARE/appearance|; /^TryExec=/d; /^NoDisplay=/d; /^OnlyShowIn=/d" "$f" \
 			| { cat; echo 'OnlyShowIn=LXDE;'; } | _write "$apps/lxappearance.desktop"
 	fi
+	# Hide Blueman's windows where Raspberry Pi's panel has its Bluetooth plugin:
+	# opening one would start a second Bluetooth icon and pairing agent
+	if (( S_PI_PANEL || S_PI_STACK )); then
+		for f in /usr/share/applications/blueman-manager.desktop /usr/share/applications/blueman-adapters.desktop; do
+			[[ ! -f $f ]] || { sed '/^NoDisplay=/d' "$f"; echo 'NoDisplay=true'; } | _write "$apps/${f##*/}"
+		done
+	fi
 	# Hide clipboard managers and other volume applets, which Raspberry Pi OS
-	# lacks; the Bluetooth applet where Raspberry Pi's panel has its own
-	# plugin; nm-applet where its network plugin is used; and the
-	# authentication agents, as the sessions start their own (polkit_agent).
-	# A user can enable them again in Desktop Session Settings.
+	# lacks; screen lockers, screensavers and power managers, as the sessions
+	# run their own power helper (power_build); the Bluetooth applet where
+	# Raspberry Pi's panel has its own plugin; nm-applet where its network
+	# plugin is used; and the authentication agents, as the sessions start
+	# their own (polkit_agent). A user can enable them again in Desktop
+	# Session Settings.
 	local -a pats=(volumeicon pasystray pnmixer diodon clipit parcellite
+		light-locker xscreensaver xss-lock xautolock gnome-screensaver mate-screensaver
+		xfce4-power-manager mate-power-manager lxqt-powermanagement
 		polkit-gnome-authentication-agent polkit-mate xfce-polkit lxpolkit)
 	(( S_PI_PANEL || S_PI_STACK )) && pats+=(blueman)
 	(( USE_NETMAN )) && pats+=(nm-applet)
@@ -2817,13 +2564,11 @@ _session_themes() {
 			# old one. Tray icons are windows of their applets, not the panel.
 			printf '#tray, #tray * { padding: 0px; margin: 0px; border: 0px; }\n'
 			printf 'window > image { background-color: @bar_bg_color; }\n'
-			# Rounded tooltips need a compositor, under which GTK marks them
-			# "csd"; without one (Openbox) their corners are black, so they are
-			# made square, as Raspberry Pi OS's X11 session does from Bullseye
-			# on (startx-rpd, startlxde-pi). On Wayland they are "csd" and stay
-			# rounded. GTK 3.24.5 (Debian 10) marks them "csd" even without a
-			# compositor and cuts their corners, so they stay rounded there, as
-			# on Raspberry Pi OS Buster, which had no such rule.
+			# Rounded tooltips need a compositor (GTK then marks them "csd");
+			# without one (Openbox) their corners are black, so they are made
+			# square, as Raspberry Pi OS's X11 session does from Bullseye on.
+			# On Wayland, and with GTK 3.24.5 (Debian 10, as on Buster), they
+			# are "csd" and stay rounded.
 			printf 'tooltip:not(.csd), .tooltip:not(.csd) { border-radius: 0px; }\n'
 		} | _write "$data/themes/$t/gtk-3.0/gtk.css"
 		# Openbox reads the hover image of a toggled title bar button from
@@ -2849,67 +2594,21 @@ color_scheme() {
 		v=$(sed -n 's/^[[:space:]]*gtk-color-scheme[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' "$f" 2>/dev/null | first_line \
 			| tr -s '\\' '\n' | sed -n "s/^n\{0,1\}$k:\(#[0-9A-Fa-f]\{6\}\)\$/\1/p" | first_line)
 		[[ -n $v ]] || { printf '%s\n' "$T_COLOR_SCHEME"; return 0; }
-		out+="$k:${v,,}\\n"
+		# Written as Raspberry Pi OS's Appearance Settings writes it: 16 bits a channel
+		v=${v,,} v="#${v:1:2}${v:1:2}${v:3:2}${v:3:2}${v:5:2}${v:5:2}"
+		out+="$k:$v\\n"
 	done
 	printf '%s\n' "$out"
-}
-
-# Print a literal colour that a theme's GTK 3 stylesheets define.
-# Usage: _theme_color THEME NAME
-_theme_color() {
-	local f v
-	for f in gtk-colours.css gtk-contained.css gtk.css; do
-		f=$SYS_ROOT/usr/share/themes/$1/gtk-3.0/$f
-		[[ -f $f ]] || continue
-		v=$(sed -n "s/^[[:space:]]*@define-color[[:space:]]\{1,\}$2[[:space:]]\{1,\}\([^;]*\);.*/\1/p" "$f" | first_line)
-		if [[ $v =~ ^(#[0-9A-Fa-f]{3,8}|rgba?\([0-9.,[:space:]%]+\)|[a-z]+)$ ]]; then printf '%s\n' "$v"; return 0; fi
-	done
-	return 1
-}
-
-# Print the GTK 4 colour layer of a theme. No official theme ships gtk-4.0,
-# and libadwaita ignores themes, but both read named colours from the user's
-# gtk-4.0/gtk.css. The theme's GTK 3 palette is mapped onto those names, as
-# @define-color rules and, for GTK 4.16 and newer, as CSS variables.
-# Usage: gtk4_colors THEME
-gtk4_colors() {
-	local -a map=(
-		accent_color:theme_selected_bg_color accent_bg_color:theme_selected_bg_color
-		accent_fg_color:theme_selected_fg_color
-		window_bg_color:theme_bg_color       window_fg_color:theme_fg_color
-		view_bg_color:theme_base_color       view_fg_color:theme_text_color
-		headerbar_bg_color:theme_bg_color    headerbar_fg_color:theme_fg_color
-		sidebar_bg_color:theme_bg_color      sidebar_fg_color:theme_fg_color
-		card_bg_color:theme_base_color       card_fg_color:theme_text_color
-		dialog_bg_color:theme_bg_color       dialog_fg_color:theme_fg_color
-		popover_bg_color:theme_base_color    popover_fg_color:theme_text_color
-		theme_bg_color:theme_bg_color        theme_fg_color:theme_fg_color
-		theme_base_color:theme_base_color    theme_text_color:theme_text_color
-		theme_selected_bg_color:theme_selected_bg_color
-		theme_selected_fg_color:theme_selected_fg_color
-	)
-	local m c defs="" vars="" gtk4
-	for m in "${map[@]}"; do
-		c=$(_theme_color "$1" "${m#*:}") || continue
-		defs+="@define-color ${m%%:*} $c;"$'\n'
-		[[ ${m%%:*} == theme_* ]] || vars+="  --${m%%:*}: $c;"$'\n'
-	done
-	[[ -n $defs ]] || return 1
-	printf '/* Raspberry Pi OS %s colours for GTK 4 and libadwaita applications,\n   generated from the official theme'"'"'s GTK 3 palette */\n%s' "$1" "$defs"
-	gtk4=$(installed_version libgtk-4-1)
-	if [[ -n $gtk4 ]] && dpkg --compare-versions "$gtk4" ge 4.16; then printf ':root {\n%s}\n' "${vars//_/-}"; fi
 }
 
 # Write the sessions' programs: the shared session-env and the X start
 # script, modelled on Raspberry Pi OS's startx-rpd and Debian's startlxde;
 # panel and desktop wrappers that run Raspberry Pi's program where installed
 # and wanted, else Debian's, so a session keeps working when one is removed;
-# and the appearance settings wrapper, which reloads the panel after an icon
-# theme change, as the panel does not follow one itself.
+# and the appearance settings wrapper, which lists the session's themes.
 # Usage: _session_programs ROOT
 _session_programs() {
-	local root=$1 qt="" pcm="" f img
-	(( O_QT )) && qt="export QT_QPA_PLATFORMTHEME=gtk3"
+	local root=$1 pcm="" f img
 	# Raspberry Pi's file manager runs as "pcmanfm" in the session, as on
 	# Raspberry Pi OS, whose Appearance Settings call it by that name
 	if (( S_PI_FM )); then
@@ -2927,37 +2626,18 @@ obfile=$(ob_file)
 fmprofile=$S_FM_PROFILE
 share=$SHARE
 config=\${XDG_CONFIG_HOME:-\$HOME/.config}
-# The user's own data for these sessions: marker files, and the GTK 4
-# colours, window frames and xsettingsd.conf that earlier versions kept there
+# The user's own data for these sessions: marker files and saved originals
 own=\${XDG_DATA_HOME:-\$HOME/.local/share}/$APP_NAME
+# The application entries the session tidies at login (menu_tidy)
+menu=\${XDG_RUNTIME_DIR:-\$HOME/.cache}/$APP_NAME-menu
 export XDG_CONFIG_DIRS="\$share/xdg:\${XDG_CONFIG_DIRS:-/etc/xdg}"
-export XDG_DATA_DIRS="\$own:\$share/data:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export XDG_DATA_DIRS="\$share/data:\$menu:\${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export XDG_MENU_PREFIX=$(menu_prefix)
 export FONTCONFIG_FILE=\$share/fonts.conf
 [ ! -f "\$share/dconf/profile" ] || export DCONF_PROFILE=\$share/dconf/profile
 export SAL_USE_VCLPLUGIN=gtk3
-$qt
+export QT_QPA_PLATFORMTHEME=gtk3
 $pcm
-
-# GTK 4 and libadwaita read colours only from the user's gtk-4.0/gtk.css:
-# gtk4_on adds the theme's colours there for the session, gtk4_off removes them.
-css=\$config/gtk-4.0/gtk.css
-gtk4_off() {
-	[ -f "\$css" ] || return 0
-	sed -i --follow-symlinks -e '/^\/\* >>> $APP_NAME >>> \*\/\$/,/^\/\* <<< $APP_NAME <<< \*\/\$/d' \\
-		-e '/^\/\* >>> $PREV_NAME >>> \*\/\$/,/^\/\* <<< $PREV_NAME <<< \*\/\$/d' "\$css"
-	[ -s "\$css" ] || rm -f "\$css"
-}
-gtk4_on() {
-	gtk4_off
-	theme=\$(sed -n 's/^sNet\/ThemeName=//p' "\$config/lxsession/\$profile/desktop.conf" \\
-		"\$share/xdg/lxsession/\$profile/desktop.conf" 2>/dev/null | head -n1)
-	f=\$own/gtk4/\$theme.css
-	[ -f "\$f" ] || f=\$share/gtk4/\$theme.css
-	[ -f "\$f" ] || return 0
-	mkdir -p "\${css%/*}"
-	{ echo '/* >>> $APP_NAME >>> */'; cat "\$f"; echo '/* <<< $APP_NAME <<< */'; } >>"\$css"
-}
 
 # Create the Desktop folder if it is missing
 if [ -e "\$config/user-dirs.dirs" ]; then . "\$config/user-dirs.dirs"; fi
@@ -2965,45 +2645,65 @@ mkdir -p "\${XDG_DESKTOP_DIR:-\$HOME/Desktop}"
 EOF
 	cat <<'EOF' >>"$root$SHARE/session-env"
 
-# Panels saved by earlier versions name a specific browser, or the generic
-# "Web Browser" launcher by its path, which the X panels ask to execute:
-# name the generic launcher by its id instead, once. A browser chosen after
-# the first such change stays.
-web_browser() {
-	[ -f "$share/data/applications/x-www-browser.desktop" ] && [ ! -e "$own/.web-browser-id" ] || return 0
-	b=$share/data/applications/x-www-browser
-	[ -e "$own/.web-browser" ] || b="$b|firefox-esr|firefox|chromium|chromium-browser|lxde-x-www-browser"
-	for f in "$config/lxpanel-pi/panels/panel" "$config/lxpanel/$profile/panels/panel"; do
-		[ -f "$f" ] && sed -i --follow-symlinks -E "s#^([[:space:]]*id=)($b)\.desktop\$#\1x-www-browser.desktop#" "$f"
-	done
-	if [ ! -e "$own/.web-browser" ]; then
-		for f in "$config/wf-panel-pi.ini" "$config/wf-panel-pi/wf-panel-pi.ini"; do
-			[ -f "$f" ] && sed -i --follow-symlinks -E "/^launchers=/ s/(=| )(firefox-esr|firefox|chromium|chromium-browser|lxde-x-www-browser)( |\$)/\1x-www-browser\3/" "$f"
-		done
-	fi
-	mkdir -p "$own" && : >"$own/.web-browser" && : >"$own/.web-browser-id"
+# Show each installed application once in the menu. The menu shows an
+# application in each of its categories (Settings is Preferences, System is
+# System Tools, Utility is Accessories, ...); one whose entry names several
+# of them keeps the first in this order, as Raspberry Pi OS tidies the
+# applications it ships (raspi-ui-overrides). The tidied copies go to the
+# session's runtime folder, which the menu reads before Debian's entries;
+# Debian's files are not changed, and the session's own entries are kept.
+menu_tidy() {
+	rm -rf "$menu"
+	mkdir -p "$menu/applications" || return 0
+	set -- /usr/share/applications/*.desktop
+	[ -e "$1" ] || return 0
+	awk -v out="$menu/applications" -v own="$share/data/applications" '
+		BEGIN {
+			n = split("Settings System Development Education Science Office Graphics AudioVideo Network Game Help Utility", o, " ")
+			for (i = 1; i <= n; i++) rank[o[i]] = i
+		}
+		FNR == 1 { flush(); file = FILENAME; k = 0; hidden = 0; hits = 0; best = ""; at = 0; entry = 0 }
+		/^\[/ { entry = ($0 == "[Desktop Entry]") }
+		entry && /^(NoDisplay|Hidden)=true/ { hidden = 1 }
+		entry && /^Categories=/ && !at {
+			m = split(substr($0, 12), c, ";")
+			for (i = 1; i <= m; i++) if (c[i] in rank) { hits++; if (best == "" || rank[c[i]] < rank[best]) best = c[i] }
+			at = FNR
+		}
+		{ line[++k] = $0 }
+		END { flush() }
+		function flush(   id, f, i, j, s) {
+			if (file == "" || hidden || hits < 2) return
+			id = file; sub(/.*\//, "", id)
+			if ((getline s < (own "/" id)) >= 0) { close(own "/" id); return }
+			f = out "/" id
+			for (i = 1; i <= k; i++) {
+				if (i != at) { print line[i] > f; continue }
+				s = "Categories="
+				for (j = 1; j <= m; j++) if (c[j] != "" && (!(c[j] in rank) || c[j] == best)) s = s c[j] ";"
+				print s > f
+			}
+			close(f)
+		}' "$@"
 }
-
-# Copy desktop settings saved under the session's profile to the file
-# manager's profile, once.
-fm_profile() {
-	[ "$fmprofile" != "$profile" ] && [ ! -e "$own/.fm-profile" ] || return 0
-	for f in "$config/pcmanfm/$profile"/desktop-items-*.conf; do
-		[ -f "$f" ] || continue
-		mkdir -p "$config/pcmanfm/$fmprofile"
-		[ -e "$config/pcmanfm/$fmprofile/${f##*/}" ] || cp "$f" "$config/pcmanfm/$fmprofile/"
-	done
-	mkdir -p "$own" && : >"$own/.fm-profile"
+# Keep the user's own FILE under $config (or a mark that there was none)
+# before the session first changes it, so that --uninstall gives it back.
+# Usage: keep_orig FILE
+keep_orig() {
+	k=$own/orig/${1#"$config"/}
+	[ -e "$k" ] || [ -e "$k.none" ] || {
+		mkdir -p "${k%/*}"
+		if [ -f "$1" ]; then cp -p "$1" "$k"; else : >"$k.none"; fi
+	}
 }
-
 # Create the user's xsettingsd.conf (XSETTINGS for X applications on
 # Wayland), the file Appearance Settings writes, if it is missing.
 xsettings_file() {
 	xs=$config/xsettingsd/xsettingsd.conf
+	keep_orig "$xs"
 	[ ! -f "$xs" ] || return 0
 	mkdir -p "${xs%/*}"
-	if [ -f "$own/xsettingsd.conf" ]; then mv -f "$own/xsettingsd.conf" "$xs"
-	else cp "$share/xsettingsd.conf" "$xs"; fi
+	cp "$share/xsettingsd.conf" "$xs"
 }
 
 # Apply the user's look (rpios-look-set) to the Wayland session: labwc's
@@ -3025,6 +2725,7 @@ wayland_look() {
 	tweight=$(sed -n '/<theme>/,/<\/theme>/{/<font /,/<\/font>/{s|.*<weight>\([^<]*\)</weight>.*|\1|p}}' "$ob" | head -n1)
 	# Set the theme name and fonts in the user's labwc rc.xml, keeping other settings
 	lrc=$config/labwc/rc.xml
+	keep_orig "$lrc"
 	if [ ! -f "$lrc" ]; then
 		mkdir -p "${lrc%/*}"
 		printf '<?xml version="1.0"?>\n<labwc_config>\n  <theme>\n  </theme>\n</labwc_config>\n' >"$lrc"
@@ -3044,6 +2745,7 @@ wayland_look() {
 	# labwc's own cursor comes from its environment file; the user's file
 	# starts as a copy of the session's
 	lenv=$config/labwc/environment
+	keep_orig "$lenv"
 	if [ -n "$cursor" ]; then
 		[ -f "$lenv" ] || cp "$share/xdg/labwc/environment" "$lenv" 2>/dev/null || : >"$lenv"
 		T=$cursor S=${csize:-24} awk '
@@ -3072,17 +2774,15 @@ EOF
 #!/bin/sh
 # The Raspberry Pi Desktop session on X.
 . /usr/share/rpios-look/session-env
+menu_tidy
 export XDG_CURRENT_DESKTOP=LXDE
+# Raspberry Pi OS's session name (LXDE-pi, rpd-x), where its own tools, such
+# as Appearance Settings, read the session's settings
+export DESKTOP_SESSION=$profile
 
 # Openbox reads only the user's own file. It receives the session's defaults,
 # also after they change, until the user edits it.
 rc=$config/openbox/$obfile seen=$config/openbox/.$obfile.rpios-look
-# Move settings saved under the earlier file name
-o=$config/openbox/$profile-rc.xml
-if [ -f "$o" ] && [ ! -L "$o" ] && [ ! -e "$rc" ]; then
-	mv -f "$o" "$rc" && ln -s "$obfile" "$o"
-	for m in rpios-look raspios-look; do [ ! -e "$config/openbox/.${o##*/}.$m" ] || mv -f "$config/openbox/.${o##*/}.$m" "$seen"; done
-fi
 if [ ! -e "$rc" ] || cmp -s "$rc" "$seen" 2>/dev/null; then
 	mkdir -p "$config/openbox" && cp "$share/openbox-rc.xml" "$rc" && cp "$share/openbox-rc.xml" "$seen"
 elif ! cmp -s "$share/openbox-rc.xml" "$seen" 2>/dev/null; then
@@ -3096,28 +2796,27 @@ elif ! cmp -s "$share/openbox-rc.xml" "$seen" 2>/dev/null; then
 	cp "$share/openbox-rc.xml" "$seen"
 fi
 
-# Repair paths saved under the previous name, so the window manager starts.
-lxs=$config/lxsession/$profile/desktop.conf
-for f in "$lxs" "$config/lxsession/$profile/autostart"; do
-	if [ -f "$f" ] && grep -q '/usr/share/raspios-look/' "$f"; then
-		sed -i --follow-symlinks 's#/usr/share/raspios-look/#/usr/share/rpios-look/#g' "$f"
-	fi
-done
-wm=$(sed -n 's/^window_manager=//p' "$lxs" 2>/dev/null | head -n1)
-if [ -n "$wm" ] && ! command -v "${wm%% *}" >/dev/null 2>&1; then
-	sed -i --follow-symlinks "s#^window_manager=.*#window_manager=$share/openbox#" "$lxs"
+# lxsession reads the user's copy of the start list once there is one: an
+# empty copy would start nothing (no panel, no desktop), so it is removed.
+if [ -f "$config/lxsession/$profile/autostart" ] && [ ! -s "$config/lxsession/$profile/autostart" ]; then
+	rm -f "$config/lxsession/$profile/autostart"
 fi
+lxs=$config/lxsession/$profile/desktop.conf
 
-# Window frames follow the theme, unless an earlier rpios-look-set chose
-# others ($own/window). Use Openbox's own menu when LXDE's is missing.
+# Window frames and corners follow the theme. Use Openbox's own menu when
+# LXDE's is missing.
 theme=$(sed -n 's/^sNet\/ThemeName=//p' "$lxs" "$share/xdg/lxsession/$profile/desktop.conf" 2>/dev/null | head -n1)
-[ ! -f "$own/window" ] || theme=""
 same=0; cmp -s "$rc" "$seen" 2>/dev/null && same=1
 case $theme in
 	PiX|PiXflat|PiXnoir|PiXtrix|PiXonyx)
-		sed -i --follow-symlinks "/<theme>/,/<\/theme>/ s|<name>PiX[a-z]*</name>|<name>$theme</name>|" "$rc" ;;
+		# Rounded corners unless the theme's border.radius is 0
+		r=yes
+		case $(sed -n 's/^border\.radius:[[:space:]]*//p' "/usr/share/themes/$theme/openbox-3/themerc" 2>/dev/null | head -n1) in ''|0) r=no ;; esac
+		grep -q "<name>$theme</name>" "$rc" && grep -q "<roundCorners>$r</roundCorners>" "$rc" \
+			|| sed -i --follow-symlinks -e "/<theme>/,/<\/theme>/ s|<name>PiX[a-z]*</name>|<name>$theme</name>|" \
+			-e "/<theme>/,/<\/theme>/ s|<roundCorners>[^<]*</roundCorners>|<roundCorners>$r</roundCorners>|" "$rc" ;;
 esac
-if [ ! -f /usr/share/lxde/openbox/menu.xml ]; then
+if [ ! -f /usr/share/lxde/openbox/menu.xml ] && grep -q '<file>/usr/share/lxde/openbox/menu.xml</file>' "$rc"; then
 	sed -i --follow-symlinks 's#<file>/usr/share/lxde/openbox/menu.xml</file>#<file>menu.xml</file>#' "$rc"
 fi
 [ "$same" = 0 ] || cp "$rc" "$seen"
@@ -3138,15 +2837,9 @@ if command -v systemctl >/dev/null; then
 	systemctl --user set-environment XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=LXDE 2>/dev/null
 fi
 
-web_browser
-fm_profile
-gtk4_on
-[ ! -x "$share/volume-key" ] || "$share/volume-key" init
 /usr/bin/lxsession -s "$profile" -e LXDE
-gtk4_off
-# The SSH agent of lxsession's keyring setting (as on Raspberry Pi OS) runs on
-# after logout and would keep the login session open, so that the login
-# screen shows the user as logged in: end the one of this login session
+# lxsession's SSH agent outlives the logout and keeps the login session open
+# (the login screen would show the user as logged in): end this session's one
 s=$(cat /proc/self/sessionid 2>/dev/null)
 for p in $(pgrep -u "$(id -u)" -x ssh-agent); do
 	[ -n "$s" ] && [ "$p" != "$PPID" ] && [ "$(cat "/proc/$p/sessionid" 2>/dev/null)" = "$s" ] && kill "$p" 2>/dev/null
@@ -3159,21 +2852,8 @@ EOF
 		printf '#!/bin/sh\n'
 		printf 'p="lxpanel --profile %s"\n' "$S_PROFILE"
 		(( S_PI_PANEL )) && printf 'if command -v lxpanel-pi >/dev/null; then p=lxpanel-pi; fi\n'
-		cat <<'EOF'
-# Raspberry Pi's build of Debian's panel can crash when it restarts
-# (lxpanelctl restart, as after a theme change), where Raspberry Pi OS's
-# session starts it again: do the same unless it quit normally or the
-# display has gone, and give up after five quick failures in a row.
-n=0
-while :; do
-	t=$(date +%s)
-	$p && exit 0
-	xprop -root >/dev/null 2>&1 || exit 0
-	if [ $(($(date +%s) - t)) -lt 5 ]; then n=$((n + 1)); else n=0; fi
-	[ "$n" -lt 5 ] || exit 1
-	sleep 0.5
-done
-EOF
+		# lxsession restarts it if it crashes (@ in autostart), as on Raspberry Pi OS
+		printf 'exec $p\n'
 	} | _write "$root$SHARE/panel"
 	{
 		printf '#!/bin/sh\n# The desktop: wallpaper and icons.\n'
@@ -3187,21 +2867,13 @@ EOF
 	} | _write "$root$SHARE/desktop"
 	cat <<'EOF' | _write "$root$SHARE/appearance"
 #!/bin/sh
-# Run the appearance settings, reloading the panel on every icon theme change.
+# Run the appearance settings. The panel follows their changes by itself.
 #
 # The settings list the themes found in the data directories. They are shown
 # a filtered view: each Raspberry Pi OS icon set once, under its official
 # name (the Debian-adapted set, which inherits the official one), cursor
 # themes such as Adwaita by name, and none of Raspberry Pi's tPiX* helper
 # themes. The names they save are the real ones.
-icon_theme() { sed -n 's/^sNet\/IconThemeName=//p' "${XDG_CONFIG_HOME:-$HOME/.config}"/lxsession/*/desktop.conf 2>/dev/null; }
-reload_panel() {
-	# The panel builds its menu only once: restart it after lxsession has
-	# passed the new theme on, which takes a moment
-	sleep 2
-	if pgrep -u "$(id -u)" -x lxpanel-pi >/dev/null; then lxpanelctl-pi restart
-	elif pgrep -u "$(id -u)" -x lxpanel >/dev/null; then lxpanelctl restart; fi
-}
 key() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "$2" | head -n1; }
 view() {
 	v=$1/share
@@ -3260,18 +2932,9 @@ view() {
 }
 run=${XDG_RUNTIME_DIR:-}
 if [ -n "$run" ] && [ -d "$run" ] && view "$run/rpios-look-appearance"; then
-	XDG_DATA_DIRS=$run/rpios-look-appearance/share GTK_DATA_PREFIX=$run/rpios-look-appearance lxappearance "$@" &
-else
-	lxappearance "$@" &
+	exec env XDG_DATA_DIRS=$run/rpios-look-appearance/share GTK_DATA_PREFIX=$run/rpios-look-appearance lxappearance "$@"
 fi
-tool=$!
-was=$(icon_theme)
-while kill -0 "$tool" 2>/dev/null; do
-	sleep 1
-	now=$(icon_theme)
-	if [ "$now" != "$was" ]; then was=$now; reload_panel; fi
-done
-wait "$tool"
+exec lxappearance "$@"
 EOF
 	for f in start openbox panel desktop appearance; do chmod 0755 "$root$SHARE/$f"; done
 	printf '[Desktop Entry]\nType=Application\nName=Raspberry Pi Desktop\nComment=The Raspberry Pi OS desktop on X, on Debian\nExec=%s/start\nTryExec=/usr/bin/lxsession\nDesktopNames=LXDE\n' \
@@ -3340,39 +3003,45 @@ EOF
 # Usage: _session_wayland ROOT
 _session_wayland() {
 	local root=$1 xdg=$1$SHARE/xdg x rc browser term fm=pcmanfm
-	x=$( (pi_unpack "$WAYLAND_PKG" "$(config_suite)" "$(rpi_arch)") 2>/dev/null ) || x=""
+	x=$( (pi_unpack "$WAYLAND_PKG" "$(config_suite)" "$H_ARCH") 2>/dev/null ) || x=""
 	(( S_PI_FM )) && fm=pcmanfm-pi
 	browser=$(_browser || true)
 	term=$(_launcher x-terminal-emulator.desktop lxterminal.desktop || true)
 	rc=$xdg/labwc/rc.xml
 	if [[ -f $x/etc/xdg/labwc/rc.xml ]]; then _write "$rc" <"$x/etc/xdg/labwc/rc.xml"
-	else printf '<?xml version="1.0"?>\n<labwc_config>\n</labwc_config>\n' | _write "$rc"; fi
+	else printf '<?xml version="1.0"?>\n<labwc_config>\n  <keyboard>\n  </keyboard>\n</labwc_config>\n' | _write "$rc"; fi
 	_labwc_rc "$rc"
-	# Remove key bindings whose program is not installed
-	awk '
+	# Ctrl+Alt+L and the lock key lock the screen; the wireless key switches
+	# the wireless radios; the power button runs the session's helper in place
+	# of Raspberry Pi OS's pwrkey, on release as there (see power_build), and
+	# the terminal key Debian's terminal, as Debian's labwc lacks Raspberry Pi's
+	# lab-sensible-terminal
+	P="$SHARE/power" awk '
+		{ pk += gsub(/command="pwrkey"/, "command=\"" ENVIRON["P"] " power-key\"")
+		  gsub(/command="lab-sensible-terminal"/, "command=\"x-terminal-emulator\"") }
+		!done && /<\/keyboard>/ {
+			n = split("C-A-l=lock XF86ScreenSaver=lock XF86WLAN=wireless-radio", k, " ")
+			for (i = 1; i <= n; i++) {
+				split(k[i], b, "=")
+				print "    <keybind key=\"" b[1] "\">\n      <action name=\"Execute\" command=\"" ENVIRON["P"] " " b[2] "\" />\n    </keybind>"
+			}
+			if (!pk) print "    <keybind key=\"XF86PowerOff\" onRelease=\"yes\">\n      <action name=\"Execute\" command=\"" ENVIRON["P"] " power-key\" />\n    </keybind>"
+			done = 1
+		}
+		{ print }' "$rc" | _write "$rc"
+	# Remove key bindings whose program is not installed; the session's own
+	# helpers are installed with it
+	SH=$SHARE awk '
 		/<keybind[ >]/ { blk = $0; inb = 1; if ($0 ~ /<\/keybind>/) { inb = 0; flush() }; next }
 		inb { blk = blk "\n" $0; if ($0 ~ /<\/keybind>/) { inb = 0; flush() }; next }
 		{ print }
 		function flush(  c) {
 			if (match(blk, /command="[^" ]+/)) {
 				c = substr(blk, RSTART + 9, RLENGTH - 9)
-				if (system("command -v \"" c "\" >/dev/null 2>&1") != 0) return
+				if (index(c, ENVIRON["SH"] "/") != 1 && system("command -v \"" c "\" >/dev/null 2>&1") != 0) return
 			}
 			print blk
 		}' "$rc" | _write "$rc"
-	# Volume keys through the helper; lock, airplane and mic keys (see keys_build)
-	sed -i -e "s#command=\"wfpanelctl volumepulse volu\"#command=\"$SHARE/volume-key up\"#" \
-		-e "s#command=\"wfpanelctl volumepulse vold\"#command=\"$SHARE/volume-key down\"#" \
-		-e "s#command=\"wfpanelctl volumepulse mute\"#command=\"$SHARE/volume-key mute\"#" "$rc"
-	local k c kb=""
-	for k in "XF86AudioMicMute|$SHARE/volume-key micmute" "XF86ScreenSaver|swaylock -p" "XF86RFKill|$SHARE/radio-key" \
-		"XF86WLAN|$SHARE/radio-key wlan"; do
-		grep -q "key=\"${k%%|*}\"" "$rc" && continue
-		c=${k#*|}; c=${c%% *}
-		[[ $c == "$SHARE"/* ]] || command -v "$c" >/dev/null || continue
-		kb+="    <keybind key=\"${k%%|*}\">\n      <action name=\"Execute\" command=\"${k#*|}\" />\n    </keybind>\n"
-	done
-	[[ -z $kb ]] || KB=$kb awk '!done && /<\/keyboard>/ { printf "%s", ENVIRON["KB"]; done = 1 } { print }' "$rc" | _write "$rc"
 	printf 'QT_WAYLAND_DISABLE_WINDOWDECORATION=1\nXCURSOR_THEME=%s\nXCURSOR_SIZE=%s\nLABWC_FALLBACK_OUTPUT=NOOP-1\n' \
 		"$T_ICONS" "$T_CURSOR_SIZE" | _write "$xdg/labwc/environment"
 	{
@@ -3383,9 +3052,7 @@ _session_wayland() {
 		command -v xsettingsd >/dev/null \
 			&& printf 'xsettingsd -c "${XDG_CONFIG_HOME:-$HOME/.config}/xsettingsd/xsettingsd.conf" &\n'
 		printf '%s &\n' "$(polkit_agent)"
-		# Displays off after 10 minutes without input, as X does by default
-		command -v swayidle >/dev/null && command -v wlopm >/dev/null \
-			&& printf "swayidle -w timeout 600 'wlopm --off \\*' resume 'wlopm --on \\*' &\n"
+		printf '%s/respawn %s/power &\n' "$SHARE" "$SHARE"
 		printf 'lxsession-xdg-autostart\n'
 	} | _write "$xdg/labwc/autostart"
 	{
@@ -3394,14 +3061,14 @@ _session_wayland() {
 		printf '  </menu>\n</openbox_menu>\n'
 	} | _write "$xdg/labwc/menu.xml"
 	# The panel: Raspberry Pi OS's layout without the plugins that need its
-	# tools (and the spacing before them), with the launchers installed here.
-	# wf-panel-pi reads only this path, and no other program reads it.
+	# tools or the magnifier (see _pi_layout), with the launchers installed
+	# here. wf-panel-pi reads only this path, and no other program reads it.
 	if [[ -f $x/etc/xdg/wf-panel-pi/wf-panel-pi.ini ]]; then
-		DROP="$(wf_drop)|$PANEL_UNPLACED" B=${browser%.desktop} T=${term%.desktop} FM=$fm awk '
+		DROP="$(wf_drop)|magnifier" B=${browser%.desktop} T=${term%.desktop} FM=$fm awk '
 			/^widgets_(left|right)=/ {
 				n = split(substr($0, index($0, "=") + 1), w, " "); m = 0; out = ""
 				for (i = 1; i <= n; i++) {
-					if (w[i] ~ "^(" ENVIRON["DROP"] ")$") { if (m && o[m] ~ /^spacing/) m--; continue }
+					if (w[i] ~ "^(" ENVIRON["DROP"] ")$") continue
 					o[++m] = w[i]
 				}
 				for (i = 1; i <= m; i++) out = out (i > 1 ? " " : "") o[i]
@@ -3419,7 +3086,7 @@ _session_wayland() {
 			{ print }' "$x/etc/xdg/wf-panel-pi/wf-panel-pi.ini" | _write "$root/etc/xdg/wf-panel-pi/wf-panel-pi.ini"
 		# Other size presets than Raspberry Pi OS's default (medium): the icon
 		# size, as Appearance Settings sets it (the panel's icon size minus 4)
-		if [[ ${S_SIZE:-medium} != medium ]]; then
+		if [[ ${O_SIZE:-medium} != medium ]]; then
 			_ini_set "$root/etc/xdg/wf-panel-pi/wf-panel-pi.ini" panel icon_size $(( T_PANEL_ICON - 4 ))
 		fi
 	fi
@@ -3435,6 +3102,7 @@ _session_wayland() {
 #!/bin/sh
 # The Raspberry Pi Desktop session on Wayland.
 . /usr/share/rpios-look/session-env
+menu_tidy
 
 # The system's keyboard layout, which Debian keeps in /etc/default/keyboard
 if [ -r /etc/default/keyboard ]; then
@@ -3452,15 +3120,10 @@ if command -v kanshi >/dev/null && [ ! -e "$config/kanshi/config" ]; then
 	mkdir -p "$config/kanshi" && : >"$config/kanshi/config"
 fi
 
-web_browser
-fm_profile
 xsettings_file
 # Apply a look that rpios-look-set saved while this session was not running
 [ ! -e "$own/.wayland-look" ] || { wayland_look; rm -f "$own/.wayland-look"; }
-gtk4_on
-[ ! -x "$share/volume-key" ] || "$share/volume-key" init
 /usr/bin/labwc -m
-gtk4_off
 EOF
 	cat <<'EOF' | _write "$root$SHARE/respawn"
 #!/bin/sh
@@ -3487,7 +3150,7 @@ _session_command() {
 		printf '#!/bin/bash\n# The look of the Raspberry Pi Desktop session for you, written by %s %s.\n' "$APP_NAME" "$APP_VERSION"
 		printf 'APP=%s PROFILE=%s SHARE=%s OBFILE=%s FMPROFILE=%s\n' "$APP_NAME" "$S_PROFILE" "$SHARE" "$(ob_file)" "$S_FM_PROFILE"
 		printf 'FONT_SIZE=%s\n' "$T_FONT_SIZE"
-		printf 'CURSOR_SIZE=%s WALL_4K=%s DESK_BG=%q DESK_FG=%q DESK_SHADOW=%q\n' "$T_CURSOR_SIZE" "$O_4K" "$T_DESK_BG" "$T_DESK_FG" "$T_DESK_SHADOW"
+		printf 'CURSOR_SIZE=%s DESK_BG=%q DESK_FG=%q DESK_SHADOW=%q\n' "$T_CURSOR_SIZE" "$T_DESK_BG" "$T_DESK_FG" "$T_DESK_SHADOW"
 		printf 'COLOR_SCHEME=%q\n' "$T_COLOR_SCHEME"
 		# Each theme's look, as set_theme defines it for this Debian release
 		printf '# The look of a theme, as Raspberry Pi OS gives it. Usage: theme_look NAME\n'
@@ -3559,15 +3222,7 @@ icon_theme() {
 	while IFS= read -r d; do [[ -f $d/$1/index.theme ]] && return 0; done < <(theme_dirs icons)
 	return 1
 }
-# Print the theme's wallpaper in the resolution chosen at installation, else
-# in the other one. Usage: wall_path FILE
-wall_path() {
-	local std=/usr/share/rpd-wallpaper/$1 uhd
-	uhd=${std%.jpg}_4k.jpg
-	if (( WALL_4K )); then [[ -f $uhd || ! -f $std ]] || uhd=$std; printf '%s\n' "$uhd"
-	else [[ -f $std || ! -f $uhd ]] || std=$uhd; printf '%s\n' "$std"; fi
-}
-# Set the window title font, as Raspberry Pi OS sets it (size 12)
+# Set the window title font and size, as Raspberry Pi OS sets them
 set_openbox_font() {
 	seed "$obrc" "$SHARE/openbox-rc.xml"
 	sed -i -e "/<theme>/,/<\/theme>/ { /<font /,/<\/font>/ {
@@ -3616,7 +3271,8 @@ theme_scheme() {
 		v=$(sed -n 's/^[[:space:]]*gtk-color-scheme[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' "$f" 2>/dev/null | head -n1 \
 			| tr -s '\\' '\n' | sed -n "s/^n\{0,1\}$k:\(#[0-9A-Fa-f]\{6\}\)\$/\1/p" | head -n1)
 		[[ -n $v ]] || return 1
-		out+="$k:${v,,}\\n"
+		v=${v,,} v="#${v:1:2}${v:1:2}${v:3:2}${v:3:2}${v:5:2}${v:5:2}"
+		out+="$k:$v\\n"
 	done
 	printf '%s\n' "$out"
 }
@@ -3694,26 +3350,16 @@ if [[ -n $theme ]]; then
 	theme_look "$theme" || die "unknown theme '$theme': pixflat, pixnoir, pixtrix, pixonyx or pix"
 	gtk_theme "$gtk" || die "the $gtk theme is not installed (see --list)"
 	icon_theme "$icons" || die "the $icons icons are not installed"
-	wall=$(wall_path "$wall")
+	wall=/usr/share/rpd-wallpaper/$wall
 	[[ -f $wall ]] || { printf 'rpios-look-set: the wallpaper %s is not installed; the desktop keeps its own\n' "$wall" >&2; wall=""; }
 fi
 
-# Move settings saved under the earlier file name (as the session's start does)
-o=$config/openbox/$PROFILE-rc.xml
-if [[ -f $o && ! -L $o && ! -e $obrc ]]; then
-	mv -f "$o" "$obrc" && ln -s "$OBFILE" "$o"
-	[[ ! -e ${o%/*}/.${o##*/}.$APP ]] || mv -f "${o%/*}/.${o##*/}.$APP" "${obrc%/*}/.$OBFILE.$APP"
-fi
-(cd / && . "$SHARE/session-env" && fm_profile) >/dev/null 2>&1 || true
 
 # The user's own copies of the files to change
 seed "$lxs" "$lxs_sys"
 for i in 0 1; do [[ ! -f $fm_sys/desktop-items-$i.conf ]] || seed "$fm/desktop-items-$i.conf" "$fm_sys/desktop-items-$i.conf"; done
-old_theme=$(ini_get "$lxs" GTK sNet/ThemeName)
+old_theme=$(ini_get "$lxs" GTK sNet/ThemeName) old_icons=$(ini_get "$lxs" GTK sNet/IconThemeName)
 old_cursor=$(ini_get "$lxs" GTK sGtk/CursorThemeName)/$(ini_get "$lxs" GTK iGtk/CursorThemeSize)
-old_font=$(ini_get "$lxs" GTK sGtk/FontName)
-# Remove the highlight colours, GTK 4 colours and window frames of earlier versions
-rm -rf "$own/themes" "$own/gtk4" "$own/window"
 if (( reset )); then
 	for k in sNet/ThemeName sNet/IconThemeName sGtk/CursorThemeName iGtk/CursorThemeSize sGtk/FontName sGtk/ColorScheme; do
 		ini_set "$lxs" GTK "$k" "$(ini_get "$lxs_sys" GTK "$k")"
@@ -3734,7 +3380,6 @@ else
 	write_desktop
 fi
 new_theme=$(ini_get "$lxs" GTK sNet/ThemeName)
-font=$(ini_get "$lxs" GTK sGtk/FontName)
 
 # A running Wayland session: its settings are made from the same files
 wl=$(wayland_pid)
@@ -3745,7 +3390,9 @@ if [[ -n $wl ]]; then
 			case $line in WAYLAND_DISPLAY=*|XDG_RUNTIME_DIR=*|DBUS_SESSION_BUS_ADDRESS=*|DISPLAY=*) export "${line?}" ;; esac
 		done </proc/"$wl"/environ
 		. "$SHARE/session-env"
-		wayland_look; gtk4_on
+		wayland_look
+		# The menu takes the new icons when its entries are rebuilt
+		menu_tidy
 		kill -HUP "$wl"
 		# X applications: xsettingsd reads its file again
 		pkill -HUP -u "$(id -u)" -x xsettingsd
@@ -3773,73 +3420,59 @@ if [[ -z $p ]]; then
 	exit 0
 fi
 attach "$p"
-# The new theme's GTK 4 colours
-(cd / && . "$SHARE/session-env" && gtk4_on) >/dev/null 2>&1 || true
 if [[ $new_theme == "$old_theme" ]]; then
 	# GTK 3 reloads colours only on a theme change: switch to another theme
-	# for a moment, as Raspberry Pi OS does
+	# for 100 ms, as Raspberry Pi OS's Appearance Settings does
 	tmp=Adwaita; [[ -d /usr/share/themes/t$new_theme ]] && tmp=t$new_theme
-	ini_set "$lxs" GTK sNet/ThemeName "$tmp"; sleep 1
+	ini_set "$lxs" GTK sNet/ThemeName "$tmp"; sleep 0.1
 	ini_set "$lxs" GTK sNet/ThemeName "$new_theme"
 fi
 # Openbox restarts in place rather than reloading its settings: a reload
 # leaves open windows without the theme's rounded corners (roundCorners)
 if running openbox; then openbox --restart >/dev/null 2>&1 || true; fi
-if running pcmanfm-pi; then
-	pcmanfm-pi --profile "$FMPROFILE" --reconfigure >/dev/null 2>&1 || true
-elif running pcmanfm; then
-	# Debian's file manager rereads its settings only at login; it takes a
-	# new wallpaper at once, but then saves all its settings, so they are
-	# written again afterwards
-	f=$fm/desktop-items-0.conf
-	pcmanfm --profile "$FMPROFILE" --set-wallpaper "$(ini_get "$f" '*' wallpaper)" \
-		--wallpaper-mode "$(ini_get "$f" '*' wallpaper_mode)" >/dev/null 2>&1 || true
-	sleep 1
-	if (( reset )); then reset_desktop; else write_desktop; fi
-	[[ $font == "$old_font" ]] || echo "The desktop's font changes at your next login."
-	echo "Debian's file manager shows the new colours fully from your next login."
+# The panel reloads its icons, as Raspberry Pi OS's Appearance Settings has
+# it, and the menu its own when its entries are rebuilt
+if running lxpanel-pi; then lxpanelctl-pi refresh >/dev/null 2>&1 || true
+elif running lxpanel; then lxpanelctl refresh >/dev/null 2>&1 || true; fi
+sh -c ". $SHARE/session-env && menu_tidy" >/dev/null 2>&1 || true
+# The desktop rereads its settings: wallpaper, colours and font
+for p in pcmanfm-pi pcmanfm; do
+	if running "$p"; then "$p" --profile "$FMPROFILE" --reconfigure >/dev/null 2>&1 || true; break; fi
+done
+if [[ $(ini_get "$lxs" GTK sNet/IconThemeName) != "$old_icons" ]]; then
+	echo "The menu button's logo and the cursor on window borders follow from your next login."
+elif [[ $(ini_get "$lxs" GTK sGtk/CursorThemeName)/$(ini_get "$lxs" GTK iGtk/CursorThemeSize) != "$old_cursor" ]]; then
+	echo "Window borders keep the old cursor until your next login."
 fi
-# The panel builds its menu only once: restart it after lxsession has passed
-# the new theme on
-sleep 2
-if running lxpanel-pi; then lxpanelctl-pi restart 2>/dev/null || true
-elif running lxpanel; then lxpanelctl restart 2>/dev/null || true; fi
-[[ $(ini_get "$lxs" GTK sGtk/CursorThemeName)/$(ini_get "$lxs" GTK iGtk/CursorThemeSize) == "$old_cursor" ]] \
-	|| echo "Window borders keep the old cursor until your next login."
 show
 EOF
 	} | _write "$root/usr/bin/$APP_NAME-set"
 	chmod 0755 "$root/usr/bin/$APP_NAME-set"
 }
 
-# Set the session's values (S_*): its profile, the Debian logo, the
-# wallpaper, and whether Raspberry Pi's panel and file manager are used. Run
-# in the main shell before the package is built, so other desktops use them too.
+# Set the session's values (S_*): its profile, the wallpaper, and whether
+# Raspberry Pi's panel and file manager are used. Run in the main shell
+# before the package is built.
 session_vars() {
 	S_PROFILE=$(session_profile)
-	S_LOGO=$(_logo_path || true)
 	S_WALL=$(_wallpaper_path)
 	S_PI_PANEL=0 S_PI_FM=0 S_PI_STACK=0
-	if (( O_PI_APPS )); then
-		if [[ -x /usr/bin/lxpanel-pi ]]; then S_PI_PANEL=1; fi
-		if [[ -x /usr/bin/pcmanfm-pi ]]; then S_PI_FM=1; fi
-		# Raspberry Pi's builds replacing Debian's, before Debian 13
-		if (( ! S_PI_PANEL )) && _stack_installed; then S_PI_STACK=1; fi
-	fi
+	if [[ -x /usr/bin/lxpanel-pi ]]; then S_PI_PANEL=1; fi
+	if [[ -x /usr/bin/pcmanfm-pi ]]; then S_PI_FM=1; fi
+	# Raspberry Pi's builds replacing Debian's, before Debian 13
+	if (( ! S_PI_PANEL )) && _stack_installed; then S_PI_STACK=1; fi
 	# Raspberry Pi's file manager uses its 'default' profile, as on Raspberry Pi OS
 	S_FM_PROFILE=$S_PROFILE
 	if (( S_PI_FM )); then S_FM_PROFILE=default; fi
 }
 
-# The panel's pop-up windows inside the screen, on X. The panel places a
-# pop-up, such as the calendar, before it knows the pop-up's size, so the
-# pop-up can open partly off the screen, and Openbox keeps a window where it
-# asks to be. popup-keeper (Python, through Xlib) moves each pop-up of the
-# panel (a dropdown window of lxpanel or lxpanel-pi) that reaches past its
-# monitor back inside it as soon as Openbox lists it, before it is shown, for
-# any resolution, scale or number of monitors. GTK keeps menus and tooltips
-# inside the screen itself, and on Wayland the compositor does so for every
-# pop-up. Usage: popup_keeper_build ROOT
+# Keep the panel's pop-up windows inside the screen, on X. The panel places a
+# pop-up (such as the calendar) before it knows its size, and Openbox leaves it
+# there, so it can open partly off screen. popup-keeper (Python, through Xlib)
+# moves each lxpanel or lxpanel-pi dropdown that reaches past its monitor back
+# inside as soon as Openbox lists it, before it is drawn. GTK keeps menus and
+# tooltips inside by itself; on Wayland the compositor does so for all pop-ups.
+# Usage: popup_keeper_build ROOT
 popup_keeper_build() {
 	cat <<'EOF' | _write "$1$SHARE/popup-keeper"
 #!/usr/bin/python3
@@ -3999,221 +3632,449 @@ EOF
 	chmod 0755 "$1$SHARE/popup-keeper"
 }
 
-# The media and laptop keys of the session (see _openbox_keys and
-# _session_wayland). volume-key passes the volume keys to the volume plugin of
-# the running panel, or to the sound server without one. On older ThinkPads
-# the firmware also changes its own volume and mute with these keys (its mute
-# key only mutes), so they fall out of step and the sound can stay muted:
-# thinkpad_acpi's volume_control option makes that volume a mixer control
-# (ThinkPadEC), which volume-key keeps at full, so the plugin alone sets the
-# volume, as on Raspberry Pi OS, and muted only while the sound is muted, so
-# that the firmware's beeps are silent then too. From login it follows mute
-# changes made in the plugin as well (volume-key watch).
-# radio-key switches every radio off, or all on again (airplane mode keys).
-# Usage: keys_build ROOT
-keys_build() {
+# Write the power settings of both sessions: the defaults (power.conf), the
+# helper the sessions run (power) and rpios-look-power, with which each user
+# sets their own. The helper blanks the screen, switches the monitor off,
+# locks the screen and puts the computer to sleep after the times set, and
+# acts on the lid: on X through the X server's blanking and power saving,
+# light-locker and a systemd-logind inhibitor; on Wayland through swayidle
+# and swaylock. Only these sessions run it. Usage: power_build ROOT
+power_build() {
 	local root=$1
-	cat <<'EOF' | _write "$root$SHARE/volume-key"
-#!/bin/sh
-# Usage: volume-key up|down|mute|micmute|init
-u=$(id -u)
-running() { pgrep -u "$u" -x "$1" >/dev/null 2>&1; }
-case $1 in up) a=volu ;; down) a=vold ;; mute) a=mute ;; *) a="" ;; esac
-if [ -n "$a" ]; then
-	if running wf-panel-pi; then wfpanelctl volumepulse "$a"
-	elif running lxpanel-pi; then lxpanelctl-pi command volumepulse "$a"
-	elif running lxpanel && ls /usr/lib/*/lxpanel/plugins/volumepulse.so >/dev/null 2>&1; then lxpanelctl command volumepulse "$a"
-	elif command -v wpctl >/dev/null; then
-		case $1 in up) wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+ ;; down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
-			*) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;; esac
-	elif command -v pactl >/dev/null; then
-		case $1 in up) pactl set-sink-volume @DEFAULT_SINK@ +5% ;; down) pactl set-sink-volume @DEFAULT_SINK@ -5% ;;
-			*) pactl set-sink-mute @DEFAULT_SINK@ toggle ;; esac
-	fi
-elif [ "$1" = micmute ]; then
-	if command -v wpctl >/dev/null; then wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
-	elif command -v pactl >/dev/null; then pactl set-source-mute @DEFAULT_SOURCE@ toggle; fi
-fi
-# The firmware volume of older ThinkPads: at full, and muted with the sound,
-# since the firmware's own beeps (as on plugging in the charger) follow it
-ec() {
-	[ -e /proc/asound/ThinkPadEC ] && command -v amixer >/dev/null || return 0
-	m=unmute
-	if command -v wpctl >/dev/null; then
-		case $(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) in *MUTED*) m=mute ;; esac
-	elif [ "$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null)" = "Mute: yes" ]; then m=mute; fi
-	amixer -q -c ThinkPadEC sset Console 100% $m 2>/dev/null
+	{
+		printf '# The power settings of the Raspberry Pi Desktop session, written by %s.\n' "$APP_NAME"
+		printf '# Minutes without use (0 is never); each user sets their own with %s-power.\n' "$APP_NAME"
+		printf '%s\n' lock=on lock_after=10 blank=10 monitor_off=10 sleep_battery=30 sleep_ac=0 lid=sleep
+	} | _write "$root$SHARE/power.conf"
+	cat <<'EOF' | _write "$root$SHARE/power"
+#!/usr/bin/python3
+# The power helper of the Raspberry Pi Desktop session (see rpios-look-power):
+# blanking, monitor off, screen lock, sleep without use and the lid. Commands:
+# "lock" locks now; "suspend battery|ac" sleeps when on that power source;
+# "wireless-radio" is the wireless key (radios off and on together);
+# "power-key" is the power button, as Raspberry Pi OS's pwrkey.
+import ctypes
+import ctypes.util
+import os
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import time
+
+SELF = os.path.realpath(__file__)
+SHARE = os.path.dirname(SELF)
+STATE = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
+                     os.path.basename(SHARE), "power")
+WAYLAND = bool(os.environ.get("WAYLAND_DISPLAY"))
+LOCK = ["swaylock", "-f", "-c", "000000"] if WAYLAND else ["light-locker-command", "-l"]
+QUIET = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+LIBC = ctypes.CDLL(None)
+
+
+def settings():
+    """The session's settings, with the user's own over them."""
+    s = {}
+    for f in (os.path.join(SHARE, "power.conf"), STATE):
+        try:
+            with open(f) as fh:
+                for line in fh:
+                    k, _, v = line.strip().partition("=")
+                    if v and not k.startswith("#"):
+                        s[k] = v
+        except OSError:
+            pass
+    return s
+
+
+def seconds(s, key):
+    """A time of the settings in seconds; 0 is never."""
+    v = s.get(key, "0")
+    return int(v) * 60 if v.isdigit() else 0
+
+
+def read(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def on_ac():
+    """Whether the computer runs on mains power; one without a battery does."""
+    base, battery = "/sys/class/power_supply", False
+    for d in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        kind = read(os.path.join(base, d, "type"))
+        if kind == "Mains" and read(os.path.join(base, d, "online")) == "1":
+            return True
+        if kind == "Battery" and read(os.path.join(base, d, "scope")) != "Device":
+            battery = True
+    return not battery
+
+
+def lid_closed():
+    base = "/proc/acpi/button/lid"
+    return any("closed" in read(os.path.join(base, d, "state"))
+               for d in (os.listdir(base) if os.path.isdir(base) else []))
+
+
+def radios():
+    """The Wi-Fi and Bluetooth radios, as {index: (type, off)}."""
+    base, out = "/sys/class/rfkill", {}
+    for d in os.listdir(base) if os.path.isdir(base) else []:
+        kind = read(os.path.join(base, d, "type"))
+        if kind in ("wlan", "bluetooth") and d[6:].isdigit():
+            out[int(d[6:])] = (kind, "1" in (read(os.path.join(base, d, "soft")),
+                                             read(os.path.join(base, d, "hard"))))
+    return out
+
+
+def wifi_off(r):
+    return [off for kind, off in r.values() if kind == "wlan"]
+
+
+def wireless_radio(before, changed=False):
+    """The wireless key: where the computer switched Wi-Fi itself, Bluetooth
+    follows it; elsewhere all radios go off, or on when all are off. BEFORE is
+    the Wi-Fi state seen before the key; CHANGED, that Wi-Fi changed just
+    before it. Returns the Wi-Fi state after it."""
+    now = radios()
+    if wifi_off(now) and (changed or wifi_off(now) != before):
+        off, kinds = all(wifi_off(now)), ("bluetooth",)
+    else:
+        off, kinds = not all(o for _, o in now.values()), ("wlan", "bluetooth")
+    try:
+        with open("/dev/rfkill", "wb", buffering=0) as f:
+            for i, (kind, _) in now.items():
+                if kind in kinds:
+                    f.write(struct.pack("IBBBB", i, 0, 2, int(off), 0))    # RFKILL_OP_CHANGE
+    except OSError:
+        return wifi_off(now)
+    if now:
+        notify("Wireless Radios are disconnected" if off else "Wireless Radios are connected")
+    return wifi_off(radios())
+
+
+def notify(text):
+    """Show TEXT in the panel's notifications, as Raspberry Pi's own items do."""
+    if WAYLAND:
+        cmd = ["wfpanelctl", "notify", text]
+    elif subprocess.call(["pgrep", "-u", str(os.getuid()), "-x", "lxpanel-pi"], **QUIET) == 0:
+        cmd = ["lxpanelctl-pi", "notify", text]
+    else:
+        cmd = ["lxpanelctl", "notify", text]
+    if shutil.which(cmd[0]):
+        subprocess.call(cmd, **QUIET)
+
+
+def child(cmd):
+    """Start a program that ends with this one."""
+    return subprocess.Popen(cmd, preexec_fn=lambda: LIBC.prctl(1, signal.SIGTERM), **QUIET)
+
+
+def lock():
+    """Lock the screen now; return the locking program, or None without one."""
+    return subprocess.Popen(LOCK, **QUIET) if shutil.which(LOCK[0]) else None
+
+
+def suspend():
+    subprocess.call(["systemctl", "suspend"], **QUIET)
+
+
+class Idle:
+    """The time without use on X, from the X server's screen saver extension."""
+    class Info(ctypes.Structure):
+        _fields_ = [("window", ctypes.c_ulong), ("state", ctypes.c_int), ("kind", ctypes.c_int),
+                    ("til_or_since", ctypes.c_ulong), ("idle", ctypes.c_ulong), ("mask", ctypes.c_ulong)]
+
+    def __init__(self):
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        self.xss = ctypes.CDLL(ctypes.util.find_library("Xss") or "libXss.so.1")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        self.xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(self.Info)
+        self.xss.XScreenSaverQueryInfo.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(self.Info)]
+        self.dpy = x11.XOpenDisplay(None)
+        if not self.dpy:
+            sys.exit(0)
+        self.root = x11.XDefaultRootWindow(self.dpy)
+        self.info = self.xss.XScreenSaverAllocInfo()
+
+    def seconds(self):
+        self.xss.XScreenSaverQueryInfo(self.dpy, self.root, self.info)
+        return self.info.contents.idle // 1000
+
+
+def session(s):
+    """Start what the settings ask for; return the programs started."""
+    kids, lock_on = [], s.get("lock") == "on"
+    # The desktop acts on the power button while it runs, as on Raspberry Pi OS,
+    # and on the lid unless it sleeps, which logind does
+    what = "handle-power-key" + (":handle-lid-switch" if s.get("lid", "sleep") != "sleep" else "")
+    kids.append(child(["systemd-inhibit", "--what=" + what, "--who=Raspberry Pi Desktop",
+                       "--why=The power button and lid of the Raspberry Pi Desktop", "--mode=block", "sleep", "infinity"]))
+    if WAYLAND:
+        args, off = ["swayidle", "-w"], [t for t in (seconds(s, "blank"), seconds(s, "monitor_off")) if t]
+        if off and shutil.which("wlopm"):
+            args += ["timeout", str(min(off)), "wlopm --off '*'", "resume", "wlopm --on '*'"]
+        if lock_on and seconds(s, "lock_after"):
+            args += ["timeout", str(seconds(s, "lock_after")), " ".join(LOCK)]
+        if lock_on:
+            args += ["before-sleep", " ".join(LOCK)]
+        for source in ("battery", "ac"):
+            if seconds(s, "sleep_" + source):
+                args += ["timeout", str(seconds(s, "sleep_" + source)), "%s suspend %s" % (SELF, source)]
+        kids.append(child(args))
+        return kids
+    blank, monitor = seconds(s, "blank"), seconds(s, "monitor_off")
+    for a in (["s", "blank", "s", str(blank), str(blank)] if blank else ["s", "off"],
+              ["+dpms", "dpms", "0", "0", str(monitor)] if monitor else ["-dpms"]):
+        subprocess.call(["xset"] + a, **QUIET)
+    if (lock_on or s.get("lid") == "lock") and shutil.which("light-locker"):
+        # light-locker does the locking; locking after a time is this helper's,
+        # locking on sleep light-locker's when the screen lock is on
+        kids.append(child(["light-locker", "--lock-after-screensaver=2147483", "--no-late-locking",
+                           "--lock-on-suspend" if lock_on else "--no-lock-on-suspend", "--no-lock-on-lid"]))
+    return kids
+
+
+def main():
+    reload, key = [True], [0]
+    signal.signal(signal.SIGHUP, lambda *_: reload.__setitem__(0, True))
+    signal.signal(signal.SIGUSR1, lambda *_: key.__setitem__(0, time.time()))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    idle = None if WAYLAND else Idle()
+    kids, runs, done, last, closed, s = [], [], set(), 0, lid_closed(), {}
+    wifi, changed = wifi_off(radios()), 0
+    while True:
+        # The wireless key acts on the next round, once a computer that
+        # switches Wi-Fi itself has done so
+        if key[0] and time.time() - key[0] >= 1:
+            key[0] = 0
+            wifi, changed = wireless_radio(wifi, time.time() - changed < 3), 0
+        w = wifi_off(radios())
+        if w != wifi:
+            wifi, changed = w, time.time()
+        if reload[0]:
+            reload[0] = False
+            for k in kids:
+                k.terminate()
+                k.wait()
+            if s:
+                # Run again, as this file may be newer, with the new settings
+                os.execv(sys.executable, [sys.executable, SELF])
+            s = settings()
+            kids, done = session(s), set()
+        runs = [r for r in runs if r and r.poll() is None]
+        for k in kids:
+            k.poll()
+        if idle:
+            t = idle.seconds()
+            if t < last:
+                done.clear()
+            last = t
+            after = seconds(s, "lock_after")
+            if s.get("lock") == "on" and after and t >= after and "lock" not in done:
+                done.add("lock")
+                runs.append(lock())
+            # The power source is read only once sleeping is due on one of them
+            due = [a for a in (seconds(s, "sleep_ac"), seconds(s, "sleep_battery")) if a]
+            if due and t >= min(due) and "sleep" not in done:
+                after = seconds(s, "sleep_ac" if on_ac() else "sleep_battery")
+                if after and t >= after:
+                    done.add("sleep")
+                    suspend()
+        if s.get("lid") == "lock":
+            now = lid_closed()
+            if now and not closed:
+                runs.append(lock())
+            closed = now
+        # On X the display's end stops the helper; on Wayland the compositor's socket
+        if WAYLAND and not os.path.exists(os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""),
+                                                       os.environ["WAYLAND_DISPLAY"])):
+            sys.exit(0)
+        time.sleep(1)
+
+
+if sys.argv[1:] == ["lock"]:
+    p = lock() if settings().get("lock") == "on" else None
+    if p:
+        p.wait()
+elif sys.argv[1:2] == ["suspend"]:
+    if sys.argv[2:] == (["ac"] if on_ac() else ["battery"]):
+        suspend()
+elif sys.argv[1:] == ["wireless-radio"]:
+    # The running helper knows the Wi-Fi state from before the key
+    if subprocess.call(["pkill", "-USR1", "-u", str(os.getuid()), "-f", "^/usr/bin/python3 %s$" % SELF]):
+        wireless_radio(wifi_off(radios()))
+elif sys.argv[1:] == ["power-key"]:
+    # The Shutdown dialog; pressed again while it is open, shut down. A key
+    # event repeated at once (some systems deliver the power key twice) finds
+    # the dialog just opened and is not a second press.
+    # The dialog is lxde-pi-shutdown-helper in Raspberry Pi OS 10, pishutdown later
+    dialog = next((d for d in ("pishutdown", "lxde-pi-shutdown-helper") if shutil.which(d)), "pishutdown")
+    pids = subprocess.run(["pgrep", "-d", ",", "-u", str(os.getuid()), "-f", "(^|/)%s( |$)" % dialog],
+                          capture_output=True, text=True).stdout.strip()
+    ages = subprocess.run(["ps", "-o", "etimes=", "-p", pids], capture_output=True,
+                          text=True).stdout.split() if pids else []
+    if shutil.which(dialog) and not ages:
+        subprocess.Popen([dialog], start_new_session=True, **QUIET)
+    elif not ages or min(int(a) for a in ages) >= 1:
+        subprocess.call(["systemctl", "poweroff"], **QUIET)
+else:
+    main()
+EOF
+	chmod 0755 "$root$SHARE/power"
+	{
+		printf '#!/bin/bash\n# Your power settings of the Raspberry Pi Desktop session, written by %s %s.\n' "$APP_NAME" "$APP_VERSION"
+		printf 'APP=%s SHARE=%s\n' "$APP_NAME" "$SHARE"
+		cat <<'EOF'
+state=${XDG_DATA_HOME:-$HOME/.local/share}/$APP file=$state/power
+usage() {
+	cat <<EOT
+Usage: $APP-power [OPTION]...
+Set when the screen of your Raspberry Pi Desktop session blanks and locks and
+when the computer sleeps: for you only, at once and for later logins. MIN is
+in minutes without use; 0 is never.
+
+  --lock on|off              lock the screen: after --lock-after, on waking
+                             from sleep and with Ctrl+Alt+L
+  --lock-after MIN           lock the screen after MIN minutes
+  --blank MIN                blank the screen after MIN minutes
+  --monitor-off MIN          switch the monitor off after MIN minutes
+  --sleep-battery MIN        sleep after MIN minutes, on battery
+  --sleep-ac MIN             sleep after MIN minutes, on mains power
+  --lid sleep|lock|nothing   what closing the lid does while you are logged in
+  --show                     show your settings
+  --reset                    back to the session's settings
+  -h, --help                 show this help
+
+Example: $APP-power --lock-after 5 --sleep-battery 15
+EOT
 }
-# watch: follow mute changes made elsewhere, such as in the volume plugin's
-# menu, while the login session lasts (retrying at login while the sound
-# server starts). It runs in a process group of its own (setsid), which it
-# ends when the session closes, since the sound server outlives the session
-# and a leftover process would keep the session open.
-if [ "$1" = watch ]; then
-	sid=${XDG_SESSION_ID:-}
-	if [ -n "$sid" ] && command -v loginctl >/dev/null; then
-		(
-			while sleep 10; do
-				case $(loginctl show-session "$sid" -p State --value 2>/dev/null) in
-					active|online) ;;
-					*) kill -TERM -$$ 2>/dev/null; exit 0 ;;
-				esac
-			done
-		) &
-	fi
-	n=0
-	while [ $n -lt 12 ]; do
-		t=$(date +%s)
-		pactl subscribe 2>/dev/null | while read -r l; do
-			case $l in *" on sink #"*|*" on server"*) ec ;; esac
-		done
-		[ $(($(date +%s) - t)) -lt 30 ] || break
-		n=$((n + 1)); sleep 5
-	done
-	kill -TERM -$$ 2>/dev/null
-	exit 0
-fi
-ec
-if [ "$1" = init ] && [ -e /proc/asound/ThinkPadEC ] && command -v pactl >/dev/null; then
-	# An earlier watcher leads its own process group, with its pactl
-	for g in $(pgrep -u "$u" -f "^/bin/sh $0 watch\$"); do kill -TERM "-$g" 2>/dev/null; done
-	setsid "$0" watch >/dev/null 2>&1 </dev/null &
-fi
-exit 0
-EOF
-	cat <<'EOF' | _write "$root$SHARE/radio-key"
-#!/bin/sh
-# Usage: radio-key [wlan]. Without an argument (airplane mode key): every
-# radio off if any is on, else every radio on. With wlan (the Wi-Fi key, which
-# the firmware of many laptops handles itself by switching Wi-Fi): Bluetooth
-# follows Wi-Fi's new state, so the key switches every radio.
-rf=/usr/sbin/rfkill
-[ -x /usr/sbin/rfkill.distrib ] && rf=/usr/sbin/rfkill.distrib
-# Raspberry Pi's Bluetooth plugin reads the radio's state again only when an
-# adapter appears or its Discoverable property changes: once each adapter is
-# powered on, switch Discoverable on and off, so its icon turns blue again.
-refresh() {
-	command -v busctl >/dev/null || return 0
-	sleep 0.5
-	for a in $(busctl --list tree org.bluez 2>/dev/null | grep -E '^/org/bluez/hci[0-9]+$'); do
-		i=0
-		while [ $i -lt 20 ] && [ "$(busctl get-property org.bluez "$a" org.bluez.Adapter1 Powered 2>/dev/null)" != "b true" ]; do
-			sleep 0.25; i=$((i + 1))
-		done
-		busctl set-property org.bluez "$a" org.bluez.Adapter1 Discoverable b true 2>/dev/null &&
-			busctl set-property org.bluez "$a" org.bluez.Adapter1 Discoverable b false 2>/dev/null
-	done
+die() { printf '%s-power: %s\n' "$APP" "$*" >&2; exit 1; }
+# The value of a setting: the user's, else the session's.
+get() { sed -n "s/^$1=//p" "$SHARE/power.conf" "$file" 2>/dev/null | tail -n1; }
+put() {
+	mkdir -p "$state" || die "cannot write $file"
+	{ grep -v "^$1=" "$file" 2>/dev/null; printf '%s=%s\n' "$1" "$2"; } >"$file.new" && mv -f "$file.new" "$file"
 }
-# Wait while the Bluetooth switch of the laptop is being handed to the adapter
-# (bluetooth-switch, after a block), so that it does not block it again later.
-i=0
-while [ $i -lt 40 ] && pgrep -f '/bluetooth-switch ' >/dev/null 2>&1; do sleep 0.25; i=$((i + 1)); done
-if [ "${1:-}" = wlan ]; then
-	sleep 0.5
-	if "$rf" list wlan | grep -q 'Soft blocked: yes'; then "$rf" block bluetooth
-	elif "$rf" list wlan | grep -q 'Soft blocked: no'; then "$rf" unblock bluetooth && refresh; fi
-elif "$rf" list | grep -q 'Soft blocked: no'; then "$rf" block all
-else "$rf" unblock all && refresh; fi
+mins() { local v; v=$(get "$1"); if [[ -z $v || $v == 0 ]]; then echo never; else echo "$v min"; fi; }
+show() {
+	printf '%-20s %s\n' "Lock" "$(get lock)" "Lock after" "$(mins lock_after)" "Blank" "$(mins blank)" \
+		"Monitor off" "$(mins monitor_off)" "Sleep on battery" "$(mins sleep_battery)" \
+		"Sleep on mains" "$(mins sleep_ac)" "Lid closed" "$(get lid)"
+}
+(( $# )) || { usage; exit 1; }
+while (( $# )); do
+	case $1 in
+		--lock) [[ ${2:-} =~ ^(on|off)$ ]] || die "--lock takes on or off"; put lock "$2"; shift ;;
+		--lock-after|--blank|--monitor-off|--sleep-battery|--sleep-ac)
+			[[ ${2:-} =~ ^[0-9]+$ ]] || die "$1 takes minutes (0 is never)"
+			k=${1#--}; put "${k//-/_}" "$((10#$2))"; shift ;;
+		--lid) [[ ${2:-} =~ ^(sleep|lock|nothing)$ ]] || die "--lid takes sleep, lock or nothing"; put lid "$2"; shift ;;
+		--reset) rm -f "$file" ;;
+		--show) ;;
+		-h|--help) usage; exit 0 ;;
+		*) die "unknown option: $1 (see --help)" ;;
+	esac
+	shift
+done
+# A running session takes the settings at once
+pkill -HUP -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/power\$" 2>/dev/null || true
+show
 EOF
-	# magnifier opens the magnifier as the panel's plugin does by default, or
-	# closes it (Ctrl+Alt+M; the plugin is not on the panel, see PANEL_UNPLACED)
-	cat <<'EOF' | _write "$root$SHARE/magnifier"
-#!/bin/sh
-pkill -u "$(id -u)" -x mage-rpi && exit 0
-command -v mage-rpi >/dev/null || exit 0
-exec mage-rpi -r 350 350 -z 2
+	} | _write "$root/usr/bin/$APP_NAME-power"
+	chmod 0755 "$root/usr/bin/$APP_NAME-power"
+	# light-locker locks by switching to the login screen, which leaves the
+	# session inactive, and Debian lets only an active session sleep without
+	# a password. polkit cannot tell a locked session from one switched away
+	# from, so any local session that is not in front may also put the computer
+	# to sleep, in the rule format of this release's polkit: JavaScript from
+	# Debian 12, .pkla before. Remote sessions still need a password.
+	if suite_ge "$H_SUITE" bookworm; then
+		cat <<EOF | _write "$root/usr/share/polkit-1/rules.d/60-$APP_NAME.rules"
+// Written by $APP_NAME: a local session that is not in front, such as one
+// whose screen is locked, may put the computer to sleep.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.login1.suspend" && subject.local && !subject.active) {
+        return polkit.Result.YES;
+    }
+});
 EOF
-	chmod 0755 "$root$SHARE/volume-key" "$root$SHARE/radio-key" "$root$SHARE/magnifier"
-	# Older ThinkPads with a firmware volume (thinkpad_acpi's console audio):
-	# that volume as a mixer control, and every hotkey reported, as their
-	# firmware reports the volume keys only with all hotkeys enabled
-	[[ -e /proc/acpi/ibm/volume ]] || return 0
-	local dir=/lib/udev/rules.d
-	suite_ge "$H_SUITE" trixie && dir=/usr/lib/udev/rules.d
-	cat <<EOF | _write "$root/etc/modprobe.d/$APP_NAME-thinkpad.conf"
-# Written by $APP_NAME and removed with $APP_PKG: the firmware volume of this
-# ThinkPad as a mixer control, which the session keeps at full (volume-key).
-options thinkpad_acpi volume_control=1
-EOF
-	cat <<EOF | _write "$root$dir/90-$APP_NAME-thinkpad.rules"
-# Written by $APP_NAME and removed with $APP_PKG: every hotkey of this older
-# ThinkPad reported to the system, the volume keys included.
-ACTION=="add", SUBSYSTEM=="platform", KERNEL=="thinkpad_acpi", TEST=="hotkey_all_mask", RUN+="/bin/sh -c 'cat /sys%p/hotkey_all_mask >/sys%p/hotkey_mask'"
-EOF
+	else
+		printf '[%s: sleep while the screen is locked]\nIdentity=unix-user:*\nAction=org.freedesktop.login1.suspend\nResultInactive=yes\n' \
+			"$APP_NAME" | _write "$root/var/lib/polkit-1/localauthority/10-vendor.d/$APP_NAME.pkla"
+	fi
 }
 
-# Bluetooth turned off as on Raspberry Pi OS. Raspberry Pi's Bluetooth plugin
-# turns Bluetooth off with "rfkill block bluetooth", which also blocks a
-# laptop's own Bluetooth switch (thinkpad_acpi, dell, hp, asus and others).
-# Such a switch powers the adapter off, so the adapter is gone and the plugin
-# hides its icon, where Raspberry Pi OS shows it grey. A udev rule keeps the
-# laptop's switch on when it is blocked and blocks the adapter's own radio
-# instead: Bluetooth is off, the adapter stays, and the icon stays, grey. The
-# plugin reads the first "Soft blocked" line of "rfkill list bluetooth", which
-# is the laptop's switch, so an rfkill wrapper (Debian's rfkill diverted to
-# rfkill.distrib, see build_pkg) lists the adapters first. Only on computers
-# with such a switch. Usage: bt_switch_build ROOT
-bt_switch_build() {
-	local root=$1 dir=/lib/udev/rules.d r
-	BT_SWITCH=0
-	for r in /sys/class/rfkill/rfkill*; do
-		[[ $(cat "$r/type" 2>/dev/null) == bluetooth && $(readlink -f "$r") != */bluetooth/hci* ]] && BT_SWITCH=1
-	done
-	(( BT_SWITCH )) || return 0
-	suite_ge "$H_SUITE" trixie && dir=/usr/lib/udev/rules.d
-	cat <<'EOF' | _write "$root/usr/sbin/rfkill"
+# Raspberry Pi's archive in APT, pinned to the packages installed unchanged
+# (PIN_PKGS), so that "apt full-upgrade" updates the look; a hook stops APT if
+# one would replace, break or conflict with a Debian package. Not offline nor
+# for --prepare-upgrade. Usage: apt_files ROOT
+apt_files() {
+	local root=$1 k="" d=$WORKDIR/apt-keyring
+	[[ -z $REPO ]] && (( ! NO_APT_SOURCE && ${#PIN_PKGS[@]} )) || return 0
+	# The key from raspberrypi-archive-keyring (current APT rejects the older
+	# key file); only the key, as the package would trust it for every source.
+	if resolve_pkg raspberrypi-archive-keyring && k=$(download_pkg raspberrypi-archive-keyring); then
+		rm -rf -- "$d"; mkdir -p "$d"; dpkg-deb -x "$k" "$d"
+		k=$(find "$d/usr/share/keyrings" -type f -name 'raspberrypi-archive-keyring.*' 2>/dev/null | head -n1)
+	fi
+	[[ -s $k ]] || { note "Raspberry Pi's archive key was not found: updates come with $(self_cmd) --refresh only."; return 0; }
+	mkdir -p "$root${APT_KEY%/*}"
+	install -m 0644 "$k" "$root$APT_KEY"
+	printf 'Types: deb\nURIs: %s\nSuites: %s\nComponents: main\nArchitectures: %s\nSigned-By: %s\n' \
+		"$RPI_ARCHIVE" "$H_SUITE" "$H_ARCH" "$APT_KEY" | _write "$root$APT_SRC"
+	{
+		printf '# Written by %s and removed with %s: from Raspberry Pi'"'"'s archive, APT\n' "$APP_NAME" "$APP_PKG"
+		printf '# takes only the packages that %s installed as Raspberry Pi ships them.\n' "$APP_NAME"
+		printf 'Package: %s\nPin: origin %s\nPin-Priority: 500\n\n' "${PIN_PKGS[*]}" "$(_host "$RPI_ARCHIVE")"
+		printf 'Package: *\nPin: origin %s\nPin-Priority: -1\n' "$(_host "$RPI_ARCHIVE")"
+	} | _write "$root$APT_PIN"
+	printf '// Written by %s and removed with %s (see %s/apt-check)\nDPkg::Pre-Install-Pkgs { "%s/apt-check"; };\n' \
+		"$APP_NAME" "$APP_PKG" "$SHARE" "$SHARE" | _write "$root$APT_HOOK"
+	cat <<'EOF' | _write "$root$SHARE/apt-check"
 #!/bin/sh
-# rfkill of the Raspberry Pi Desktop session (rpios-look-debian; Debian's is
-# rfkill.distrib): "rfkill list" shows the Bluetooth adapters before a
-# laptop's own Bluetooth switch, so that Raspberry Pi's Bluetooth plugin reads
-# the adapter's state. Everything else is Debian's rfkill unchanged.
-real=/usr/sbin/rfkill.distrib
-if [ "$1" = list ]; then
-	"$real" "$@" | awk '/^[0-9]+: / { n++; hci[n] = ($2 ~ /^hci/) } { blk[n] = blk[n] $0 "\n" }
-		END { for (i = 1; i <= n; i++) if (hci[i]) printf "%s", blk[i]
-		      for (i = 1; i <= n; i++) if (!hci[i]) printf "%s", blk[i] }'
-	exit 0
-fi
-exec "$real" "$@"
-EOF
-	chmod 0755 "$root/usr/sbin/rfkill"
-	cat <<EOF | _write "$root$dir/90-${APP_NAME}-bluetooth.rules"
-# Written by $APP_NAME and removed with $APP_PKG: a laptop's own Bluetooth
-# switch that is turned off stays on, and the Bluetooth adapter's radio is
-# turned off instead, so the adapter stays and the panel shows Bluetooth as off.
-ACTION=="change", SUBSYSTEM=="rfkill", ATTR{type}=="bluetooth", ATTR{soft}=="1", DEVPATH!="*/bluetooth/hci*", RUN+="$SHARE/bluetooth-switch %k"
-EOF
-	cat <<'EOF' | _write "$root$SHARE/bluetooth-switch"
-#!/bin/sh
-# Usage: bluetooth-switch RFKILL-NAME (from the udev rule). Turn the laptop's
-# own Bluetooth switch back on, then block the adapter's radio. The switch
-# had powered the adapter off, so the adapter comes back as a new device:
-# wait for it, and block it again a moment later, after systemd-rfkill has
-# restored its saved state.
-echo 0 >"/sys/class/rfkill/$1/soft"
-block() {
-	found=1
-	for r in /sys/class/rfkill/rfkill*; do
-		[ "$(cat "$r/type" 2>/dev/null)" = bluetooth ] || continue
-		case $(readlink -f "$r") in */bluetooth/hci*) echo 1 >"$r/soft"; found=0 ;; esac
+# Run by APT before it installs packages, with the .deb files on stdin: stop
+# if a Raspberry Pi package that APT updates (the list in the pins below)
+# would replace, break or conflict with an installed Debian package.
+allow=" $(sed -n 's/^Package: //p' /etc/apt/preferences.d/rpios-look | head -n1) "
+[ "$allow" != "  " ] || exit 0
+bad=$(while read -r deb; do
+	case $deb in *.deb) ;; *) continue ;; esac
+	# APT names its files PACKAGE_VERSION_ARCH.deb
+	p=${deb##*/}; p=${p%%_*}
+	case $allow in *" $p "*) ;; *) continue ;; esac
+	dpkg-deb -f "$deb" Replaces Breaks Conflicts | sed 's/^[A-Za-z-]*: //' | tr ',|' '\n' \
+		| sed -E 's/^( *[^ :(]+):[^ (]*/\1/; s/\( *([<>=]+) */ \1 /; s/\)//' | while read -r n op v; do
+		[ -n "$n" ] || continue
+		case $allow in *" $n "*) continue ;; esac
+		iv=$(dpkg-query -W -f='${db:Status-Abbrev}${Version}' "$n" 2>/dev/null) || continue
+		case $iv in "ii "*) iv=${iv#ii } ;; *) continue ;; esac
+		if [ -z "$op" ] || dpkg --compare-versions "$iv" "$op" "$v"; then echo "$p ($n)"; fi
 	done
-	return $found
-}
-i=0
-while [ $i -lt 50 ] && ! block; do sleep 0.1; i=$((i + 1)); done
-sleep 2
-block
+done)
+[ -z "$bad" ] && exit 0
+echo "rpios-look: a Raspberry Pi package would change Debian's packages: $(echo $bad); nothing was installed." >&2
+echo "rpios-look: update the look with: bash rpios-look.sh --refresh" >&2
+exit 1
 EOF
-	chmod 0755 "$root$SHARE/bluetooth-switch"
+	chmod 0755 "$root$SHARE/apt-check"
 }
+# Print the host name of a URL. Usage: _host URL
+_host() { local u=${1#*://}; echo "${u%%/*}"; }
 
-# Debian's LXDE session with Raspberry Pi's build of its panel (Debian 11
-# and 12, where that build replaces Debian's): the build draws Debian's
-# layout only in part, as it has no pager and no background image and names
-# its menu plugin smenu. The package carries Debian's layout adapted to it,
-# which an Xsession.d hook puts first in XDG_CONFIG_DIRS for Debian's LXDE
-# session only, while that build is installed. Debian's files and the
-# user's own panel settings stay as they are. Usage: lxde_panel_build ROOT
+# Debian's LXDE session with Raspberry Pi's panel build (Debian 11 and 12):
+# that build has no pager or background image and names its menu plugin
+# smenu. The package carries Debian's layout adapted to it, which an
+# Xsession.d hook puts first in XDG_CONFIG_DIRS for Debian's LXDE session only,
+# while that build is installed. Debian's files and the user's are unchanged.
+# Usage: lxde_panel_build ROOT
 lxde_panel_build() {
 	local root=$1 src=$SYS_ROOT/etc/xdg/lxpanel/LXDE/panels/panel
 	(( USE_STACK )) && suite_ge "$H_SUITE" bullseye && ! suite_ge "$H_SUITE" trixie && [[ -f $src ]] || return 0
@@ -4239,20 +4100,30 @@ EOF
 }
 
 # Write the whole session into the package root: profile, Openbox, panels,
-# menu, file manager, entries, icons, themes, GTK 4 colours and programs.
+# menu, file manager, entries, icons, themes, programs and GSettings defaults.
 # Usage: session_build ROOT
 session_build() {
-	local root=$1 xdg=$1$SHARE/xdg data=$1$SHARE/data rc t css
+	local root=$1 xdg=$1$SHARE/xdg data=$1$SHARE/data rc pi="" f
 	_session_profile "$xdg"
 	rc=$root$SHARE/openbox-rc.xml
-	_seed "$rc" "$SYS_ROOT"/etc/xdg/openbox/LXDE/rc.xml "$SYS_ROOT"/etc/xdg/openbox/rc.xml || die "Openbox's rc.xml is missing (install openbox)"
+	# Raspberry Pi OS's own Openbox settings for this release, else Debian's
+	if suite_ge "$H_SUITE" trixie; then
+		pi=$( (pi_unpack "$PANEL_PKG" "$(config_suite)" "$H_ARCH") 2>/dev/null ) && pi+=/etc/xdg/openbox/rpd-rc.xml || pi=""
+	else
+		pi=$(_pi_stack_file etc/xdg/openbox/lxde-pi-rc.xml) || pi=""
+	fi
+	_seed "$rc" ${pi:+"$pi"} "$SYS_ROOT"/etc/xdg/openbox/LXDE/rc.xml "$SYS_ROOT"/etc/xdg/openbox/rc.xml \
+		|| die "Openbox's rc.xml is missing (install openbox)"
 	_openbox_rc "$rc"
-	_openbox_keys "$rc"
+	_openbox_keys "$rc" "$pi"
 	if (( S_PI_STACK )); then _pi_stack_layout; else _lxpanel_layout; fi | _panel_size | _write "$xdg/lxpanel/$S_PROFILE/panels/panel"
-	command -v pishutdown >/dev/null && printf '[Command]\nLogout=pishutdown\n' | _write "$xdg/lxpanel/$S_PROFILE/config"
+	# The panel's logout opens Raspberry Pi's Shutdown dialog (lxde-pi-shutdown-helper in Raspberry Pi OS 10)
+	for f in pishutdown lxde-pi-shutdown-helper; do
+		if command -v "$f" >/dev/null; then printf '[Command]\nLogout=%s\n' "$f" | _write "$xdg/lxpanel/$S_PROFILE/config"; break; fi
+	done
 	(( S_PI_PANEL )) && _pi_panel_layout | _panel_size | _write "$xdg/lxpanel-pi/panels/panel"
 	# The terminal's font for the size preset; medium is lxterminal's own
-	if [[ ${S_SIZE:-medium} != medium ]]; then
+	if [[ ${O_SIZE:-medium} != medium ]]; then
 		printf '[general]\nfontname=%s\n' "$T_TERM_FONT" | _write "$xdg/lxterminal/lxterminal.conf"
 	fi
 	_session_files "$xdg"
@@ -4260,10 +4131,6 @@ session_build() {
 	_session_entries "$xdg" "$data"
 	_session_icons "$data"
 	_session_themes "$data"
-	for t in PiXflat PiXnoir PiXtrix PiXonyx PiX; do
-		css=$(gtk4_colors "$t") || continue
-		printf '%s\n' "$css" | _write "$root$SHARE/gtk4/$t.css"
-	done
 	_session_programs "$root"
 	_session_command "$root"
 	_session_dconf "$root"
@@ -4277,40 +4144,23 @@ _panel_size() {
 		-e "s/^([[:space:]]*MaxTaskWidth)=[0-9]+[[:space:]]*\$/\1=$T_TASK_WIDTH/"
 }
 
-# Succeed if Raspberry Pi's own greeter is installed and can run here.
-_pi_greeter_ok() {
-	[[ -x /usr/sbin/pi-greeter && -f /usr/share/xgreeters/pi-greeter-x.desktop ]] || return 1
-	! grep -q 'not found' <<<"$(ldd /usr/sbin/pi-greeter 2>/dev/null)"
-}
-
 # Print the login screen's background picture: Debian's login artwork, which
-# follows Debian's active theme; Raspberry Pi OS's (the dark one for dark
-# themes); or a given picture. Raspberry Pi OS's is used when the requested
-# one is missing (a derivative has no Debian artwork).
-# Usage: login_background [ROOT]
+# follows Debian's active theme, else the session's wallpaper (a derivative
+# may have no Debian artwork), else nothing.
 login_background() {
-	local root=${1:-} img=RPiSystem.png f=$O_LOGIN_BG
-	[[ $f != debian ]] || f=/usr/share/desktop-base/active-theme/login/background.svg
-	if [[ $f == /* && -e $f ]]; then printf '%s\n' "$f"; return 0; fi
-	[[ $O_LOGIN_BG == raspios || $f == /usr/share/desktop-base/* ]] || warn "The login background $f is missing; Raspberry Pi OS's is used."
-	(( T_DARK )) && img=RPiSystem_dark.png
-	[[ -f $root$SHARE/login/$img ]] || img=RPiSystem.png
-	if [[ -f $root$SHARE/login/$img ]]; then printf '%s\n' "$SHARE/login/$img"; fi
+	local f=/usr/share/desktop-base/active-theme/login/background.svg
+	if [[ -e $f ]]; then printf '%s\n' "$f"; return 0; fi
+	if [[ -n ${S_WALL:-} && -f $S_WALL ]]; then printf '%s\n' "$S_WALL"; fi
 }
 
 # Write the Raspberry Pi OS login screen for LightDM: Debian's GTK greeter in
-# its style, which keeps the session chooser, or with --pi-greeter Raspberry
-# Pi's own greeter, which has none. In that case the package's own greeter
-# entry starts Raspberry Pi's greeter where it can run, else Debian's, so the
-# login screen keeps working when one is removed. Usage: login_build ROOT
+# its style, with the session chooser, and the list of users to choose from,
+# as Raspberry Pi OS shows it. Usage: login_build ROOT
 login_build() {
-	local root=$1 art=$SHARE/login logo bg
+	local root=$1 logo bg
 	logo=$(_greeter_logo || true)
-	mkdir -p "$root$art"
-	# The artwork unpacked now, else the installed package's copy
-	cp -- "$WORKDIR"/login/* "$root$art/" 2>/dev/null || cp -- "$art"/* "$root$art/" 2>/dev/null || true
-	bg=$(login_background "$root")
-	[[ -n $bg ]] || { bg='#d6d3de'; warn "The Raspberry Pi OS login screen wallpaper is unavailable; the login screen shows its colour."; }
+	bg=$(login_background)
+	[[ -n $bg ]] || { bg='#d6d3de'; warn "Debian's login screen artwork is unavailable; the login screen shows its colour."; }
 	{
 		printf '# Written by %s: the Raspberry Pi OS login screen style\n[greeter]\n' "$APP_NAME"
 		printf 'theme-name=%s\nicon-theme-name=%s\ncursor-theme-name=%s\ncursor-theme-size=%s\n' \
@@ -4321,52 +4171,8 @@ login_build() {
 		printf 'indicators=~spacer;~session;~power\n'
 		if [[ -n $logo ]]; then printf 'default-user-image=%s\n' "$logo"; fi
 	} | _write "$root/usr/share/lightdm/lightdm-gtk-greeter.conf.d/60_$APP_NAME.conf"
-	# Raspberry Pi OS lists the users to choose from (pi-greeter's postinst)
-	{
-		printf '# Written by %s: the Raspberry Pi OS login screen\n[Seat:*]\ngreeter-hide-users=false\n' "$APP_NAME"
-		(( O_PI_GREETER )) && printf 'greeter-session=%s\n' "$APP_NAME"
-	} | _write "$root/usr/share/lightdm/lightdm.conf.d/60_$APP_NAME.conf"
-	(( O_PI_GREETER )) || return 0
-	printf '[Desktop Entry]\nType=Application\nName=Raspberry Pi OS login screen\nComment=Run by LightDM only\nExec=%s/greeter\n' \
-		"$SHARE" | _write "$root/usr/share/xgreeters/$APP_NAME.desktop"
-	cat <<'EOF' | _write "$root$SHARE/greeter"
-#!/bin/sh
-# Raspberry Pi's own greeter where it can run, else Debian's default one.
-if [ -x /usr/sbin/pi-greeter ] && ! ldd /usr/sbin/pi-greeter 2>/dev/null | grep -q 'not found'; then
-	exec /usr/sbin/pi-greeter
-fi
-for f in /usr/share/xgreeters/lightdm-greeter.desktop /usr/share/xgreeters/lightdm-gtk-greeter.desktop; do
-	cmd=$(sed -n 's/^Exec=//p' "$f" 2>/dev/null | head -n1)
-	[ -n "$cmd" ] && exec $cmd
-done
-exit 1
-EOF
-	chmod 0755 "$root$SHARE/greeter"
-}
-
-# Configure Raspberry Pi's own greeter. Only its settings (pi-greeter.conf)
-# are adapted: the Debian logo instead of the Raspberry Pi one, the login
-# wallpaper, and the chosen theme, icons and font. The original file is
-# kept, and --uninstall restores it.
-greeter_conf() {
-	local conf=/etc/lightdm/pi-greeter.conf logo wall
-	_pi_greeter_ok || return 0
-	logo=$(_greeter_logo || true)
-	wall=$(login_background)
-	if [[ ! -f $conf ]]; then
-		[[ -f $SYS_DIR/pi-greeter.conf.orig ]] || : | sys_write "$SYS_DIR/pi-greeter.conf.new"   # none: removed again on uninstall
-	elif [[ ! -f $SYS_DIR/pi-greeter.conf.orig && ! -f $SYS_DIR/pi-greeter.conf.new ]]; then
-		sys_write "$SYS_DIR/pi-greeter.conf.orig" <"$conf"
-	fi
-	{
-		printf '# Written by %s %s: the Raspberry Pi OS login screen with Debian branding.\n' "$APP_NAME" "$APP_VERSION"
-		printf '# The original file is in %s.\n[greeter]\n' "$SYS_DIR/pi-greeter.conf.orig"
-		if [[ -n $logo ]]; then printf 'default-user-image=%s\n' "$logo"; fi
-		printf 'desktop_bg=%s\n' "$T_DESK_BG"
-		if [[ -n $wall ]]; then printf 'wallpaper=%s\nwallpaper_mode=crop\n' "$wall"; fi
-		printf 'gtk-theme-name=%s\ngtk-icon-theme-name=%s\ngtk-font-name=%s\n' "$T_GTK" "$T_ICONS" "$T_FONT"
-	} | sys_write "$conf"
-	ok "Login screen: Raspberry Pi's own greeter, with the Debian logo"
+	printf '# Written by %s: the Raspberry Pi OS login screen\n[Seat:*]\ngreeter-hide-users=false\n' "$APP_NAME" \
+		| _write "$root/usr/share/lightdm/lightdm.conf.d/60_$APP_NAME.conf"
 }
 
 # Choose the Raspberry Pi Desktop session for this user's next logins, as
@@ -4382,20 +4188,20 @@ choose_session() {
 	user=/org/freedesktop/Accounts/User$(id -u)
 	if command -v busctl >/dev/null \
 		&& cur=$(busctl get-property org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User XSession 2>/dev/null); then
-		# Set on first install, on a Wayland option, or if the Wayland session is gone
-		(( first )) || [[ $cur == 's ""' || -n ${GIVEN[wayland]:-} ]] \
+		# Set on first install, or if the Wayland session is gone
+		(( first )) || [[ $cur == 's ""' ]] \
 			|| { [[ $cur == "s \"$SESSION_ID-wayland\"" && ! -f $wl ]]; } || return 0
 		# A file this creates is removed on uninstall; a session chosen before
 		# is put back
 		sudo test -e "/var/lib/AccountsService/users/$(id -un)" || id -un | record_add "$SYS_DIR/accounts-created"
 		for m in XSession Session; do
 			v=$(busctl get-property org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User "$m" 2>/dev/null | sed -n 's/^s "\(.*\)"$/\1/p' || true)
-			[[ -z $v || $v == "$SESSION_ID"* || $v == "$PREV_NAME"* ]] || printf '%s\t%s\t%s\n' "$(id -un)" "$m" "$v" | record_add "$SYS_DIR/session-before"
+			[[ -z $v || $v == "$SESSION_ID"* ]] || printf '%s\t%s\t%s\n' "$(id -un)" "$m" "$v" | record_add "$SYS_DIR/session-before"
 		done
 		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetXSession s "$want" >/dev/null 2>&1 || true
 		as_root busctl call org.freedesktop.Accounts "$user" org.freedesktop.Accounts.User SetSession s "$want" >/dev/null 2>&1 || true
 	else
-		(( first )) || [[ -n ${GIVEN[wayland]:-} ]] || return 0
+		(( first )) || return 0
 		_ini_set "$HOME/.dmrc" Desktop Session "$want"
 		chmod 0644 "$HOME/.dmrc"
 		if [[ -d /var/cache/lightdm ]]; then sys_write "/var/cache/lightdm/dmrc/$(id -un).dmrc" <"$HOME/.dmrc"; fi
@@ -4426,23 +4232,24 @@ verify_repo() {
 }
 
 # Decide whether Raspberry Pi OS's network plugin (netman) is used, as on
-# Raspberry Pi OS 12 and 13: with --pi-apps, where NetworkManager runs the
-# network (installed, or installed now for Wi-Fi), on Debian 12 with
-# Raspberry Pi's panel build and on Debian 13. It needs Raspberry Pi's build
-# of Debian's libnma, which is used only where its version is Debian's with
-# Raspberry Pi's patch (later Debian releases keep nm-applet). Sets
-# USE_NETMAN and NET_NAMES: libnma0, libnma-common and the other installed
-# packages of the libnma source.
+# Raspberry Pi OS 12 and 13: where NetworkManager runs the network (installed,
+# or installed now for Wi-Fi), on Debian 12 with Raspberry Pi's panel build
+# and on Debian 13. It needs Raspberry Pi's build of Debian's libnma, which
+# is used only where its version is Debian's with Raspberry Pi's patch; where
+# Debian's libnma is newer, nm-applet stays. Sets USE_NETMAN and NET_NAMES: libnma0,
+# libnma-common and the other installed packages of the libnma source.
 netman_decide() {
 	local rv dv
 	USE_NETMAN=0 NET_NAMES=()
-	(( O_PI_APPS )) && [[ -n $H_RPI_ARCH ]] || return 0
 	[[ $H_SUITE == trixie || ( $H_SUITE == bookworm && USE_STACK -eq 1 ) ]] || return 0
 	[[ -n $(installed_version network-manager) ]] \
 		|| { has_wifi && [[ -z $(installed_version connman)$(installed_version wicd) ]]; } || return 0
-	rv=$(index_candidates "$(rpi_aid)" "$H_SUITE" "$(rpi_arch)" libnma0 2>/dev/null | first_line | cut -f1)
+	rv=$(index_candidates "$(rpi_aid)" "$H_SUITE" "$H_ARCH" libnma0 2>/dev/null | first_line | cut -f1)
+	[[ $rv == *+rpt* ]] || return 0
 	dv=$(installed_version libnma0)
-	[[ -n $dv ]] || dv=$(LC_ALL=C apt-cache madison libnma0 2>/dev/null | awk -F' *[|] *' 'NR == 1 { print $2 }')
+	[[ -n $dv ]] || dv=$(apt_versions libnma0 | first_line)
+	# Offline, Debian's own build in packages/
+	[[ -n $dv || -z $REPO ]] || dv=$(index_candidates local "$H_SUITE" "$H_ARCH" libnma0 2>/dev/null | cut -f1 | { grep -v '+rpt' || true; } | first_line)
 	[[ -n $rv && -n $dv && ${rv%+rpt*} == "${dv%+rpt*}" ]] || return 0
 	USE_NETMAN=1
 	mapfile -t NET_NAMES < <({ printf '%s\n' libnma0 libnma-common
@@ -4451,52 +4258,52 @@ netman_decide() {
 }
 
 # Decide what to install. FETCH_PKGS holds the Raspberry Pi OS packages,
-# installed from verified .deb files: every theme with its icons, fonts,
-# wallpapers and login screen and, where they fit, Raspberry Pi's panel and
-# file manager. APT_PKGS holds the Debian packages the session and the themes
-# need, installed by name. APT never upgrades installed packages on this
-# script's behalf.
+# installed from verified .deb files: every theme with its icons, fonts and
+# wallpapers and, where they fit, Raspberry Pi's panel and file manager.
+# APT_PKGS holds the Debian packages the session and the themes need,
+# installed by name from Debian's own sources.
 resolve_all() {
 	local p q tray
-	local -a wanted=() helpers=() kept=()
+	local -a wanted=() asked=() helpers=() kept=()
 	if [[ -n $REPO ]]; then
 		step "Resolving packages from packages/ ($H_SUITE, $H_ARCH)"
+		index_load local "$H_SUITE" "$H_ARCH" || die "packages/ has no $H_SUITE/$H_ARCH index"
 	else
 		step "Resolving the latest official packages ($H_SUITE, $H_ARCH)"
-		index_load rpi "$H_SUITE" "$(rpi_arch)" || die "cannot download the $H_SUITE package index from $RPI_ARCHIVE"
+		index_load rpi "$H_SUITE" "$H_ARCH" || die "cannot download the $H_SUITE package index from $RPI_ARCHIVE"
 		ok "Package index signature verified (Raspberry Pi Archive Signing Key)"
 	fi
 	# Before Debian 13, Raspberry Pi's builds of the panel and file manager
 	# replace Debian's.
 	USE_STACK=0 STACK_NAMES=()
-	if (( O_PI_APPS )) && [[ -n $H_RPI_ARCH ]] && ! suite_ge "$H_SUITE" trixie; then
+	if ! suite_ge "$H_SUITE" trixie; then
 		USE_STACK=1
 		mapfile -t STACK_NAMES < <(printf '%s\n' "${PI_STACK[@]}"; stack_extras)
 	fi
 	netman_decide
 	while read -r p; do
 		case $p in
-			pi-greeter) (( O_LOGIN && O_PI_GREETER )) && with_lightdm || continue ;;
-			lxpanel-pi|lpplug-*|pplug-*|pishutdown|gui-runcmd|pcmanfm-pi) (( O_PI_APPS )) || continue ;;
 			lxplug-*) (( USE_STACK )) || continue ;;
-			# The magnifier needs Raspberry Pi's panel plugin for it
-			mage-rpi) (( O_PI_APPS )) && { (( USE_STACK )) || suite_ge "$H_SUITE" trixie; } || continue ;;
-			wf-panel-pi|wfplug-*|pipanel|rpcc|sudopwd) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
+			wf-panel-pi|wfplug-*|rpcc|sudopwd|gui-screenshot) [[ $H_DISPLAY == wayland ]] && apt_has labwc || continue ;;
+			# Appearance Settings: on X with Raspberry Pi's panel build (before 13), and on Wayland
+			pipanel) (( USE_STACK )) || { [[ $H_DISPLAY == wayland ]] && apt_has labwc; } || continue ;;
 		esac
 		if _stack_member "$p" && (( ! USE_STACK )); then continue; fi
 		wanted+=("$p")
-	done < <(rpi_pkgs "$H_SUITE" "$(rpi_arch)" "$O_4K")
+	done < <(rpi_pkgs "$H_SUITE" "$H_ARCH")
 	# The plugin's Edit Connections opens Raspberry Pi's connection editor,
 	# which its package for Debian 12 does not depend on
 	(( USE_NETMAN )) && wanted+=("${NET_NAMES[@]}" lp-connection-editor)
-	[[ -n $REPO ]] || mapfile -t wanted < <(with_rpi_deps "$H_SUITE" "$(rpi_arch)" "${wanted[@]}")
+	p=$(magnifier_pkg "$H_SUITE" "$H_ARCH") && [[ -n $p ]] && wanted+=("$p")
+	# What is asked for; the Raspberry Pi packages they need are dependencies
+	asked=("${wanted[@]}")
+	[[ -n $REPO ]] || mapfile -t wanted < <(with_rpi_deps "$H_SUITE" "$H_ARCH" "${wanted[@]}")
 	FETCH_PKGS=()
 	for p in "${wanted[@]}"; do IN_SET[$p]=1; done
 	for p in "${wanted[@]}"; do
 		if resolve_pkg "$p"; then FETCH_PKGS+=("$p")
-		# Without Raspberry Pi builds for this architecture, the packages with
-		# compiled code are left out without a warning: a note said so earlier.
-		elif [[ -n $H_RPI_ARCH ]]; then warn "$p is not available for $H_SUITE/$H_ARCH; skipping it"; fi
+		# A package with no usable build for this release is skipped.
+		else warn "$p is not available for $H_SUITE/$H_ARCH; skipping it"; fi
 	done
 	[[ " ${FETCH_PKGS[*]} " == *-theme\ * ]] || die "no theme packages are available for $H_SUITE/$H_ARCH"
 	# Install all of Raspberry Pi's builds or none: a Debian package of the
@@ -4517,9 +4324,10 @@ resolve_all() {
 		# Leave out the packages only the Wayland session uses.
 		mapfile -t FETCH_PKGS < <(printf '%s\n' "${FETCH_PKGS[@]}" | grep -vxE 'wfplug-.*|pipanel|rpcc|sudopwd')
 	fi
-	# The network plugin needs every one of Raspberry Pi's libnma builds
+	# The network plugin, and every one of Raspberry Pi's libnma builds it needs
 	if (( USE_NETMAN )); then
-		for p in "${NET_NAMES[@]}"; do
+		q=$(printf '%s\n' "${FETCH_PKGS[@]}" | grep -xE '(lx|lp)plug-netman' | first_line || true)
+		for p in "${q:-the network plugin}" "${NET_NAMES[@]}"; do
 			[[ " ${FETCH_PKGS[*]} " == *" $p "* ]] && continue
 			note "Debian's network icon (nm-applet) is used: Raspberry Pi OS has no build of $p for $H_SUITE/$H_ARCH."
 			USE_NETMAN=0 NET_NAMES=() kept=()
@@ -4533,24 +4341,20 @@ resolve_all() {
 	tray=$(tray_debs "$H_SUITE")
 	mapfile -t helpers < <(session_debs; theme_debs "$H_SUITE"; { grep -E '^debian-reference' <<<"$tray" || true; }
 		if [[ $H_DISPLAY == wayland ]]; then wayland_debs; fi)
-	(( O_QT )) && helpers+=(qt5-gtk-platformtheme qt6-gtk-platformtheme)
+	mapfile -t -O "${#helpers[@]}" helpers < <(qt_debs)
 	# LightDM's greeter reads each user's session choice from AccountsService;
 	# it cannot read it from a private home folder.
 	! with_lightdm || helpers+=(accountsservice)
-	if (( O_LOGIN )) && [[ -n $H_DM && $H_DM != lightdm ]]; then
+	if [[ -n $H_DM && $H_DM != lightdm ]]; then
 		note "The Raspberry Pi OS login screen needs LightDM; this computer uses $H_DM. To switch: sudo apt install lightdm lightdm-gtk-greeter && sudo dpkg-reconfigure lightdm, then run this again."
 	fi
-	# Hardware support: the X server, network and Bluetooth tools, sound,
-	# missing firmware and the login screen.
-	mapfile -t HW_PKGS < <(x11_debs; { grep -vE '^debian-reference' <<<"$tray" || true; }; audio_debs "$H_SUITE"; thinkpad_debs; login_debs; firmware_debs)
-	for p in "${HW_PKGS[@]}"; do
-		if [[ $(pkg_category "$p") == firmware ]] && ! apt_has "$p"; then
-			note "$p holds firmware this computer needs: add 'non-free-firmware' (Debian 12 and later; 'non-free' before) to your APT sources, then run this again."
-		fi
-	done
+	# Hardware support: the X server, network and Bluetooth tools, sound and
+	# the login screen.
+	mapfile -t HW_PKGS < <(x11_debs; { grep -vE '^debian-reference' <<<"$tray" || true; }; audio_debs "$H_SUITE"; login_debs)
 	helpers+=("${HW_PKGS[@]}")
 	grep -q -- --root-owner-group <<<"$(dpkg-deb --help 2>/dev/null)" || helpers+=(fakeroot)
-	ROOT_PKGS=("${FETCH_PKGS[@]}" "${helpers[@]}")
+	ROOT_PKGS=("${helpers[@]}")
+	for p in "${FETCH_PKGS[@]}"; do [[ " ${asked[*]} " != *" $p "* ]] || ROOT_PKGS+=("$p"); done
 	APT_PKGS=()
 	for p in "${helpers[@]}"; do
 		[[ " ${APT_PKGS[*]} " == *" $p "* || " ${FETCH_PKGS[*]} " == *" $p "* || -n $(installed_version "$p") ]] && continue
@@ -4560,14 +4364,18 @@ resolve_all() {
 	if [[ -n $REPO ]]; then
 		# Offline: install every package of the selection's dependency closure
 		# that the repository has and the system lacks.
-		local -a roots=("${FETCH_PKGS[@]}" "${APT_PKGS[@]}")
+		local -a roots=("${FETCH_PKGS[@]}" "${APT_PKGS[@]}") needed=("${FETCH_PKGS[@]}")
 		APT_PKGS=()
 		while read -r p; do
 			[[ -n ${PKG_VER[$p]:-} || -n $(installed_version "$p") ]] && continue
 			if resolve_pkg "$p"; then FETCH_PKGS+=("$p"); fi
 		done < <(INSTALLED=1 _closure "$WORKDIR/index/local/$H_SUITE/Packages-$H_ARCH" "${roots[@]}")
+		# A helper that this Debian release lacks was left out of the download,
+		# as an online install leaves it out
 		for p in "${roots[@]}"; do
-			[[ -n ${PKG_VER[$p]:-} || -n $(installed_version "$p") ]] || warn "$p is not in packages/; skipping it"
+			[[ -n ${PKG_VER[$p]:-} || -n $(installed_version "$p") ]] && continue
+			if [[ " ${needed[*]} " == *" $p "* ]]; then warn "$p is not in packages/; skipping it"
+			else debug "$p is not in packages/ for Debian $H_SUITE/$H_ARCH; left out"; fi
 		done
 	fi
 	for p in "${FETCH_PKGS[@]}" "${APT_PKGS[@]}"; do IN_SET[$p]=1; done
@@ -4579,12 +4387,13 @@ _stack_member() { [[ $1 =~ ^(lxplug-|lxpanel|pcmanfm|libfm) && $1 != *-pi ]]; }
 
 # A Raspberry Pi package must never replace a package from the APT sources,
 # except its builds of Debian's panel and file manager (STACK_NAMES) and of
-# libnma (NET_NAMES), which --pi-apps installs in their place. Usage: _refuse_debian_names PACKAGE...
+# libnma (NET_NAMES), which are installed in their place.
+# Usage: _refuse_debian_names PACKAGE...
 _refuse_debian_names() {
 	local p
 	for p; do
 		[[ " ${STACK_NAMES[*]} ${NET_NAMES[*]} " != *" $p "* ]] || continue
-		if [[ -n $(apt-cache madison "$p" 2>/dev/null) ]]; then
+		if [[ -n $(apt_versions "$p") ]]; then
 			die "refusing to install $p from Raspberry Pi OS: your APT sources provide a package with that name"
 		fi
 	done
@@ -4610,13 +4419,12 @@ _pkg_line() { printf '    %-12s %-28s %-18s %s\n' "$(pkg_category "$1")" "$1" "$
 pkg_category() {
 	case $1 in
 		sound-theme-*)               echo sounds ;;
-		firmware-*|*-firmware)       echo firmware ;;
 		pipewire*|pulseaudio|wireplumber) echo sound ;;
-		pi-greeter|lightdm*|desktop-base) echo greeter ;;
+		lightdm*|desktop-base)       echo greeter ;;
 		pcmanfm-pi|pcmanfm|libfm*)   echo files ;;
-		lxpanel*|lpplug-*|pplug-*|lxplug-*|wf-panel-pi|wfplug-*|rpcc|pipanel|sudopwd|pishutdown|gui-runcmd|debian-reference-*) echo panel ;;
+		lxpanel*|lpplug-*|pplug-*|lxplug-*|wf-panel-pi|wfplug-*|rpcc|pipanel|sudopwd|pishutdown|gui-runcmd|gui-screenshot|debian-reference-*) echo panel ;;
 		network-manager*|nm-connection-editor|wpasupplicant|iw|wireless-regdb|rfkill|bluez*|blueman|libspa-0.2-bluetooth|pulseaudio-module-bluetooth|libnma*|lp-connection-editor) echo network ;;
-		lxsession*|lxpolkit|mate-polkit*|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|swaylock|swayidle|wlopm|python3|dconf-cli|libglib2.0-bin|alsa-utils) echo session ;;
+		lxsession*|lxpolkit|mate-polkit*|openbox|lxappearance|accountsservice|gvfs*|lxde-*|lxmenu-data|labwc|swaybg|kanshi|xsettingsd|wlr-randr|xwayland|swaylock|swayidle|wlopm|python3|dconf-cli|libglib2.0-bin) echo session ;;
 		xserver-*|x11-*|libgl1-mesa-dri) echo display ;;
 		*icon-theme*|*-icons)        echo icons ;;
 		*-theme)                     echo themes ;;
@@ -4628,15 +4436,21 @@ pkg_category() {
 }
 
 # Stop unless every package in APT's plan comes from an official source: the
-# verified files ("local-deb"), or the Debian archive and its security updates
-# (on a derivative, its own archive). This keeps third-party and Raspberry Pi
+# verified files, or the Debian archive and its security updates (on a
+# derivative, its own archive). This keeps third-party and Raspberry Pi
 # rebuilds of Debian packages out, even when such a source is configured.
-# Usage: _check_origins APT-SIMULATION-OUTPUT
+# APT names a verified file after the archive that has the same version, so
+# the files are matched by name and version.
+# Usage: _check_origins APT-SIMULATION-OUTPUT [DEB]...
 _check_origins() {
-	local line pkg origins own=Debian
+	local line pkg ver f origins own=Debian
+	local -A verified=()
 	[[ -n $H_ID && $H_ID != debian ]] && own=${H_ID^}
+	for f in "${@:2}"; do verified[$(dpkg-deb -f "$f" Package)=$(dpkg-deb -f "$f" Version)]=1; done
 	while IFS= read -r line; do
-		pkg=$(awk '{ print $2 }' <<<"$line")
+		pkg=$(awk '{ print $2 }' <<<"$line") pkg=${pkg%%:*}
+		ver=$(sed -E 's/^Inst [^ ]+ (\[[^]]*\] )?\(([^ ]+) .*/\2/' <<<"$line")
+		[[ -z ${verified[$pkg=$ver]:-} ]] || continue
 		# The archive name before the release: "Debian" in "Debian:13/stable"
 		origins=$(sed -E 's/^Inst [^ ]+ (\[[^]]*\] )?\([^ ]+ ([^[]*)\[.*/\2/' <<<"$line")
 		origins=${origins%%:*}; origins=${origins%% }
@@ -4664,21 +4478,6 @@ config_suite() {
 	if suite_ge "$H_SUITE" trixie || [[ -n $REPO && $O_MODE != download ]]; then echo "$H_SUITE"; else echo trixie; fi
 }
 
-# Unpack the Raspberry Pi OS login screen wallpapers (light and dark) and
-# their licence from $ART_PKG into $WORKDIR/login. A failure does not stop the
-# run; the login screen then shows its background colour.
-_login_art() {
-	local x
-	if x=$( (pi_unpack "$ART_PKG" "$(config_suite)" "$(rpi_arch)") 2>/dev/null ) && compgen -G "$x/usr/share/rpd-wallpaper/RPiSystem*.png" >/dev/null; then
-		mkdir -p "$WORKDIR/login"
-		install -m 0644 "$x"/usr/share/rpd-wallpaper/RPiSystem*.png "$WORKDIR/login/"
-		if [[ -f $x/usr/share/doc/$ART_PKG/copyright ]]; then install -m 0644 "$x/usr/share/doc/$ART_PKG/copyright" "$WORKDIR/login/"; fi
-		ok "Login screen wallpaper from $ART_PKG (unpacked, not installed)"
-	else
-		warn "$ART_PKG is not available; the login screen uses its background colour"
-	fi
-}
-
 # Print the given packages and the Raspberry Pi packages they need that Debian
 # does not have (such as a plugin's data), which are installed from Raspberry
 # Pi too. Usage: with_rpi_deps SUITE ARCH PACKAGE...
@@ -4697,13 +4496,53 @@ with_rpi_deps() {
 			[[ -z ${seen[$n]:-} ]] && grep -qxF "$n" <<<"$names" && ! _dep_ok "$n" && list+=("$n")
 		done
 	done
+	return 0
+}
+
+# Adapt a Raspberry Pi package for Debian and print its path; fail if it is
+# refused. Usage: adapt_deb FILE
+adapt_deb() {
+	local f
+	f=$(deps_drop "$1") && f=$(compat_fix "$f") && f=$(fm_coinstall "$f") && f=$(rpcc_session "$f") && f=$(bt_pin_entry "$f") \
+		&& scripts_coinstall "$f"
+}
+
+# Raspberry Pi's Bluetooth plugins: the PIN field of their pairing dialog
+# cannot take the keyboard focus (can-focus False), so the PIN that legacy
+# pairing (Bluetooth 2.0) asks for cannot be typed. The field is made
+# focusable; nothing else changes. Prints the path of the package to install.
+bt_pin_entry() {
+	local deb=$1 f
+	[[ $(dpkg-deb -f "$deb" Package) =~ ^(lx|lp|wf)plug-bluetooth$ ]] || { printf '%s\n' "$deb"; return 0; }
+	deb_unpack "$deb" pin
+	for f in "$R_DIR"/usr/share/*/ui/lxplug-bluetooth.ui; do
+		[[ -f $f ]] && _pin_focus <"$f" >"$f.new" && mv -- "$f.new" "$f"
+	done
+	deb_pack
+}
+# Copy a Bluetooth plugin dialog from stdin with its PIN field focusable.
+_pin_focus() {
+	awk '/id="pair_entry"/ { e = 1 }
+		e && /name="can[-_]focus"/ { sub(/>False</, ">True<"); e = 0 }
+		e && /<\/object>/ { e = 0 }
+		{ print }'
+}
+# Succeed if an installed Bluetooth plugin still has the unfocusable PIN
+# field (installed before bt_pin_entry). Usage: _pin_unfixed PACKAGE
+_pin_unfixed() {
+	local f
+	[[ $1 =~ ^(lx|lp|wf)plug-bluetooth$ ]] || return 1
+	while read -r f; do
+		[[ -f $f ]] && ! cmp -s "$f" <(_pin_focus <"$f") && return 0
+	done < <(dpkg -L "$1" 2>/dev/null | grep '/ui/lxplug-bluetooth\.ui$')
+	return 1
 }
 
 # Download, verify and install the packages. APT never removes packages
 # (--no-remove) and, offline, never downloads (--no-download). Every package
 # installed is recorded for --uninstall.
 install_all() {
-	local p f q cur sim had
+	local p f q cur sim had accts
 	local -a files=() opts=("${APT_OPTS[@]}") new=() left=() kept=()
 	if [[ -n $REPO ]]; then step "Preparing packages"; else step "Downloading and verifying packages"; fi
 	if [[ -z $REPO ]]; then
@@ -4711,23 +4550,37 @@ install_all() {
 		as_root apt-get update -q >/dev/null || die "apt-get update failed"
 		for p in "${APT_PKGS[@]}"; do apt_has "$p" || die "the Debian package '$p' is not available from your APT sources"; done
 	fi
+	# The packages installed as Raspberry Pi ships them, from earlier runs
+	local -A plain=()
+	if [[ -f $SYS_DIR/apt-packages ]]; then while read -r p; do [[ -z $p ]] || plain[$p]=1; done <"$SYS_DIR/apt-packages"; fi
 	for p in "${FETCH_PKGS[@]}"; do
 		cur=$(installed_version "$p")
-		if [[ -n $cur ]] && dpkg --compare-versions "$cur" ge "${PKG_VER[$p]}"; then
+		if [[ -n $cur ]] && dpkg --compare-versions "$cur" ge "${PKG_VER[$p]}" && ! _pin_unfixed "$p"; then
 			debug "$p $cur is installed and up to date"
 			continue
 		fi
-		f=$(download_pkg "$p")
-		if [[ -z $REPO ]]; then          # the files in packages/ are adapted already
-			f=$(deps_drop "$f")
-			f=$(compat_fix "$f")
-			f=$(fm_coinstall "$f")
-			f=$(rpcc_session "$f")
-			f=$(scripts_coinstall "$f") || { left+=("$p"); continue; }
+		f=$(download_pkg "$p") q=$f
+		# A package fixed at its installed version (_pin_unfixed): APT takes
+		# the same version with other contents for a downgrade
+		if [[ -n $cur ]] && dpkg --compare-versions "$cur" eq "${PKG_VER[$p]}" && [[ " ${opts[*]} " != *" --reinstall "* ]]; then
+			opts+=(--reinstall --allow-downgrades)
 		fi
-		f=$(data_coinstall "$f")
+		# The files in packages/ are adapted already
+		if [[ -z $REPO ]]; then f=$(adapt_deb "$f") || { left+=("$p"); continue; }; fi
+		# APT updates only packages used unchanged from this release's suite,
+		# the one in its sources; not Raspberry Pi's builds of Debian's
+		# packages (PI_STACK, libnma), nor offline
+		if [[ -z $REPO && $f == "$q" && ${PKG_SUITE[$p]:-} == "$H_SUITE" ]] && ! stack_deb "$f" \
+			&& [[ $(dpkg-deb -f "$f" Source) != libnma* ]]; then
+			plain[$p]=1
+		else unset 'plain[$p]'; fi
 		files+=("$f")
 	done
+	# A package left out was warned about; it is not checked for after APT
+	if (( ${#left[@]} )); then
+		for p in "${FETCH_PKGS[@]}"; do [[ " ${left[*]} " == *" $p "* ]] || kept+=("$p"); done
+		FETCH_PKGS=("${kept[@]}") kept=()
+	fi
 	# The network plugin needs all of its packages: without one, nm-applet
 	if (( USE_NETMAN )) && [[ " ${left[*]} " =~ \ (libnma[^\ ]*|[^\ ]*netman[^\ ]*|lp-connection-editor)\  ]]; then
 		note "Debian's network icon (nm-applet) is used: a package of Raspberry Pi's network plugin was left out."
@@ -4739,7 +4592,9 @@ install_all() {
 		q=$(nm_applet_pkg "$H_SUITE")
 		if [[ -z $(installed_version "$q") ]] && apt_has "$q"; then APT_PKGS+=("$q"); fi
 	fi
-	(( O_LOGIN )) && _login_art
+	PIN_PKGS=()
+	for p in "${FETCH_PKGS[@]}"; do [[ -z ${plain[$p]:-} ]] || PIN_PKGS+=("$p"); done
+	printf '%s\n' "${PIN_PKGS[@]}" | sys_write "$SYS_DIR/apt-packages"
 	if [[ -n $REPO ]]; then
 		# Offline, APT must not download anything; it would otherwise fetch
 		# recommended packages that packages/ lacks from the APT sources.
@@ -4750,17 +4605,17 @@ install_all() {
 	step "Installing packages"
 	if (( ${#files[@]} + ${#APT_PKGS[@]} == 0 )); then ok "Every package is installed and up to date"; return 0; fi
 	had=$(installed_names) accts=$(_accounts)
-	# APT's "automatically installed" marks of Debian's panel and file
-	# manager, before Raspberry Pi's builds replace them (see restore_debian_stack)
-	if (( USE_STACK )) && [[ ! -f $SYS_DIR/stack-auto ]]; then
-		{ apt-mark showauto "${PI_STACK[@]}" 2>/dev/null || true; } | sys_write "$SYS_DIR/stack-auto"
+	# APT's "automatically installed" marks of Debian's panel, file manager
+	# and libnma, before Raspberry Pi's builds replace them (see restore_debian_stack)
+	if (( USE_STACK || USE_NETMAN )) && [[ ! -f $SYS_DIR/stack-auto ]]; then
+		{ apt-mark showauto "${STACK_NAMES[@]}" "${NET_NAMES[@]}" 2>/dev/null || true; } | sys_write "$SYS_DIR/stack-auto"
 	fi
 	if ! sim=$(LC_ALL=C apt-get install --simulate "${opts[@]}" "${files[@]}" "${APT_PKGS[@]}" 2>&1); then
 		tail -n 15 <<<"$sim" >&2
 		[[ -n $REPO ]] && warn "an offline install can only use packages that are installed or in packages/"
 		die "APT cannot install the packages on this system (see above); nothing was changed"
 	fi
-	_check_origins "$sim"
+	_check_origins "$sim" "${files[@]}"
 	if ! as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${opts[@]}" "${files[@]}" "${APT_PKGS[@]}" 2>&1 \
 		| tee "$WORKDIR/apt.out"; then
 		# APT downloads everything before it installs anything, so a 404 means
@@ -4833,27 +4688,29 @@ record_packages_before() {
 }
 
 # Build the generated package from the installed official themes: icon sets
-# with the Debian logo and the names Debian's programs use, Xfwm4 themes, the
-# session and the login screen. Print the package's path.
+# with the Debian logo and the names Debian's programs use, the session and
+# the login screen. Sets PKG_DEB to the package's path. It runs in the main
+# shell, so that any failure stops the build.
 # shellcheck disable=SC2016  # maintainer scripts contain a literal $1
 build_pkg() {
-	local stage=$WORKDIR/pkg t b f ver icons=() depends="lxsession, openbox, lxpanel | lxpanel-pi, pcmanfm"
+	local stage=$WORKDIR/pkg b f ver icons=() depends="lxsession, openbox, lxpanel | lxpanel-pi, pcmanfm"
 	rm -rf -- "$stage"; mkdir -p "$stage/DEBIAN"
-	for t in PiXflat PiXnoir PiXtrix PiXonyx PiX; do
-		[[ -f $SYS_ROOT/usr/share/themes/$t/openbox-3/themerc ]] || continue
-		gen_xfwm4 "$SYS_ROOT/usr/share/themes/$t/openbox-3" "$stage/usr/share/themes/$t/xfwm4" "$t"
-	done
 	for b in PiXflat PiXtrix PiX; do
 		[[ -f $SYS_ROOT/usr/share/icons/$b/index.theme ]] || continue
 		gen_icon_overlay "$b" "$stage/usr/share/icons/$b-Debian"
 		icons+=("$b-Debian")
 	done
+	# The dark themes' sets, with the white logo (see set_theme)
+	for b in PiXnoir:PiXflat PiXonyx:PiXtrix; do
+		[[ " ${icons[*]} " == *" ${b#*:}-Debian "* ]] || continue
+		if gen_logo_overlay "${b%%:*}-Debian" "${b#*:}-Debian" "$stage/usr/share/icons/${b%%:*}-Debian"; then icons+=("${b%%:*}-Debian"); fi
+	done
 	session_build "$stage"
 	lxde_panel_build "$stage"
-	bt_switch_build "$stage"
-	keys_build "$stage"
 	popup_keeper_build "$stage"
-	if (( O_LOGIN )) && [[ -n $(installed_version lightdm) ]]; then login_build "$stage"; fi
+	power_build "$stage"
+	apt_files "$stage"
+	if [[ -n $(installed_version lightdm) ]]; then login_build "$stage"; fi
 
 	ver="${APP_VERSION}+$(date -u +%Y%m%d%H%M%S)"
 	cat >"$stage/DEBIAN/control" <<EOF
@@ -4869,72 +4726,39 @@ Description: Raspberry Pi Desktop session for Debian
  Generated locally by $APP_NAME $APP_VERSION from the installed official
  Raspberry Pi OS packages: the Raspberry Pi Desktop session and its settings,
  icon sets carrying the Debian logo and the icon and cursor names Debian's
- programs ask for, Xfwm4 themes generated from the official Openbox themes,
- and the Raspberry Pi OS login screen style.
+ programs ask for, and the Raspberry Pi OS login screen style.
 EOF
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = configure ] && command -v gtk-update-icon-cache >/dev/null; then\n'
 		for f in "${icons[@]}"; do printf '\tgtk-update-icon-cache -q -t -f /usr/share/icons/%s || true\n' "$f"; done
 		printf '\t:\nfi\n'
-		# Link Debian's panel applets into Raspberry Pi's panel.
-		printf 'if [ "$1" = configure ]; then\n\tfor d in /usr/lib/*/lxpanel-pi; do\n\t\t[ -d "$d" ] || continue\n'
-		printf '\t\tfor p in %s; do\n' "$DEBIAN_APPLETS"
-		printf '\t\t\tf=${d%%/lxpanel-pi}/lxpanel/plugins/$p.so\n\t\t\t[ -f "$f" ] && [ ! -e "$d/$p.so" ] && ln -s "$f" "$d/$p.so" || true\n'
-		printf '\t\tdone\n\tdone\nfi\n'
-		# udev reads the Bluetooth rule (bt_switch_build) after a reload.
-		printf 'if [ "$1" = configure ] && command -v udevadm >/dev/null; then udevadm control --reload || true; fi\n'
-		# Raspberry Pi's panel reads the application menu only when it starts,
-		# so the trigger restarts running panels when applications change.
-		cat <<'EOF_TRIG'
-if [ "$1" = triggered ] && command -v pgrep >/dev/null; then
-	for pid in $(pgrep -x lxpanel-pi || true); do
-		u=$(stat -c %U "/proc/$pid" 2>/dev/null || true)
-		d=$( { tr '\0' '\n' <"/proc/$pid/environ"; } 2>/dev/null | sed -n 's/^DISPLAY=//p')
-		x=$( { tr '\0' '\n' <"/proc/$pid/environ"; } 2>/dev/null | sed -n 's/^XAUTHORITY=//p')
-		[ -n "$u" ] && [ -n "$d" ] || continue
-		runuser -u "$u" -- env DISPLAY="$d" ${x:+XAUTHORITY=$x} lxpanelctl-pi restart >/dev/null 2>&1 || true
-	done
-fi
-EOF_TRIG
+		# Version 3.11 diverted Debian's rfkill and linked Debian's applets into
+		# Raspberry Pi's panel: give rfkill back and remove the links
+		printf 'if [ "$1" = configure ]; then\n'
+		printf '\tif dpkg-divert --listpackage /usr/sbin/rfkill | grep -qx %s; then\n' "$APP_PKG"
+		printf '\t\trm -f /usr/sbin/rfkill\n\t\tdpkg-divert --package %s --remove --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null\n\tfi\n' "$APP_PKG"
+		printf '\tfor l in /usr/lib/*/lxpanel-pi/*.so; do\n\t\tcase $(readlink "$l" || true) in /usr/lib/*/lxpanel/plugins/*) rm -f "$l" ;; esac\n\tdone\nfi\n'
 	} >"$stage/DEBIAN/postinst"
-	printf 'interest-noawait /usr/share/applications\n' >"$stage/DEBIAN/triggers"
-	# Debian's rfkill, diverted while the package carries its wrapper (bt_switch_build)
-	{
-		printf '#!/bin/sh\nset -e\n'
-		if (( BT_SWITCH )); then
-			printf 'dpkg-divert --package %s --add --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null\n' "$APP_PKG"
-		else
-			printf 'if dpkg-divert --listpackage /usr/sbin/rfkill | grep -qx %s; then\n' "$APP_PKG"
-			printf '\tdpkg-divert --package %s --remove --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null || true\nfi\n' "$APP_PKG"
-		fi
-	} >"$stage/DEBIAN/preinst"
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = remove ] || [ "$1" = purge ]; then\n'
-		printf '\tfor l in /usr/lib/*/lxpanel-pi/*.so; do\n\t\tcase $(readlink "$l" || true) in /usr/lib/*/lxpanel/plugins/*) rm -f "$l" ;; esac\n\tdone\n'
 		for f in "${icons[@]}"; do
 			printf '\trm -f /usr/share/icons/%s/icon-theme.cache\n\trmdir /usr/share/icons/%s 2>/dev/null || true\n' "$f" "$f"
 		done
 		printf '\t:\nfi\n'
-		printf 'if [ "$1" = remove ] && command -v udevadm >/dev/null; then udevadm control --reload || true; fi\n'
-		printf 'if [ "$1" = remove ] || [ "$1" = purge ] || [ "$1" = abort-install ]; then\n'
-		printf '\tif dpkg-divert --listpackage /usr/sbin/rfkill | grep -qx %s; then\n' "$APP_PKG"
-		printf '\t\tdpkg-divert --package %s --remove --rename --divert /usr/sbin/rfkill.distrib /usr/sbin/rfkill >/dev/null || true\n\tfi\nfi\n' "$APP_PKG"
 	} >"$stage/DEBIAN/postrm"
-	chmod 0755 "$stage/DEBIAN/postinst" "$stage/DEBIAN/postrm" "$stage/DEBIAN/preinst"
-	build_deb "$stage" "$WORKDIR/${APP_PKG}_${ver}_all.deb"
-	printf '%s\n' "$WORKDIR/${APP_PKG}_${ver}_all.deb"
+	chmod 0755 "$stage/DEBIAN/postinst" "$stage/DEBIAN/postrm"
+	PKG_DEB=$WORKDIR/${APP_PKG}_${ver}_all.deb
+	build_deb "$stage" "$PKG_DEB"
 }
 
 # Build and install the generated package for the installed themes and the
 # chosen look.
 install_pkg() {
-	local f
 	step "Building the Raspberry Pi Desktop session ($APP_PKG)"
-	[[ -d $WORKDIR/login || -d $SHARE/login ]] || ! (( O_LOGIN )) || _login_art
 	session_vars
-	f=$(build_pkg)
-	as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" "$f" >/dev/null
-	ok "Installed $(basename "$f")"
+	build_pkg
+	as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" "$PKG_DEB" >/dev/null
+	ok "Installed $(basename "$PKG_DEB")"
 }
 
 # Reload the running Raspberry Pi Desktop session so that the new look appears
@@ -4942,7 +4766,7 @@ install_pkg() {
 # place, so that open windows get the theme's corners too (a reload leaves
 # them square). Open windows stay open.
 reload_session() {
-	[[ ${DESKTOP_SESSION:-} == "$SESSION_ID" && -n ${DISPLAY:-} ]] || return 0
+	[[ ${XDG_SESSION_DESKTOP:-} == "$SESSION_ID" && -n ${DISPLAY:-} ]] || return 0
 	local p
 	_running openbox && openbox --restart >/dev/null 2>&1 || true
 	for p in lxpanel-pi lxpanel; do
@@ -4957,21 +4781,23 @@ reload_session() {
 	# Start the desktop with the session's own environment, not this script's,
 	# and without the script's run lock (file descriptor 9).
 	setsid -f sh -c ". $SHARE/session-env; exec $SHARE/desktop" >/dev/null 2>&1 9<&- || true
+	# The power helper, which a session started before this version lacks;
+	# a running one starts again as this version, with the new settings
+	pkill -HUP -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/power\$" \
+		|| setsid -f sh -c ". $SHARE/session-env; exec $SHARE/power" >/dev/null 2>&1 9<&- || true
 	ok "The running session shows the new look; log out and back in for the theme of open applications"
 }
 
 ###############################################################################
-# 8. Desktops: the look for other desktops, per user
+# 8. User state: backups for --uninstall
 #
-# The session itself changes nothing in the user's own files. Other desktops
-# get the look only on request (--desktop), for the user running the script.
-# Every file changed is backed up, and every setting's old value is recorded,
-# in the user's state directory, so that --uninstall can restore them.
+# The session itself changes nothing in the user's own files. A user file
+# that the script does change (the session choice in ~/.dmrc) is backed up in
+# the user's state directory, so that --uninstall can restore it.
 ###############################################################################
 
-# Print the state directory of this script, or of the earlier version named.
-# Usage: _st [NAME]
-_st() { printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/${1:-$APP_NAME}"; }
+# Print the user's state directory.
+_st() { printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/$APP_NAME"; }
 
 # Create the state directory and record the parent folders this creates.
 _state_init() {
@@ -4979,7 +4805,7 @@ _state_init() {
 	local new
 	new=$(_missing_dirs "$(dirname "$A_STATE")")
 	mkdir -p "$A_STATE/files"
-	touch "$A_STATE/keys" "$A_STATE/created" "$A_STATE/created-dirs" "$A_STATE/links" "$A_STATE/restore.sh"
+	touch "$A_STATE/keys" "$A_STATE/created" "$A_STATE/created-dirs"
 	if [[ -n $new ]]; then printf '%s\n' "$new" >>"$A_STATE/created-dirs"; fi
 }
 
@@ -4999,10 +4825,9 @@ _track_file() {
 	grep -qxF "file:$rel" "$A_STATE/keys" && return 0
 	if [[ -e $path || -L $path ]]; then
 		mkdir -p "$(dirname "$A_STATE/files/$rel")"
-		# A symbolic link is saved by its content, and recorded as a link:
-		# writing and restoring both go through it, so the link stays.
+		# A symbolic link is saved by its content: writing and restoring both
+		# go through it, so the link stays
 		cp -aL -- "$path" "$A_STATE/files/$rel" 2>/dev/null || cp -a -- "$path" "$A_STATE/files/$rel"
-		if [[ -L $path ]]; then printf '%s\n' "$rel" >>"$A_STATE/links"; fi
 	else
 		printf '%s\n' "$rel" >>"$A_STATE/created"
 		_missing_dirs "$(dirname "$path")" >>"$A_STATE/created-dirs"
@@ -5017,65 +4842,12 @@ _once() {
 	printf 'once:%s\n' "$1" >>"$A_STATE/keys"
 }
 
-# Record, once per setting, the command that restores its original value.
-# Usage: _track_cmd KEY COMMAND
-_track_cmd() {
-	grep -qxF "$1" "$A_STATE/keys" && return 0
-	printf '%s\n' "$2" >>"$A_STATE/restore.sh"
-	printf '%s\n' "$1" >>"$A_STATE/keys"
-}
-
-# Print the desktops to give the look: the requested ones or, with "all",
-# every supported desktop with an installed session. parse_args has checked
-# the names already.
-desktop_list() {
-	local tok f n
-	case $O_DESKTOPS in
-		none) return 0 ;;
-		all)
-			for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
-				# This script's own sessions are not other desktops.
-				[[ -e $f && ${f##*/} != "$SESSION_ID"*.desktop ]] || continue
-				n=$(sed -n 's/^DesktopNames=//p' "$f" | first_line | cut -d';' -f1)
-				n=${n,,}; [[ -n $n ]] || n=$(basename "$f" .desktop)
-				case $n in
-					lxde*) n=lxde ;; xfce*) n=xfce ;; mate*) n=mate ;; labwc*) n=labwc ;; openbox*) n=openbox ;;
-				esac
-				[[ " ${DE_OTHER[*]} " == *" $n "* ]] && echo "$n"
-			done | awk '!seen[$0]++' ;;
-		*)
-			for tok in ${O_DESKTOPS//,/ }; do
-				echo "$tok"
-			done | awk '!seen[$0]++' ;;
-	esac
-}
-
-# Give the requested desktops the look, for the user running the script.
-apply_desktops() {
-	local de css
-	local -a D_LIST
-	mapfile -t D_LIST < <(desktop_list)
-	(( ${#D_LIST[@]} )) || return 0
-	step "Applying $T_DESC to ${D_LIST[*]} for $(id -un)"
-	apply_gtk_files
-	# A tag of its own, since the session adds and removes the "$APP_NAME" block
-	css=$(gtk4_colors "$T_GTK" || true)
-	[[ -z $css ]] || _block_set "$HOME/.config/gtk-4.0/gtk.css" "$APP_NAME-desktops" "$css"
-	apply_mono_font
-	for de in "${D_LIST[@]}"; do "apply_de_$de"; done
-	(( O_QT )) && apply_qt_env
-	RELOGIN=1
-}
-
-# Restore a user's settings and files from a state directory, then remove it.
-# If anything cannot be restored, the directory is kept.
-# Usage: restore_user [STATE-DIR]
+# Restore the user's settings and files from their state directory, then
+# remove it. If anything cannot be restored, the directory is kept.
 restore_user() {
-	local st=${1:-$(_st)} rel dst fail=0
+	local st rel dst fail=0
+	st=$(_st)
 	[[ -f $st/keys ]] || return 0
-	if [[ -s $st/restore.sh ]] && ! bash "$st/restore.sh" 2>/dev/null; then
-		warn "some settings could not be restored"; fail=1
-	fi
 	while IFS= read -r rel; do
 		[[ $rel == file:* ]] || continue
 		rel=${rel#file:}
@@ -5083,14 +4855,6 @@ restore_user() {
 		if grep -qxF "$rel" "$st/created" 2>/dev/null; then
 			rm -f -- "$dst" || { warn "could not remove $rel"; fail=1; }
 		elif [[ -e $st/files/$rel || -L $st/files/$rel ]]; then
-			# A link put in place of the user's file (as _openbox_buttons
-			# makes) is removed, so the copy does not write through it. Older
-			# state directories do not record links; there, only a link to a
-			# file the user cannot write is removed.
-			if [[ -L $dst && ! -L $st/files/$rel ]] && ! grep -qxF "$rel" "$st/links" 2>/dev/null \
-				&& [[ -f $st/links || ! -w $dst ]]; then
-				rm -f -- "$dst" || true
-			fi
 			{ mkdir -p -- "$(dirname "$dst")" && cp -a -- "$st/files/$rel" "$dst"; } || { warn "could not restore $rel"; fail=1; }
 		fi
 	done <"$st/keys"
@@ -5109,143 +4873,11 @@ restore_user() {
 	ok "Previous settings of $(id -un) restored"
 }
 
-# Undo the edit that pi-greeter's install script made to Debian's
-# /etc/lightdm/lightdm.conf (it makes the greeter list the users), but only
-# where this gives back the file exactly as Debian ships it. A file changed
-# otherwise is left alone.
-lightdm_conf_repair() {
-	local f=/etc/lightdm/lightdm.conf orig fixed
-	[[ -f $f ]] && grep -qx 'greeter-hide-users=false' "$f" || return 0
-	orig=$(dpkg-query -W -f='${Conffiles}\n' lightdm 2>/dev/null | awk -v f="$f" '$1 == f { print $2 }')
-	fixed=$(sed 's/^greeter-hide-users=false$/#greeter-hide-users=false/' "$f")
-	[[ -n $orig && $(md5sum <<<"$fixed" | cut -d' ' -f1) == "$orig" ]] || return 0
-	sys_write "$f" <<<"$fixed"
-	ok "Debian's $f is as Debian ships it again"
-}
-
-# Print the packages that the earlier pixflat-theme installed. Its record can
-# also name packages that were installed before (it compared lists sorted
-# differently), so only those are printed that APT's history shows it
-# installing, or that only Raspberry Pi can have provided.
-old_installed() {
-	local p hist
-	hist=$(zcat -f /var/log/apt/history.log* 2>/dev/null | awk 'BEGIN { RS = "" }
-		/\nCommandline:[^\n]*\/pixflat-theme\./ && match($0, /\nInstall: [^\n]*/) {
-			n = split(substr($0, RSTART + 10, RLENGTH - 10), a, /\), /)
-			for (i = 1; i <= n; i++) { sub(/[: ].*/, "", a[i]); print a[i] }
-		}' | sort -u)
-	while read -r p; do
-		if grep -qxF "$p" <<<"$hist" || [[ -z $(apt-cache madison "$p" 2>/dev/null) ]]; then echo "$p"; fi
-	done <"$OLD_SYS_DIR/installed-packages"
-}
-
-# Take over the records of raspios-look, this script's earlier name. They are
-# in this script's own format, so they move unchanged. This runs first, before
-# the saved options are read.
-adopt_prev_records() {
-	[[ -d $PREV_SYS_DIR && ! -e $SYS_DIR ]] || return 0
-	info "Administrator rights are needed (sudo) to take over the install of $PREV_NAME"
-	prepare_root
-	as_root mv -- "$PREV_SYS_DIR" "$SYS_DIR"
-}
-
-# Take over an install of raspios-look: remove its session package (this
-# script's package, with the same files, takes its place), undo its settings
-# for this user (they are written again under the new name), and move the
-# users who chose its session to this one.
-migrate_prev() {
-	local st f u m v
-	st=$(_st "$PREV_NAME")
-	[[ -n $(installed_version "$PREV_PKG") || -d $st ]] || return 0
-	step "Taking over the install of $PREV_NAME"
-	if [[ -d $st ]]; then
-		grep -q '^file:' "$st/keys" 2>/dev/null \
-			&& note "The look $PREV_NAME gave other desktops (--desktop) was undone; give it back with: $(self_cmd) --desktop LIST"
-		restore_user "$st"
-	fi
-	# Rename the copies of the Openbox settings the session wrote, which show
-	# whether the user has changed them since.
-	f=${XDG_CONFIG_HOME:-$HOME/.config}/openbox
-	for u in rpd-x LXDE-pi; do
-		[[ -f $f/.$u-rc.xml.$PREV_NAME ]] && mv -- "$f/.$u-rc.xml.$PREV_NAME" "$f/.$u-rc.xml.$APP_NAME"
-	done
-	for f in $(sudo sh -c "grep -lE '^X?Session=$PREV_NAME(-wayland)?\$' /var/lib/AccountsService/users/*" 2>/dev/null); do
-		u=$(id -u "${f##*/}" 2>/dev/null) || continue
-		for m in XSession Session; do
-			v=$(sudo sed -n "s/^$m=$PREV_NAME//p" "$f" | first_line)
-			sudo grep -qE "^$m=$PREV_NAME(-wayland)?\$" "$f" && as_root busctl call org.freedesktop.Accounts \
-				"/org/freedesktop/Accounts/User$u" org.freedesktop.Accounts.User "Set$m" s "$SESSION_ID$v" >/dev/null 2>&1 || true
-		done
-	done
-	for f in $(sudo sh -c "grep -lE '^Session=$PREV_NAME(-wayland)?\$' /var/cache/lightdm/dmrc/*.dmrc" 2>/dev/null); do
-		sudo sed "s/^Session=$PREV_NAME/Session=$SESSION_ID/" "$f" | sys_write "$f"
-	done
-	if [[ -n $(installed_version "$PREV_PKG") ]]; then
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$PREV_PKG" >/dev/null
-	fi
-	ok "$PREV_NAME is now $APP_NAME: its records and session carried over"
-}
-
-# Take over an install of the earlier pixflat-theme: give Debian's own LXDE
-# session back the settings it changed there, remove its generated package,
-# and keep its records of installed packages and of the login screen file.
-migrate_old() {
-	local st f old
-	migrate_prev
-	st=$(_st "$OLD_NAME")
-	[[ -n $(installed_version "$OLD_PKG") || -d $OLD_SYS_DIR || -d $st ]] || return 0
-	step "Taking over the install of $OLD_NAME 2"
-	if [[ -d $st ]]; then restore_user "$st"; fi
-	if [[ -n $(installed_version "$OLD_PKG") ]]; then
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$OLD_PKG" >/dev/null
-		ok "Removed $OLD_PKG; $APP_PKG takes its place"
-	fi
-	if [[ -d $OLD_SYS_DIR ]]; then
-		if [[ -f $OLD_SYS_DIR/installed-packages ]]; then
-			old=$(old_installed)
-			{ [[ -z $old ]] || printf '%s\n' "$old"; } | record_add "$SYS_DIR/installed-packages"
-			# Those packages are the earlier version's, not the user's own.
-			{ grep -vxF -f <(printf '%s\n' "$old") "$SYS_DIR/packages-before" || true; } | sys_write "$SYS_DIR/packages-before"
-		fi
-		for f in pi-greeter.conf.orig pi-greeter.conf.new; do
-			[[ -f $OLD_SYS_DIR/$f && ! -f $SYS_DIR/$f ]] && as_root cp -a -- "$OLD_SYS_DIR/$f" "$SYS_DIR/$f"
-		done
-		as_root rm -rf -- "$OLD_SYS_DIR"
-	fi
-	lightdm_conf_repair
-	ok "$OLD_NAME's records carried over; Debian's LXDE session has its own settings again"
-}
-
-# Openbox reads the hover image of a toggled title bar button from
-# "<button>_toggled_hover.xbm", but the official themes name it
-# "<button>_hover_toggled.xbm", so on hover the middle button of a maximised
-# window keeps its small image while the others grow. Give the theme the
-# names Openbox reads in the user's theme directory, which Openbox searches
-# first. Every file is a link to the official one, so theme updates apply.
-# Usage: _openbox_buttons THEME
-_openbox_buttons() {
-	local src=/usr/share/themes/$1/openbox-3 dir=$HOME/.themes/$1/openbox-3 f n
-	[[ -f $src/themerc ]] && compgen -G "$src/*_hover_toggled*.xbm" >/dev/null || return 0
-	for f in "$src"/*; do
-		[[ -f $f ]] || continue
-		n=${f##*/}
-		_track_file "$dir/$n"   # before mkdir, so that --uninstall removes the new directory too
-		mkdir -p "$dir"
-		ln -sfn "$f" "$dir/$n"
-		if [[ $n == *_hover_toggled* ]]; then
-			n=${n/_hover_toggled/_toggled_hover}
-			_track_file "$dir/$n"
-			ln -sfn "$f" "$dir/$n"
-		fi
-	done
-}
-
 # Apply the Raspberry Pi OS labwc look (from rpd-wayland-core's rc.xml): the
 # <theme> section, window snapping and the window switcher.
 # Usage: _labwc_rc FILE
 _labwc_rc() {
 	local file=$1 fonts
-	_track_file "$file"
 	fonts=$(_xml_fonts ActiveWindow InactiveWindow OnScreenDisplay MenuItem)
 	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <cornerRadius>0</cornerRadius>\n    <keepBorder>yes</keepBorder>\n%s\n    <dropShadows>yes</dropShadows>\n    <titlebar>\n      <layout>:iconify,max,close</layout>\n    </titlebar>\n  </theme>' "$T_GTK" "$fonts")"
 	_xml_block "$file" snapping '  <snapping>
@@ -5266,256 +4898,8 @@ _labwc_rc() {
 _gs() { env -u DCONF_PROFILE gsettings "$@"; }
 # Succeed if a GSettings key exists.
 _gs_ok() { _gs writable "$1" "$2" >/dev/null 2>&1; }
-# Set a GSettings key, recording its old value. Usage: gs_set SCHEMA KEY VALUE
-gs_set() {
-	command -v gsettings >/dev/null || return 0
-	_gs_ok "$1" "$2" || { debug "gsettings: no $1 $2"; return 0; }
-	local old
-	old=$(_gs get "$1" "$2" 2>/dev/null) || return 0
-	_track_cmd "gs:$1:$2" "$(_q env -u DCONF_PROFILE gsettings set "$1" "$2" "$old")"
-	_gs set "$1" "$2" "$3" || warn "could not set $1 $2"
-}
-# Set a GSettings string key. Usage: gs_str SCHEMA KEY STRING
-gs_str() { gs_set "$1" "$2" "'${3//\'/\\\'}'"; }
-
-# Set an Xfconf property, recording its old value.
-# Usage: xf_set CHANNEL PROPERTY TYPE VALUE
-xf_set() {
-	local old
-	if old=$(xfconf-query -c "$1" -p "$2" 2>/dev/null); then
-		_track_cmd "xf:$1:$2" "$(_q xfconf-query -c "$1" -p "$2" -s "$old")"
-		xfconf-query -c "$1" -p "$2" -s "$4" || warn "could not set $1 $2"
-	else
-		_track_cmd "xf:$1:$2" "$(_q xfconf-query -c "$1" -p "$2" -r)"
-		xfconf-query -c "$1" -p "$2" -n -t "$3" -s "$4" || warn "could not set $1 $2"
-	fi
-}
-
 # Succeed if the user runs a process of that name.
 _running() { pgrep -u "$(id -u)" -x "$1" >/dev/null 2>&1; }
-
-# Set the theme, icons, cursor and fonts in a GNOME-style interface schema.
-_gs_interface() {
-	local s=$1
-	gs_str "$s" gtk-theme "$T_GTK"
-	gs_str "$s" icon-theme "$T_ICONS"
-	gs_str "$s" cursor-theme "$T_ICONS"
-	gs_set "$s" cursor-size "$T_CURSOR_SIZE"
-	gs_str "$s" font-antialiasing rgba
-	gs_str "$s" font-hinting full
-	gs_str "$s" font-rgba-order rgb
-	gs_str "$s" font-name "$T_FONT"
-	gs_str "$s" document-font-name "$T_FONT"
-}
-
-# Write the GTK 2, 3 and 4 settings files and the default X11 cursor, with
-# Raspberry Pi OS's toolbar, icon size and font rendering settings.
-apply_gtk_files() {
-	local f=$HOME/.config/gtk-3.0/settings.ini
-	_ini_set "$f" Settings gtk-theme-name "$T_GTK" gtk-icon-theme-name "$T_ICONS" \
-		gtk-cursor-theme-name "$T_ICONS" gtk-cursor-theme-size "$T_CURSOR_SIZE" gtk-font-name "$T_FONT"
-	_ini_set "$f" Settings gtk-sound-theme-name "$T_SOUND_THEME" gtk-enable-event-sounds 1 gtk-enable-input-feedback-sounds 1
-	_ini_set "$f" Settings gtk-toolbar-style GTK_TOOLBAR_BOTH_HORIZ gtk-toolbar-icon-size GTK_ICON_SIZE_LARGE_TOOLBAR \
-		gtk-icon-sizes "gtk-large-toolbar=$T_TB_ICON,$T_TB_ICON" gtk-button-images 0 gtk-menu-images 0 \
-		gtk-xft-antialias 1 gtk-xft-hinting 1 gtk-xft-hintstyle hintfull gtk-xft-rgba rgb
-	f=$HOME/.config/gtk-4.0/settings.ini
-	_ini_set "$f" Settings gtk-icon-theme-name "$T_ICONS" gtk-cursor-theme-name "$T_ICONS" \
-		gtk-cursor-theme-size "$T_CURSOR_SIZE" \
-		gtk-xft-antialias 1 gtk-xft-hinting 1 gtk-xft-hintstyle hintfull gtk-xft-rgba rgb gtk-font-name "$T_FONT"
-	f=$HOME/.gtkrc-2.0
-	_kv_set "$f" gtk-theme-name "$T_GTK" '"'
-	_kv_set "$f" gtk-icon-theme-name "$T_ICONS" '"'
-	_kv_set "$f" gtk-cursor-theme-name "$T_ICONS" '"'
-	_kv_set "$f" gtk-cursor-theme-size "$T_CURSOR_SIZE"
-	_kv_set "$f" gtk-font-name "$T_FONT" '"'
-	_kv_set "$f" gtk-toolbar-style GTK_TOOLBAR_BOTH_HORIZ
-	_kv_set "$f" gtk-toolbar-icon-size GTK_ICON_SIZE_LARGE_TOOLBAR
-	_kv_set "$f" gtk-icon-sizes "gtk-large-toolbar=$T_TB_ICON,$T_TB_ICON" '"'
-	_kv_set "$f" gtk-button-images 0
-	_kv_set "$f" gtk-menu-images 0
-	_kv_set "$f" gtk-xft-antialias 1
-	_kv_set "$f" gtk-xft-hinting 1
-	_kv_set "$f" gtk-xft-hintstyle hintfull '"'
-	_kv_set "$f" gtk-xft-rgba rgb '"'
-	# The default X11 cursor, for applications that do not read XSETTINGS
-	_ini_set "$HOME/.icons/default/index.theme" "Icon Theme" Inherits "$T_ICONS"
-	ok "GTK 2/3/4 configuration files updated"
-}
-
-# Map Monospace to Liberation Mono, as Raspberry Pi OS does.
-apply_mono_font() {
-	grep -qiF "Liberation Mono" <<<"$(fc-list : family 2>/dev/null)" || return 0
-	local f=$HOME/.config/fontconfig/conf.d/31-$APP_NAME-mono.conf
-	_track_file "$f"
-	cat <<'EOF_FC' | _write "$f"
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<!-- rpios-look: Monospace is Liberation Mono, as in Raspberry Pi OS -->
-<fontconfig>
-	<match target="pattern">
-		<test name="family"><string>Monospace</string></test>
-		<edit name="family" mode="assign" binding="same"><string>Liberation Mono</string></edit>
-	</match>
-</fontconfig>
-EOF_FC
-}
-
-# Debian's LXDE session: its XSETTINGS (lxsession), the Openbox theme and
-# the desktop, as the Raspberry Pi Desktop session sets them. The panel stays
-# Debian's; it follows the GTK theme.
-apply_de_lxde() {
-	local f=$HOME/.config/lxsession/LXDE/desktop.conf rc=$HOME/.config/openbox/lxde-rc.xml i
-	if _seed "$f" /etc/xdg/lxsession/LXDE/desktop.conf; then
-		# lxsession passes a change of this file on to the running session
-		_ini_set "$f" GTK sNet/ThemeName "$T_GTK" sNet/IconThemeName "$T_ICONS" sGtk/FontName "$T_FONT" \
-			sGtk/CursorThemeName "$T_ICONS" iGtk/CursorThemeSize "$T_CURSOR_SIZE" sGtk/ColorScheme "$(color_scheme)" \
-			iGtk/ToolbarStyle 3 iGtk/ButtonImages 0 iGtk/MenuImages 0 sNet/SoundThemeName "$T_SOUND_THEME" \
-			iNet/EnableEventSounds 1 iNet/EnableInputFeedbackSounds 1
-	else
-		warn "no LXDE session settings found; skipping its theme"
-	fi
-	if _seed "$rc" /etc/xdg/openbox/LXDE/rc.xml /etc/xdg/openbox/lxde-rc.xml /etc/xdg/openbox/rc.xml; then
-		_openbox_buttons "$T_GTK"
-		_openbox_rc "$rc" 1
-		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --restart >/dev/null 2>&1 || true; fi
-	fi
-	# The desktop. A running pcmanfm takes a new wallpaper at once and then
-	# saves all its settings, so the file is backed up first and written last.
-	for i in 0 1; do _track_file "$HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf"; done
-	if [[ -n $S_WALL && -n ${DISPLAY:-} ]] && _running pcmanfm; then
-		pcmanfm --profile LXDE --set-wallpaper "$S_WALL" --wallpaper-mode crop >/dev/null 2>&1 || true
-		sleep 1
-	fi
-	for i in 0 1; do
-		[[ $i == 0 || -f $HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf ]] || continue
-		[[ -z $S_WALL ]] || _ini_set "$HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf" '*' wallpaper "$S_WALL" wallpaper_mode crop
-		_ini_set "$HOME/.config/pcmanfm/LXDE/desktop-items-$i.conf" '*' desktop_bg "$T_DESK_BG" desktop_fg "$T_DESK_FG" \
-			desktop_shadow "$T_DESK_SHADOW" desktop_font "$T_FONT"
-	done
-	ok "LXDE configured (theme, icons, cursor, font, window frames, desktop)"
-	NOTES+=("LXDE: the desktop's colours and font change at your next login.")
-}
-
-# Xfce: XSETTINGS, Xfwm4, wallpaper, panel and panel CSS.
-apply_de_xfce() {
-	command -v xfconf-query >/dev/null || { warn "xfconf-query not found; skipping Xfce"; return 0; }
-	xfconf-query -c xsettings -l >/dev/null 2>&1 || { warn "cannot reach the Xfce settings daemon; skipping Xfce (rerun with --desktop xfce inside Xfce)"; return 0; }
-	xf_set xsettings /Net/ThemeName string "$T_GTK"
-	xf_set xsettings /Net/IconThemeName string "$T_ICONS"
-	xf_set xsettings /Gtk/CursorThemeName string "$T_ICONS"
-	xf_set xsettings /Gtk/CursorThemeSize int "$T_CURSOR_SIZE"
-	xf_set xsettings /Gtk/ToolbarStyle string both-horiz
-	xf_set xsettings /Gtk/IconSizes string "gtk-large-toolbar=$T_TB_ICON,$T_TB_ICON"
-	xf_set xsettings /Gtk/ButtonImages bool false
-	xf_set xsettings /Gtk/MenuImages bool false
-	xf_set xsettings /Xft/Antialias int 1
-	xf_set xsettings /Xft/Hinting int 1
-	xf_set xsettings /Xft/HintStyle string hintfull
-	xf_set xsettings /Xft/RGBA string rgb
-	xf_set xsettings /Gtk/FontName string "$T_FONT"
-	xf_set xsettings /Net/SoundThemeName string "$T_SOUND_THEME"
-	xf_set xsettings /Net/EnableEventSounds bool true
-	xf_set xsettings /Net/EnableInputFeedbackSounds bool true
-	if [[ -f /usr/share/themes/$T_GTK/xfwm4/themerc ]]; then
-		xf_set xfwm4 /general/theme string "$T_GTK"
-	else
-		warn "no Xfwm4 theme for $T_GTK found; window borders unchanged"
-	fi
-	xf_set xfwm4 /general/title_font string "$T_FONT"
-	xf_set xfwm4 /general/title_alignment string center
-	xf_set xfwm4 /general/button_layout string "|HMC"   # no window menu button, as in Raspberry Pi OS
-	if [[ -n $S_WALL ]]; then
-		local props p n=0
-		props=$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -E '^/backdrop/.*/last-image$' || true)
-		for p in $props; do
-			xf_set xfce4-desktop "$p" string "$S_WALL"
-			xf_set xfce4-desktop "${p%/last-image}/image-style" int 5
-			n=$(( n + 1 ))
-		done
-		(( n )) || warn "no Xfce desktop backdrop found; open Desktop settings once and rerun to set the wallpaper"
-	fi
-	local css='/* Full-colour icons on the Xfce panel, like the Raspberry Pi OS panel */
-.xfce4-panel image { -gtk-icon-style: regular; }'
-	if (( ! T_DARK )); then
-		css+='
-/* PiXflat-style desktop icon labels */
-XfdesktopIconView.view .label, .xfdesktop-icon-view.view .label { background: #ededed; color: black; text-shadow: none; }
-XfdesktopIconView.view .label:active, .xfdesktop-icon-view.view .label:active { background: #87919b; color: white; }'
-	fi
-	_block_set "$HOME/.config/gtk-3.0/gtk.css" "$APP_NAME" "$css"
-	# The panel is set up once, so later runs keep the user's changes.
-	if xfconf-query -c xfce4-panel -p /panels/panel-1/size >/dev/null 2>&1 && _once xfce-panel; then
-		xf_set xfce4-panel /panels/panel-1/position string "p=6;x=0;y=0"   # top, like Raspberry Pi OS
-		xf_set xfce4-panel /panels/panel-1/size uint 36
-		local plug id
-		while read -r plug id; do
-			case $id in applicationsmenu|whiskermenu)
-				[[ -n $S_LOGO ]] && xf_set xfce4-panel "$plug/button-icon" string "$S_LOGO" ;;
-			esac
-		done < <(xfconf-query -c xfce4-panel -p /plugins -l -v 2>/dev/null | grep -E '^/plugins/plugin-[0-9]+ ' || true)
-	fi
-	ok "Xfce configured"
-	NOTES+=("Xfce: restart the panel (xfce4-panel -r) or log in again to pick up the panel CSS.")
-}
-
-# MATE: interface, cursor and wallpaper.
-apply_de_mate() {
-	gs_str org.mate.interface gtk-theme "$T_GTK"
-	gs_str org.mate.interface icon-theme "$T_ICONS"
-	gs_str org.mate.interface font-name "$T_FONT"
-	gs_str org.mate.Marco.general titlebar-font "$T_FONT"
-	gs_str org.mate.sound theme-name "$T_SOUND_THEME"
-	gs_set org.mate.sound event-sounds true
-	gs_set org.mate.sound input-feedback-sounds true
-	gs_str org.mate.font-rendering antialiasing rgba
-	gs_str org.mate.font-rendering hinting full
-	gs_str org.mate.font-rendering rgba-order rgb
-	gs_str org.mate.peripherals-mouse cursor-theme "$T_ICONS"
-	gs_set org.mate.peripherals-mouse cursor-size "$T_CURSOR_SIZE"
-	if [[ -n $S_WALL ]]; then
-		gs_str org.mate.background picture-filename "$S_WALL"
-		gs_str org.mate.background picture-options zoom
-	fi
-	ok "MATE settings applied"
-	NOTES+=("MATE: Marco window borders keep their theme (Raspberry Pi OS ships no Metacity theme).")
-}
-
-# Openbox on its own: the window theme and fonts.
-apply_de_openbox() {
-	local rc=$HOME/.config/openbox/rc.xml
-	if _seed "$rc" /etc/xdg/openbox/rc.xml; then
-		_openbox_buttons "$T_GTK"
-		_openbox_rc "$rc"
-		if [[ -n ${DISPLAY:-} ]] && _running openbox; then openbox --restart >/dev/null 2>&1 || true; fi
-		ok "Openbox configured"
-	else
-		warn "no Openbox rc.xml found; skipping Openbox"
-	fi
-}
-
-# labwc: the window theme, fonts, cursor and the GTK settings used on Wayland.
-apply_de_labwc() {
-	local rc=$HOME/.config/labwc/rc.xml
-	if [[ ! -e $rc ]]; then
-		_track_file "$rc"
-		printf '<?xml version="1.0"?>\n<labwc_config>\n</labwc_config>\n' | _write "$rc"
-	fi
-	_openbox_buttons "$T_GTK"
-	_labwc_rc "$rc"
-	_kv_set "$HOME/.config/labwc/environment" XCURSOR_THEME "$T_ICONS"
-	_kv_set "$HOME/.config/labwc/environment" XCURSOR_SIZE "$T_CURSOR_SIZE"
-	_gs_interface org.gnome.desktop.interface   # GTK reads these on Wayland, not settings.ini
-	if [[ -n ${LABWC_PID:-} ]]; then labwc --reconfigure || true; fi
-	ok "labwc configured"
-	NOTES+=("labwc: set the wallpaper in your background tool (e.g. swaybg -m fill -i ${S_WALL:-<file>}).")
-}
-
-# --qt: make Qt applications use the GTK theme from the next login.
-apply_qt_env() {
-	_kv_set "$HOME/.config/environment.d/90-$APP_NAME.conf" QT_QPA_PLATFORMTHEME gtk3
-	_block_set "$HOME/.xsessionrc" "$APP_NAME" "export QT_QPA_PLATFORMTHEME=gtk3"
-	ok "Qt applications will follow the GTK theme after the next login"
-}
 
 
 ###############################################################################
@@ -5633,36 +5017,32 @@ _bundle_closure() {
 }
 
 # Print the release/architecture pairs that --download builds: every pair from
-# Debian $OFFLINE_OLDEST on that Raspberry Pi publishes packages for, limited
-# to those given with --bundle.
+# Debian $OFFLINE_OLDEST on that Raspberry Pi publishes packages for.
 bundle_pairs() {
-	local s a p
+	local s a
 	for s in $(releases); do
 		(( $(suite_rank "$s") >= OFFLINE_OLDEST )) || continue
 		for a in $(rpi_arches "$s"); do
-			p=$s/$a
-			[[ -z $O_BUNDLE || ,$O_BUNDLE, == *",$p,"* ]] && rpi_populated "$s" "$a" && echo "$p"
+			# Debian 13 and later do not run on 32-bit PCs
+			[[ $a == i386 ]] && suite_ge "$s" trixie && continue
+			rpi_populated "$s" "$a" && echo "$s/$a"
 		done
 	done
 }
 
-# --download: build packages/ for every release and architecture (or those
-# given with --bundle). It holds the Raspberry Pi OS packages, and the Debian
-# packages that they and the session need and that some Debian desktop
-# installation lacks. Each .deb is filed in a folder of its kind (pool/themes,
-# pool/icons, ...). The new packages/ replaces the old one only when complete.
+# --download: build packages/ for every release and architecture. It holds the
+# Raspberry Pi OS packages, and the Debian packages that they and the session
+# need and that some Debian desktop installation lacks. Each .deb is filed in
+# a folder of its kind (pool/themes, pool/icons, ...). The new packages/
+# replaces the old one only when complete.
 download_mode() {
-	local dest=$REPO stage pair suite arch p f idx deb line s v sha z e old=0 n=0
-	local -a pairs rpis debs got want
+	local dest=$REPO stage pair suite arch p f idx deb line s v sha z e old=0 n=0 net
+	local -a pairs rpis debs got
 	declare -gA RPI_NAMES=()   # "name=version" of each Raspberry Pi OS package, for VERSIONS.md
 	preflight_tools
 	[[ -r $DEBIAN_KEYRING ]] || die "$DEBIAN_KEYRING is missing (install debian-archive-keyring)"
 	mapfile -t pairs < <(bundle_pairs)
-	IFS=, read -ra want <<<"$O_BUNDLE"
-	for p in "${want[@]}"; do
-		[[ -z $p || " ${pairs[*]} " == *" $p "* ]] || warn "--bundle $p: Raspberry Pi publishes nothing for it; left out"
-	done
-	(( ${#pairs[@]} )) || die "Raspberry Pi publishes nothing for ${O_BUNDLE:-any release}; releases: $(releases | xargs)"
+	(( ${#pairs[@]} )) || die "Raspberry Pi publishes nothing for any release; releases: $(releases | xargs)"
 	step "Building packages/ from the official archives"
 	log "  Raspberry Pi OS  $RPI_ARCHIVE"
 	log "  Debian           $DEBIAN_ARCHIVE, $DEBIAN_OLD_ARCHIVE"
@@ -5676,19 +5056,26 @@ download_mode() {
 	for pair in "${pairs[@]}"; do
 		suite=${pair%/*} arch=${pair#*/}
 		step "Packages for $suite / $arch ($(( n + 1 )) of ${#pairs[@]})"
-		H_SUITE=$suite H_ARCH=$arch H_RPI_ARCH=$arch
+		H_SUITE=$suite H_ARCH=$arch
 		PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=() IN_SET=() AVAIL=()
 		index_load debian "$suite" "$arch" || die "cannot load the Debian $suite/$arch index"
 		deb=$WORKDIR/index/debian/$suite/Packages-$arch
 		DEP_INDEX=$deb.names
 		_index_names "$deb" >"$DEP_INDEX"
-		{ rpi_pkgs "$suite" "$arch" 0 && rpi_pkgs "$suite" "$arch" 1; } | awk '!seen[$0]++' >"$deb.rpi" \
-			|| die "cannot list the Raspberry Pi OS packages for $suite/$arch"
+		rpi_pkgs "$suite" "$arch" >"$deb.rpi" || die "cannot list the Raspberry Pi OS packages for $suite/$arch"
 		mapfile -t rpis <"$deb.rpi"
-		# The exit status of with_rpi_deps is not reliable, so it is not checked
+		p=$(magnifier_pkg "$suite" "$arch") && [[ -n $p ]] && rpis+=("$p")
+		# Raspberry Pi's network plugin needs its build of libnma and its
+		# connection editor; Debian's libnma is bundled beside them, for a
+		# system where the plugin is not used (see netman_decide)
+		net=0
+		if printf '%s\n' "${rpis[@]}" | grep -qE '^(lx|lp|wf)plug-netman$'; then
+			net=1 rpis+=(libnma0 libnma-common lp-connection-editor)
+		fi
 		mapfile -t rpis < <(with_rpi_deps "$suite" "$arch" "${rpis[@]}")
-		mapfile -t debs < <({ x11_debs; session_debs; theme_debs "$suite"; tray_debs "$suite" 1; login_debs 1; echo accountsservice
-			if suite_ge "$suite" trixie; then wayland_debs; fi; } | awk '!seen[$0]++')
+		mapfile -t debs < <({ x11_debs; session_debs 1; theme_debs "$suite"; qt_debs; tray_debs "$suite" 1; audio_debs "$suite" 1; login_debs 1; echo accountsservice
+			if suite_ge "$suite" trixie; then wayland_debs 1; fi
+			if (( net )); then printf '%s\n' libnma0 libnma-common; fi; } | awk '!seen[$0]++')
 		for p in "${rpis[@]}" "${debs[@]}"; do IN_SET[$p]=1; done
 		idx=$stage/dists/$suite/main/binary-$arch
 		mkdir -p "$idx"
@@ -5696,12 +5083,9 @@ download_mode() {
 		got=()
 		for p in "${rpis[@]}"; do
 			if ! resolve_pkg "$p" rpi; then warn "$p is not available for $suite/$arch; left out"; continue; fi
+			# A failed download stops the build; a refused package is left out
 			f=$(download_pkg "$p")
-			f=$(deps_drop "$f")
-			f=$(compat_fix "$f")
-			f=$(fm_coinstall "$f")
-			f=$(rpcc_session "$f")
-			f=$(scripts_coinstall "$f") || continue
+			f=$(adapt_deb "$f") || continue
 			got+=("$f")
 			_stage_pkg "$stage" "$idx" "$p" "$f"
 			RPI_NAMES[$p=${PKG_VER[$p]}]=1
@@ -5709,14 +5093,15 @@ download_mode() {
 		done
 		# The configuration packages are never installed, so their
 		# dependencies are not bundled
-		for p in "$ART_PKG $(config_suite)" "$PANEL_PKG $(config_suite)" "$WAYLAND_PKG $(config_suite)" "$(menu_pkg)"; do
+		for p in "$PANEL_PKG $(config_suite)" "$WAYLAND_PKG $(config_suite)" "$(menu_pkg)"; do
 			s=${p#* } p=${p%% *}
 			[[ -z ${PKG_VER[$p]:-} ]] || continue
 			line=$(index_candidates rpi "$s" "$arch" "$p" | first_line)
 			[[ -n $line ]] || continue
 			IFS=$'\t' read -r v _ f sha z _ <<<"$line"
 			PKG_VER[$p]=$v PKG_FILE[$p]=$f PKG_SHA[$p]=$sha PKG_SIZE[$p]=${z:-0} PKG_SUITE[$p]=$s PKG_AID[$p]=rpi
-			_stage_pkg "$stage" "$idx" "$p" "$(download_pkg "$p")"
+			f=$(download_pkg "$p")
+			_stage_pkg "$stage" "$idx" "$p" "$f"
 			RPI_NAMES[$p=$v]=1
 			ok "$p $v (Raspberry Pi OS $s; settings and artwork, never installed)"
 		done
@@ -5730,17 +5115,22 @@ download_mode() {
 		done
 		# The packages the script asks for are always bundled, since a minimal
 		# installation may lack what a desktop task brings. Debian's panel and
-		# file manager are bundled beside Raspberry Pi's builds of them, for
-		# --no-pi-apps.
+		# file manager (and libnma) are bundled beside Raspberry Pi's builds of
+		# them, for a system where those builds cannot be used.
 		_bundle_closure "$deb" "$deb.base" "${debs[@]}" -- "${got[@]}" >"$deb.closure" \
 			|| die "cannot work out the Debian packages for $suite/$arch"
 		mapfile -t debs < <(printf '%s\n' "${debs[@]}" | cat - "$deb.closure" \
 			| LC_ALL=C sort -u | while read -r p; do
-				[[ " ${rpis[*]} " != *" $p "* || ( $p =~ ^(lxpanel|pcmanfm|libfm) && $p != *-pi ) ]] && echo "$p"
+				[[ " ${rpis[*]} " != *" $p "* || ( $p =~ ^(lxpanel|pcmanfm|libfm|libnma) && $p != *-pi ) ]] && echo "$p"
 			done)
+		# Debian's builds of those packages depend on Debian's versions
+		for p in "${!IN_SET[@]}"; do
+			if [[ $p =~ ^(lxpanel|pcmanfm|libfm|libnma) && $p != *-pi ]]; then unset 'IN_SET[$p]'; fi
+		done
 		for p in "${debs[@]}"; do
-			# A release may lack a package (PipeWire before Debian 11)
-			if ! resolve_pkg "$p" debian; then warn "$p is not available in Debian $suite/$arch; left out"; continue; fi
+			# A release may lack a package (PipeWire before Debian 11); the
+			# install leaves it out silently too
+			if ! resolve_pkg "$p" debian; then debug "$p is not available in Debian $suite/$arch; left out"; continue; fi
 			f=$(download_pkg "$p")
 			_stage_pkg "$stage" "$idx" "$p" "$f"
 			ok "$p ${PKG_VER[$p]} (Debian $suite)"
@@ -5780,7 +5170,7 @@ save_state() { state_lines | cmp -s - "$SYS_DIR/state" 2>/dev/null || state_line
 # nothing to do or the answer is no; return to apply the update. Nothing is
 # changed before the answer.
 refresh_check() {
-	local p st n=0 line key
+	local p st n=0 line key saved
 	step "Updates for the Raspberry Pi OS look"
 	while read -r line; do
 		key=${line#?}
@@ -5793,12 +5183,11 @@ refresh_check() {
 		esac
 		n=$(( n + 1 ))
 	done < <(diff "$SYS_DIR/state" <(state_lines) 2>/dev/null | sed -n 's/^\([<>]\) /\1/p')
-	while IFS='=' read -r key line; do
-		[[ -n ${GIVEN[$key]:-} ]] || continue
-		grep -qxF "$key=$line" "$SYS_DIR/options" 2>/dev/null && continue
-		log "  + Option changed: $key=$line"
+	saved=$(sed -n 's/^size=//p' "$SYS_DIR/options" 2>/dev/null | first_line) || saved=""
+	if (( O_SIZE_GIVEN )) && [[ $O_SIZE != "${saved:-medium}" ]]; then
+		log "  + Size is now $O_SIZE"
 		n=$(( n + 1 ))
-	done < <(option_lines)
+	fi
 	for p in "${FETCH_PKGS[@]}"; do
 		st=$(_pkg_status "$p")
 		[[ $st == "up to date" || $st == installed* ]] && continue
@@ -5836,14 +5225,24 @@ prepare_upgrade() {
 	prepare_root
 	take_run_lock
 	require_dpkg_ready
+	# What APT can remove without taking other packages, decided before any change
+	if (( ${#remove[@]} )); then
+		local -a safe=() kept=()
+		mapfile -t safe < <(_safe_purge_set "${remove[@]}" || true)
+		(( ${#safe[@]} )) || die "APT would remove other packages with them; nothing was changed"
+		for p in "${remove[@]}"; do [[ " ${safe[*]} " == *" $p "* ]] || kept+=("$p"); done
+		(( ${#kept[@]} == 0 )) || warn "other packages need ${kept[*]}, so they stay and may hold the upgrade back"
+		remove=("${safe[@]}")
+	fi
+	# The Debian upgrade sees only Debian's archives; the next run adds it again
+	NO_APT_SOURCE=1
+	if [[ -f $APT_SRC ]]; then as_root rm -f -- "$APT_SRC" "$APT_PIN" "$APT_HOOK"; apt_source_gone; fi
 	if (( ${#remove[@]} )); then
 		step "Removing the packages built for Debian $H_CODENAME"
-		mapfile -t remove < <(_safe_purge_set "${remove[@]}" || true)
-		(( ${#remove[@]} )) || die "APT would remove other packages with them; nothing was changed"
 		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "${remove[@]}"
 	fi
 	restore_debian_stack
-	set_theme "$(chosen_theme)"
+	set_theme "$(default_theme)"
 	install_pkg
 	ok "Ready. Upgrade Debian and reboot, then run: $(self_cmd)"
 }
@@ -5851,10 +5250,6 @@ prepare_upgrade() {
 # Succeed if Raspberry Pi's build of Debian's panel is installed (PI_STACK).
 _stack_installed() { [[ $(installed_version lxpanel) == *+rpt* ]]; }
 
-# Install Debian's builds of the panel and file manager again in place of
-# Raspberry Pi's (see PI_STACK), from the APT sources. Raspberry Pi's panel
-# plugins, which need its panel, are removed first. Warn about Raspberry Pi
-# builds for which the APT sources have no Debian version.
 # Give every wallpaper setting of the running user that names a Raspberry Pi
 # OS wallpaper Debian's default: the desktop-base alternative, which points
 # to the artwork of this Debian release; without desktop-base, a plain colour.
@@ -5894,26 +5289,55 @@ reset_wallpapers() {
 # Usage: _purge [-q] PACKAGE...
 _purge() {
 	local pol=/usr/sbin/policy-rc.d rc=0
-	local -a quiet=()
-	if [[ $1 == -q ]]; then quiet=(-q); shift; fi
 	if [[ ! -e $pol ]]; then
 		printf '#!/bin/sh\n# Written by %s during an uninstall\nexit 101\n' "$APP_NAME" | sys_write "$pol" && as_root chmod 0755 "$pol" && POLICY_RC=$pol
 	fi
-	if (( ${#quiet[@]} )); then
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$@" >/dev/null || rc=$?
-	else
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "$@" || rc=$?
-	fi
+	as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y "$@" || rc=$?
 	if [[ -n $POLICY_RC ]]; then as_root rm -f -- "$POLICY_RC"; POLICY_RC=""; fi
 	return "$rc"
 }
 
+# Refresh APT's lists once Raspberry Pi's archive is no longer one of its
+# sources, so that APT offers only Debian's packages again.
+apt_source_gone() {
+	[[ ! -f $APT_SRC ]] || return 0
+	compgen -G "/var/lib/apt/lists/*raspberrypi.org*" >/dev/null || return 0
+	as_root apt-get update -q >/dev/null 2>&1 || true
+}
+
+# Print the files of PACKAGE=VERSION pairs in packages/ beside this script,
+# for this computer's architecture, each checked against its SHA256SUMS.
+# Return 1 if one is missing or differs. Usage: _local_debs PACKAGE=VERSION...
+_local_debs() {
+	local repo pv f arch
+	repo=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]:-./x}")" && pwd)/packages
+	arch=$(dpkg --print-architecture)
+	[[ -f $repo/SHA256SUMS ]] && compgen -G "$repo/dists/*/main/binary-$arch/Packages" >/dev/null || return 1
+	for pv; do
+		f=$(P=${pv%%=*} V=${pv#*=} awk -v RS= -F'\n' '{
+			p = v = f = ""
+			for (i = 1; i <= NF; i++) {
+				if ($i ~ /^Package: /) p = substr($i, 10)
+				else if ($i ~ /^Version: /) v = substr($i, 10)
+				else if ($i ~ /^Filename: /) f = substr($i, 11)
+			}
+			if (p == ENVIRON["P"] && v == ENVIRON["V"]) { print f; exit }
+		}' "$repo"/dists/*/main/binary-"$arch"/Packages | first_line)
+		[[ -n $f ]] || return 1
+		(cd -- "$repo" && F=$f awk '$2 == ENVIRON["F"]' SHA256SUMS | sha256sum --quiet --strict -c -) >/dev/null 2>&1 || return 1
+		printf '%s\n' "$repo/$f"
+	done
+}
+
+# Install Debian's builds of the panel, file manager and libnma again in place
+# of Raspberry Pi's, from the APT sources, removing Raspberry Pi's panel
+# plugins first. Warn about builds without a Debian version.
 restore_debian_stack() {
 	local p v src
-	local -a args=() kept=() plugins=() autos=()
+	local -a args=() kept=() plugins=() autos=() debs=()
 	while read -r p v src; do
 		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC|libnma)$ ]] || continue
-		v=$(LC_ALL=C apt-cache madison "$p" 2>/dev/null | awk -F' *[|] *' 'NR == 1 { print $2 }')
+		v=$(apt_versions "$p" | first_line)
 		if [[ -n $v ]]; then args+=("$p=$v"); else kept+=("$p"); fi
 	done < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version} ${source:Package}\n' 2>/dev/null | awk '$1 ~ /^.i/ { $1 = ""; print }')
 	(( ${#args[@]} + ${#kept[@]} )) || return 0
@@ -5929,7 +5353,11 @@ restore_debian_stack() {
 		else
 			mapfile -t autos < <(apt-mark showauto "${args[@]%%=*}" 2>/dev/null || true)
 		fi
-		if as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" --allow-downgrades "${args[@]}"; then
+		# Debian's builds from packages/ beside this script when it has them
+		# all, so that an offline computer gets them back too
+		mapfile -t debs < <(_local_debs "${args[@]}" || true)
+		(( ${#debs[@]} == ${#args[@]} )) || debs=("${args[@]}")
+		if as_root env DEBIAN_FRONTEND=noninteractive apt-get install "${APT_OPTS[@]}" --allow-downgrades "${debs[@]}"; then
 			# Installing by name marks them manual; they were dependencies of a desktop
 			if (( ${#autos[@]} )); then as_root apt-mark auto "${autos[@]}" >/dev/null || true; fi
 			ok "Debian's ${args[*]%%=*} are installed again"
@@ -5994,44 +5422,34 @@ uninstall() {
 
 	step "Restoring the login screen and the users' session choice"
 	# Users who chose the session get the login screen's default session
-	for f in $(sudo sh -c "grep -lE '^X?Session=($SESSION_ID|$PREV_NAME)(-wayland)?\$' /var/lib/AccountsService/users/*" 2>/dev/null); do
+	for f in $(sudo sh -c "grep -lE '^X?Session=$SESSION_ID(-wayland)?\$' /var/lib/AccountsService/users/*" 2>/dev/null); do
 		u=$(id -u "${f##*/}" 2>/dev/null) || continue
 		prev=""
 		for m in XSession Session; do
 			# The session chosen before the install, else the login screen's default
 			v=$(awk -F'\t' -v u="${f##*/}" -v m="$m" '$1 == u && $2 == m { print $3; exit }' "$SYS_DIR/session-before" 2>/dev/null || true)
-			sudo grep -qE "^$m=($SESSION_ID|$PREV_NAME)(-wayland)?\$" "$f" && as_root busctl call org.freedesktop.Accounts \
+			sudo grep -qE "^$m=$SESSION_ID(-wayland)?\$" "$f" && as_root busctl call org.freedesktop.Accounts \
 				"/org/freedesktop/Accounts/User$u" org.freedesktop.Accounts.User "Set$m" s "$v" >/dev/null 2>&1 || true
 			[[ -z $v ]] || prev=$v
 		done
 		if [[ -n $prev ]]; then ok "${f##*/} logs in to $prev again"; else ok "${f##*/} logs in to the login screen's default session again"; fi
 	done
-	# LightDM's own record of the users' session choice, used without
-	# AccountsService
-	for f in $(sudo sh -c "grep -lE '^Session=($SESSION_ID|$PREV_NAME)(-wayland)?\$' /var/cache/lightdm/dmrc/*.dmrc" 2>/dev/null); do
+	# LightDM's own record of the users' session choice, used without AccountsService
+	for f in $(sudo sh -c "grep -lE '^Session=$SESSION_ID(-wayland)?\$' /var/cache/lightdm/dmrc/*.dmrc" 2>/dev/null); do
 		as_root rm -f -- "$f"
 		ok "$(basename "$f" .dmrc) logs in to the login screen's default session again"
 	done
-	lightdm_conf_repair
-	if [[ -f $SYS_DIR/pi-greeter.conf.new ]]; then
-		as_root rm -f -- /etc/lightdm/pi-greeter.conf
-	elif [[ -f $SYS_DIR/pi-greeter.conf.orig ]]; then
-		as_root cp -a -- "$SYS_DIR/pi-greeter.conf.orig" /etc/lightdm/pi-greeter.conf
-		ok "Restored the previous /etc/lightdm/pi-greeter.conf"
-	fi
 
-	# This user's files: the settings of other desktops, and the files the
+	# This user's files: those this script backed up, and the files the
 	# session wrote that are unchanged
 	step "Restoring the settings of $(id -un)"
 	restore_user
-	restore_user "$(_st "$PREV_NAME")"
-	restore_user "$(_st "$OLD_NAME")"
 	# The settings of the Raspberry Pi Desktop session, which no other session
 	# reads, so that a new install starts from the defaults
 	f=${XDG_CONFIG_HOME:-$HOME/.config}
 	d=${XDG_DATA_HOME:-$HOME/.local/share}
-	for p in rpd-rc.xml lxde-pi-rc.xml rpd-x-rc.xml LXDE-pi-rc.xml; do
-		rm -f -- "$f/openbox/$p" "$f/openbox/.$p.$APP_NAME" "$f/openbox/.$p.$PREV_NAME"
+	for p in rpd-rc.xml lxde-pi-rc.xml; do
+		rm -f -- "$f/openbox/$p" "$f/openbox/.$p.$APP_NAME"
 	done
 	rm -rf -- "$f/lxsession/rpd-x" "$f/lxsession/LXDE-pi" "$f/lxpanel/rpd-x" "$f/lxpanel/LXDE-pi" "$f/lxpanel-pi" \
 		"$f/pcmanfm/rpd-x" "$f/pcmanfm/LXDE-pi" "$f/wf-panel-pi" "$f/wf-panel-pi.ini"
@@ -6040,36 +5458,28 @@ uninstall() {
 	for p in "$f/pcmanfm/default"/desktop-items-*.conf; do
 		if grep -q '^wallpaper=/usr/share/rpd-wallpaper/' "$p" 2>/dev/null; then rm -f -- "$p"; fi
 	done
-	# labwc's settings, where they hold a Raspberry Pi theme or the session's mark
-	if grep -qE '<name>PiX(flat|noir|trix|onyx)?</name>' "$f/labwc/rc.xml" 2>/dev/null; then
-		rm -f -- "$f/labwc/rc.xml" "$f/labwc/themerc-override"
-	elif grep -qF '<!-- rpios-look -->' "$f/labwc/rc.xml" 2>/dev/null; then
-		rm -f -- "$f/labwc/rc.xml"
+	# The user's own files that the session changed (keep_orig): given back,
+	# or removed where the session made them
+	if [[ -d $d/$APP_NAME/orig ]]; then
+		while IFS= read -r -d '' p; do
+			k=${p#"$d/$APP_NAME/orig/"}
+			if [[ $k == *.none ]]; then rm -f -- "$f/${k%.none}"; else mkdir -p "$(dirname "$f/$k")" && cp -p -- "$p" "$f/$k"; fi
+		done < <(find "$d/$APP_NAME/orig" -type f -print0)
 	fi
-	# The copies of the themes with the highlight colours of Appearance Settings
-	for p in PiXflat PiXnoir PiXtrix PiXonyx PiX; do
-		rm -rf -- "$d/themes/$p" "$d/themes/t$p"
-	done
-	for p in "$APP_NAME" "$APP_NAME-desktops" "$PREV_NAME"; do
-		[[ -f $f/gtk-4.0/gtk.css ]] && sed -i --follow-symlinks "/^\/\* >>> $p >>> \*\/\$/,/^\/\* <<< $p <<< \*\/\$/d" "$f/gtk-4.0/gtk.css"
-	done
-	# The highlight colour of rpios-look-set, which only the session reads
+	# The session's own user data (markers, saved originals), which only it reads
 	rm -rf -- "${d:?}/$APP_NAME"
-	# The session's own GSettings database and XSETTINGS
-	rm -f -- "$f/dconf/${APP_NAME//-/}" "$f/xsettingsd/xsettingsd.conf"
-	# Files and folders the sessions left empty; rmdir keeps folders with content
-	[[ ! -f $f/gtk-4.0/gtk.css || -s $f/gtk-4.0/gtk.css ]] || rm -f -- "$f/gtk-4.0/gtk.css"
-	# Empty temporary files of a sed -i that the end of a session cut short
-	find "$f/gtk-4.0" -maxdepth 1 -type f -name 'sed??????' -empty -delete 2>/dev/null || true
-	rmdir -- "$f/gtk-4.0" "$f/pcmanfm/default" "$f/pcmanfm" "$f/xsettingsd" "$f/dconf" "$f/labwc" "$f/lxpanel" \
-		"$f/lxsession" "$f/openbox" "$d/themes" "$d/desktop-directories" "$d/flatpak/db" "$d/flatpak" 2>/dev/null || true
+	# The session's own GSettings database
+	rm -f -- "$f/dconf/${APP_NAME//-/}"
+	# Folders the sessions left empty; rmdir keeps folders with content
+	rmdir -- "$f/pcmanfm/default" "$f/pcmanfm" "$f/xsettingsd" "$f/dconf" "$f/labwc" "$f/lxpanel" \
+		"$f/lxsession" "$f/openbox" "$d/desktop-directories" "$d/flatpak/db" "$d/flatpak" 2>/dev/null || true
 
 	step "Removing packages"
-	for p in "$APP_PKG" "$PREV_PKG" "$OLD_PKG"; do
-		[[ -n $(installed_version "$p") ]] || continue
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$p" >/dev/null
-		ok "Removed the Raspberry Pi Desktop session ($p)"
-	done
+	if [[ -n $(installed_version "$APP_PKG") ]]; then
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "$APP_PKG" >/dev/null
+		ok "Removed the Raspberry Pi Desktop session ($APP_PKG)"
+	fi
+	apt_source_gone
 	restore_debian_stack
 	# Putting Debian's panel back removes Raspberry Pi's plugins for it
 	mapfile -t pkgs < <(for p in "${pkgs[@]}"; do [[ -z $(installed_version "$p") ]] || echo "$p"; done)
@@ -6095,8 +5505,7 @@ uninstall() {
 		fi
 		pkgs=()
 	fi
-	# The icon caches that removed icon sets leave in folders that no package
-	# owns any more
+	# Icon caches left in icon set folders that no package owns any more
 	for f in /usr/share/icons/PiXflat /usr/share/icons/PiXtrix /usr/share/icons/PiX; do
 		[[ -d $f && $(ls -A "$f") == icon-theme.cache ]] && ! dpkg -S "$f" >/dev/null 2>&1 && as_root rm -rf -- "$f"
 	done
@@ -6144,7 +5553,6 @@ usage() {
 # Parse the command line into the O_* options. A mode may appear anywhere.
 parse_args() {
 	local opt val eq mode=""
-	local -a des=()
 	while (( $# )); do
 		opt=$1 eq=0
 		# --option=value is read as --option value; eq marks it until the
@@ -6154,23 +5562,9 @@ parse_args() {
 			--refresh|--uninstall|--prepare-upgrade|--download|--offline)
 				[[ -z $mode || $mode == "${opt#--}" ]] || die "give only one of --refresh, --uninstall, --prepare-upgrade, --download and --offline"
 				mode=${opt#--} ;;
-			-t|--theme)       (( $# >= 2 )) || die "$opt needs a value"; set_option theme "${2,,}" || die "unknown theme '$2' (see --help)"; GIVEN[theme]=1; shift; eq=0 ;;
-			--4k|--no-4k)     set_option 4k "$([[ $opt == --4k ]] && echo 1 || echo 0)"; GIVEN[4k]=1 ;;
-			--pi-apps|--no-pi-apps) set_option pi-apps "$([[ $opt == --pi-apps ]] && echo 1 || echo 0)"; GIVEN[pi-apps]=1 ;;
-			--login-screen|--no-login-screen) set_option login-screen "$([[ $opt == --login-screen ]] && echo 1 || echo 0)"; GIVEN[login-screen]=1 ;;
-			--pi-greeter|--no-pi-greeter) set_option pi-greeter "$([[ $opt == --pi-greeter ]] && echo 1 || echo 0)"; GIVEN[pi-greeter]=1 ;;
-			--login-background) (( $# >= 2 )) || die "$opt needs a value"
-				set_option login-background "$2" || die "invalid login background '$2' (raspios, debian or a full path)"; GIVEN[login-background]=1; shift; eq=0 ;;
-			--qt|--no-qt)     set_option qt "$([[ $opt == --qt ]] && echo 1 || echo 0)"; GIVEN[qt]=1 ;;
 			--size)           (( $# >= 2 )) || die "$opt needs a value"
-				set_option size "${2,,}" || die "unknown size '$2' (small, medium, large or larger)"; GIVEN[size]=1; shift; eq=0 ;;
-			--wayland|--no-wayland|--auto|--auto-wayland)   # --auto-wayland: the earlier name of --auto
-				case $opt in --wayland) val=on ;; --no-wayland) val=off ;; *) val=auto ;; esac
-				set_option wayland "$val"; GIVEN[wayland]=1 ;;
-			-d|--desktop)     (( $# >= 2 )) || die "$opt needs a value"; O_DESKTOPS=${2,,}; shift; eq=0 ;;
-			--bundle)         (( $# >= 2 )) || die "$opt needs a value"; O_BUNDLE=${2,,}; shift; eq=0 ;;
-			--no-log)         O_LOG=0 ;;
-			-y|--yes)         O_YES=1 ;;
+				size_ok "${2,,}" || die "unknown size '$2' (small, medium, large or larger)"
+				O_SIZE=${2,,} O_SIZE_GIVEN=1; shift; eq=0 ;;
 			-v|--verbose)     O_VERBOSE=1 ;;
 			-h|--help)        usage; exit 0 ;;
 			-V|--version)     echo "$APP_NAME $APP_VERSION"; exit 0 ;;
@@ -6180,16 +5574,7 @@ parse_args() {
 		shift
 	done
 	O_MODE=${mode:-install}
-	if [[ $O_DESKTOPS != none && $O_DESKTOPS != all ]]; then
-		# The desktops are separated by commas or spaces
-		IFS=$', \t\n' read -ra des <<<"$O_DESKTOPS"
-		for val in "${des[@]}"; do
-			[[ -z $val || " ${DE_OTHER[*]} " == *" $val "* ]] || die "unsupported desktop '$val' (use: ${DE_OTHER[*]}, all or none)"
-		done
-		[[ -n ${des[*]// /} ]] || die "--desktop needs a value (use: ${DE_OTHER[*]}, all or none)"
-	fi
-	[[ -z $O_BUNDLE || $O_MODE == download ]] || die "--bundle goes with --download"
-	if (( ! O_YES )) && { : </dev/tty; } 2>/dev/null; then O_INTERACTIVE=1; fi
+	if { : </dev/tty; } 2>/dev/null; then O_INTERACTIVE=1; fi
 }
 
 # Copy everything this run prints to a log in the home folder, named after
@@ -6197,7 +5582,6 @@ parse_args() {
 # the system. Only the newest ten logs of each mode are kept.
 start_log() {
 	local log
-	(( O_LOG )) || return 0
 	printf -v log '%s/%s-%s-%(%Y%m%d-%H%M%S)T.log' "$HOME" "$APP_NAME" "$O_MODE" -1
 	{ : >>"$log"; } 2>/dev/null || return 0
 	# shellcheck disable=SC2012
@@ -6210,7 +5594,7 @@ start_log() {
 		printf 'Session:  %s (XDG_CURRENT_DESKTOP=%s, display %s)\n' "${DESKTOP_SESSION:-none}" \
 			"${XDG_CURRENT_DESKTOP:-}" "${DISPLAY:-${WAYLAND_DISPLAY:-none}}"
 		printf 'Packages: %s\n' "$(dpkg-query -W -f='${db:Status-Abbrev} ${Package}=${Version}\n' lxsession openbox \
-			lxpanel lxpanel-pi pcmanfm pcmanfm-pi lightdm lightdm-gtk-greeter pi-greeter "$APP_PKG" "$PREV_PKG" "$OLD_PKG" 2>/dev/null \
+			lxpanel lxpanel-pi pcmanfm pcmanfm-pi lightdm lightdm-gtk-greeter "$APP_PKG" 2>/dev/null \
 			| awk '$1 ~ /^.i/ { print $2 }' | paste -sd' ' -)"
 	} >>"$log"
 	# Each line is logged with the date and time, without colour codes
@@ -6226,84 +5610,26 @@ cleanup() {
 	if [[ -n $BUILD_STAGE && -d $BUILD_STAGE ]]; then rm -rf -- "$BUILD_STAGE"; fi
 }
 
-# Show a numbered menu and set REPLY to the chosen index (from 0).
-# Usage: _menu PROMPT DEFAULT-NUMBER ITEM...
-_menu() {
-	local prompt=$1 def=$2 ans i; shift 2
-	for i in $(seq 1 $#); do log "   $i) ${!i}"; done
-	while :; do
-		read -r -p "  $prompt [$def]: " ans </dev/tty || ans=""
-		ans=${ans:-$def}
-		if [[ $ans =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= $# )); then REPLY=$(( ans - 1 )); return 0; fi
-		warn "please enter a number from the list"
-	done
-}
-
-# Ask which installed theme to use, when the run is interactive and --theme
-# was not given.
-LOOK_CHOSEN=0
-choose_look() {
-	local i def=1 cur dflt
-	local -a ids=() items=()
-	[[ -z ${GIVEN[theme]:-} ]] && (( O_INTERACTIVE )) || return 0
-	cur=$(chosen_theme) dflt=$(default_theme)
-	for i in pixflat pixnoir pixtrix pixonyx pix; do
-		set_theme "$i"
-		[[ -f /usr/share/themes/$T_GTK/gtk-3.0/gtk.css ]] || continue
-		ids+=("$i") items+=("$T_DESC")
-		[[ $i == "$cur" ]] && def=${#ids[@]}
-	done
-	(( ${#ids[@]} > 1 )) || { set_theme "$cur"; return 0; }
-	step "Select the look"
-	log "  Every theme is installed; choose the one the session uses. You can change it"
-	log "  later with: $APP_NAME-set --theme NAME (for you), or by running this again."
-	_menu "Theme" "$def" "${items[@]}"
-	O_THEME=${ids[REPLY]} LOOK_CHOSEN=1
-	if [[ $O_THEME == "$dflt" ]]; then O_THEME=auto; fi
-	set_theme "$(chosen_theme)"
-}
-
-# Apply the chosen theme to the current user's own settings, if they have
-# any: their own theme, or their own desktop file, which the file manager
-# saves with the wallpaper it showed.
-apply_user_look() {
-	local f w cur=""
-	(( LOOK_CHOSEN )) || [[ -n ${GIVEN[theme]:-} ]] || return 0
-	[[ -x /usr/bin/$APP_NAME-set ]] || return 0
-	f=${XDG_CONFIG_HOME:-$HOME/.config}/lxsession/$S_PROFILE/desktop.conf
-	w=${XDG_CONFIG_HOME:-$HOME/.config}/pcmanfm/$S_FM_PROFILE/desktop-items-0.conf
-	[[ ! -f $f ]] || cur=$(sed -n 's/^sNet\/ThemeName=//p' "$f" | first_line)
-	if [[ -n $cur && $cur != "$T_GTK" ]]; then :
-	elif [[ -f $w && -n $S_WALL ]] && ! grep -qxF "wallpaper=$S_WALL" "$w"; then :
-	else return 0; fi
-	if "/usr/bin/$APP_NAME-set" --theme "$(chosen_theme)" >/dev/null 2>&1; then
-		ok "Your own settings in the session have the $T_GTK look now"
-	else
-		warn "Could not set $T_GTK for you; run: $APP_NAME-set --theme $(chosen_theme)"
-	fi
-}
-
 # Summarise what an install will do.
 print_plan() {
-	local p total=0 src="$RPI_ARCHIVE"
-	for p in "${FETCH_PKGS[@]}"; do [[ $(_pkg_status "$p") == "up to date" ]] || total=$(( total + ${PKG_SIZE[$p]:-0} )); done
+	local p st total=0 src="$RPI_ARCHIVE"
+	local -A status=()
+	for p in "${FETCH_PKGS[@]}"; do
+		st=$(_pkg_status "$p") status[$p]=$st
+		[[ $st == "up to date" || $st == installed* ]] || total=$(( total + ${PKG_SIZE[$p]:-0} ))
+	done
 	[[ -n $REPO ]] && src="packages/"
 	step "Plan"
-	if [[ -z ${GIVEN[theme]:-} ]] && (( O_INTERACTIVE )); then
-		log "  Looks        every theme; you choose the one to use at the end (now: ${T_DESC%% —*})"
-	else
-		log "  Looks        every theme; the session uses ${T_DESC%% —*}"
-	fi
+	log "  Looks        every theme; the session uses ${T_DESC%% —*} (change it with: $APP_NAME-set --theme NAME)"
 	log "  Session      Raspberry Pi Desktop on $(display_name), on the login screen for every user"
 	[[ $H_DISPLAY == wayland ]] && log "               and on X (Openbox), for when Wayland does not suit"
-	log "  Packages     from $src ($H_SUITE, $H_ARCH), up to $(human_size "$total") to download"
-	for p in "${FETCH_PKGS[@]}"; do _pkg_line "$p" "${PKG_VER[$p]}" "$(_pkg_status "$p")"; done
+	log "  Packages     from $src ($H_SUITE, $H_ARCH)$([[ -n $REPO ]] || echo ", up to $(human_size "$total") to download")"
+	for p in "${FETCH_PKGS[@]}"; do _pkg_line "$p" "${PKG_VER[$p]}" "${status[$p]}"; done
 	for p in "${APT_PKGS[@]}"; do _pkg_line "$p" "(APT)" "new, from your Debian sources"; done
-	[[ $O_DESKTOPS == none ]] || log "  Also         ${O_DESKTOPS//,/, } for $(id -un), with a backup of the settings it changes"
 	if (( USE_STACK )); then
 		log "  Replaces     Debian's panel and file manager with Raspberry Pi OS's builds of"
 		log "               them (lxpanel, pcmanfm, libfm above), which Debian's LXDE session"
-		log "               then uses too. --uninstall puts Debian's back; --no-pi-apps keeps them."
+		log "               then uses too. --uninstall puts Debian's back."
 		log "  Your settings in Debian's own sessions are not changed."
 	else
 		log "  Debian's own sessions and your settings in them are not changed."
@@ -6319,7 +5645,7 @@ summary() {
 		for n in "${NOTES[@]}"; do log "   - $n"; done
 	fi
 	ok "${C_B}Done.${C_0} $T_DESC is the look of the Raspberry Pi Desktop session."
-	if (( RELOGIN )) && [[ ${DESKTOP_SESSION:-} != "$SESSION_ID" ]]; then
+	if (( RELOGIN )) && [[ ${XDG_SESSION_DESKTOP:-} != "$SESSION_ID" ]]; then
 		info "Log out and choose ${C_B}Raspberry Pi Desktop${C_0} on the login screen (it is chosen for you); other sessions stay as they were."
 	fi
 	info "Updates: $(self_cmd) --refresh    Undo: $(self_cmd) --uninstall"
@@ -6333,13 +5659,10 @@ install_mode() {
 			|| die "the Raspberry Pi OS look is not installed; install it with: $(self_cmd)"
 	fi
 	preflight_tools
-	[[ $O_MODE == offline && -z $H_RPI_ARCH ]] && die "an offline install needs amd64, arm64, armhf or i386; install online instead"
 	[[ -z $REPO ]] || verify_repo
 	pick_display
 	print_machine
-	set_theme "$(chosen_theme)"
-	# Root rights come first: reading the kernel log for missing firmware
-	# needs them
+	set_theme "$(default_theme)"
 	info "Administrator rights are needed (sudo)"
 	prepare_root
 	resolve_all
@@ -6353,21 +5676,15 @@ install_mode() {
 	require_dpkg_ready
 	as_root install -d -m 0755 "$SYS_DIR"
 	record_packages_before
-	migrate_old
 	install_all
-	[[ $O_MODE == refresh ]] || choose_look
 	install_pkg
+	apt_source_gone
 	step "Setting up the login screen and the session for $(id -un)"
-	(( O_LOGIN && O_PI_GREETER )) && greeter_conf
 	_state_init
 	choose_session
-	apply_user_look
-	apply_desktops
 	reload_session
-	save_options
+	save_size
 	save_state
-	# --prepare-upgrade of versions up to 3.8.2 left this record
-	[[ ! -f $SYS_DIR/removed-for-upgrade ]] || as_root rm -f -- "$SYS_DIR/removed-for-upgrade"
 	summary
 }
 
@@ -6388,14 +5705,12 @@ main() {
 	start_log
 	log ""
 	log "${C_B}  $APP_NAME $APP_VERSION${C_0} — the Raspberry Pi OS desktop look for Debian"
-	[[ $O_MODE == download ]] || adopt_prev_records
 	case $O_MODE in
 		download)  download_mode; return 0 ;;
 		uninstall) uninstall; return 0 ;;
 	esac
 	pick_suite
-	load_options
-	size_resolve
+	load_size
 	case $O_MODE in
 		prepare-upgrade) prepare_upgrade ;;
 		*)               install_mode ;;
