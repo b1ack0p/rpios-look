@@ -80,7 +80,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.12.1"
+readonly APP_VERSION="3.13.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -1748,8 +1748,35 @@ _icon_aliases() {
 	done
 }
 
+# The menu button's Debian logo: Debian's white swirl on a red circle, made
+# from desktop-base's white logo, the same file from Debian 10 on. Sets
+# LOGO_BADGE to its path on the installed system; without that logo there is
+# none, and the menu button shows Debian's plain logo. Usage: logo_badge_build ROOT
+LOGO_BADGE=""
+logo_badge_build() {
+	local root=$1 f t paths
+	LOGO_BADGE=""
+	for f in "$SYS_ROOT"/usr/share/icons/{desktop-base,hicolor}/scalable/emblems/emblem-debian-white.svg; do
+		[[ -f $f ]] && break
+	done
+	[[ -f $f ]] || return 0
+	f=$(tr '\n\t' '  ' <"$f")
+	# Its paths, white, in a group placed by the transform of the first group
+	t=$(sed -n 's/^[^>]*>.*<g [^>]*transform="\([^"]*\)".*/\1/p' <<<"$f")
+	paths=$(grep -o ' d="[^"]*"' <<<"$f" | sed 's/^ d=/<path d=/; s/$/\/>/')
+	[[ -n $paths ]] || return 0
+	# The swirl is 87 by 108 of 128; at 0.72 it sits well inside the circle
+	{
+		printf '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">\n'
+		printf '<circle cx="64" cy="64" r="64" fill="#d70a53"/>\n'
+		printf '<g fill="#ffffff" transform="translate(64 64) scale(0.72) translate(-64 -64) %s">\n%s\n</g>\n</svg>\n' \
+			"${t:-translate(20.52,9.78)}" "$paths"
+	} | _write "$root$SHARE/debian-menu.svg"
+	LOGO_BADGE=$SHARE/debian-menu.svg
+}
+
 # Show the Debian logo wherever the theme shows the Raspberry Pi logo
-# (LOGO_ICONS), such as on the menu button. The images come from Debian's
+# (LOGO_ICONS), such as on the menu button: LOGO_BADGE where there is one. The images come from Debian's
 # desktop-base, else from the hicolor theme, else from
 # /usr/share/pixmaps/debian-logo.png, as in _logo_path. Files are looked for
 # under SYS_ROOT; the links point to their paths on the installed system.
@@ -1757,6 +1784,11 @@ _icon_aliases() {
 # Debian has none. Usage: _logo_aliases OUT-DIR [VARIANT]
 _logo_aliases() {
 	local out=$1 v=${2:-} t f dir size ext n found=0
+	if [[ -n $LOGO_BADGE ]]; then
+		mkdir -p "$out/scalable/places"
+		for n in "${LOGO_ICONS[@]}"; do ln -sfn "$LOGO_BADGE" "$out/scalable/places/$n.svg"; done
+		return 0
+	fi
 	for t in desktop-base hicolor; do
 		for f in "$SYS_ROOT/usr/share/icons/$t"/*/emblems/emblem-debian"$v".png \
 			"$SYS_ROOT/usr/share/icons/$t/scalable/emblems/emblem-debian$v.svg"; do
@@ -2522,8 +2554,8 @@ _session_entries() {
 # Debian logo. Usage: _session_icons DATA-DIR
 _session_icons() {
 	local data=$1 b o inh f n rel size t logo out
-	logo=/usr/share/icons/desktop-base/scalable/emblems/emblem-debian.svg
-	[[ -f $logo ]] || logo=$(_logo_path) || logo=""
+	logo=${LOGO_BADGE:-/usr/share/icons/desktop-base/scalable/emblems/emblem-debian.svg}
+	[[ -n $LOGO_BADGE || -f $logo ]] || logo=$(_logo_path) || logo=""
 	for b in PiXflat PiXtrix PiX; do
 		[[ -f $SYS_ROOT/usr/share/icons/$b/index.theme ]] || continue
 		inh="$b-Debian,"
@@ -3966,45 +3998,78 @@ usage() {
 Usage: $APP-power [OPTION]...
 Set when the screen of your Raspberry Pi Desktop session blanks and locks and
 when the computer sleeps: for you only, at once and for later logins. MIN is
-in minutes without use; 0 is never.
+minutes without use, such as 30, 30m or 30min; 0 or never is never. Any
+option set to default goes back to the session's setting, in brackets.
 
   --lock on|off              lock the screen: after --lock-after, on waking
-                             from sleep and with Ctrl+Alt+L
-  --lock-after MIN           lock the screen after MIN minutes
-  --blank MIN                blank the screen after MIN minutes
-  --monitor-off MIN          switch the monitor off after MIN minutes
-  --sleep-battery MIN        sleep after MIN minutes, on battery
-  --sleep-ac MIN             sleep after MIN minutes, on mains power
-  --lid sleep|lock|nothing   what closing the lid does while you are logged in
+                             from sleep and with Ctrl+Alt+L [$(def lock)]
+  --lock-after MIN           lock the screen after MIN minutes [$(def lock_after)]
+  --blank MIN                blank the screen after MIN minutes [$(def blank)]
+  --monitor-off MIN          switch the monitor off after MIN minutes [$(def monitor_off)]
+  --sleep-battery MIN        sleep after MIN minutes, on battery [$(def sleep_battery)]
+  --sleep-ac MIN             sleep after MIN minutes, on mains power [$(def sleep_ac)]
+  --lid sleep|lock|nothing   what closing the lid does while you are logged in [$(def lid)]
   --show                     show your settings
-  --reset                    back to the session's settings
+  --reset                    all back to the session's settings
   -h, --help                 show this help
 
-Example: $APP-power --lock-after 5 --sleep-battery 15
+Example: $APP-power --lock-after 5 --sleep-ac 30
 EOT
 }
 die() { printf '%s-power: %s\n' "$APP" "$*" >&2; exit 1; }
-# The value of a setting: the user's, else the session's.
-get() { sed -n "s/^$1=//p" "$SHARE/power.conf" "$file" 2>/dev/null | tail -n1; }
+# A setting of the session (power.conf) or yours (FILE).
+conf() { sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -n1; }
+# A value as shown: minutes, never, or as it is.
+val() { case $1 in lock|lid) echo "${2:-none}" ;; *) [[ -z $2 || $2 == 0 ]] && echo never || echo "$2 min" ;; esac; }
+def() { val "$1" "$(conf "$1" "$SHARE/power.conf")"; }
+label() {
+	case $1 in lock) echo Lock ;; lock_after) echo "Lock after" ;; blank) echo Blank ;;
+		monitor_off) echo "Monitor off" ;; sleep_battery) echo "Sleep on battery" ;;
+		sleep_ac) echo "Sleep on mains" ;; lid) echo "Lid closed" ;; esac
+}
 put() {
 	mkdir -p "$state" || die "cannot write $file"
 	{ grep -v "^$1=" "$file" 2>/dev/null; printf '%s=%s\n' "$1" "$2"; } >"$file.new" && mv -f "$file.new" "$file"
+	printf '%s set to %s by you (default %s)\n' "$(label "$1")" "$(val "$1" "$2")" "$(def "$1")"
+	changed=1
 }
-mins() { local v; v=$(get "$1"); if [[ -z $v || $v == 0 ]]; then echo never; else echo "$v min"; fi; }
+# Drop your own value of a setting: the session's applies again.
+drop() {
+	if [[ -f $file ]]; then
+		grep -v "^$1=" "$file" >"$file.new"
+		if [[ -s $file.new ]]; then mv -f "$file.new" "$file"; else rm -f "$file.new" "$file"; fi
+	fi
+	printf '%s back to the default, %s\n' "$(label "$1")" "$(def "$1")"
+	changed=1
+}
+# Each setting: yours, with the default beside it, else the default.
 show() {
-	printf '%-20s %s\n' "Lock" "$(get lock)" "Lock after" "$(mins lock_after)" "Blank" "$(mins blank)" \
-		"Monitor off" "$(mins monitor_off)" "Sleep on battery" "$(mins sleep_battery)" \
-		"Sleep on mains" "$(mins sleep_ac)" "Lid closed" "$(get lid)"
+	local k u
+	echo
+	for k in lock lock_after blank monitor_off sleep_battery sleep_ac lid; do
+		u=$(conf "$k" "$file")
+		if [[ -n $u ]]; then
+			printf '%-20s %-10s set by you (default %s)\n' "$(label "$k")" "$(val "$k" "$u")" "$(def "$k")"
+		else
+			printf '%-20s %-10s default\n' "$(label "$k")" "$(def "$k")"
+		fi
+	done
 }
 (( $# )) || { usage; exit 1; }
+changed=
 while (( $# )); do
 	case $1 in
-		--lock) [[ ${2:-} =~ ^(on|off)$ ]] || die "--lock takes on or off"; put lock "$2"; shift ;;
+		--lock|--lid) k=${1#--}; [[ ${2:-} == default ]] && { drop "$k"; shift 2; continue; }
+			[[ $k == lid || ${2:-} =~ ^(on|off)$ ]] || die "--lock takes on, off or default"
+			[[ $k == lock || ${2:-} =~ ^(sleep|lock|nothing)$ ]] || die "--lid takes sleep, lock, nothing or default"
+			put "$k" "$2"; shift ;;
 		--lock-after|--blank|--monitor-off|--sleep-battery|--sleep-ac)
-			[[ ${2:-} =~ ^[0-9]+$ ]] || die "$1 takes minutes (0 is never)"
-			k=${1#--}; put "${k//-/_}" "$((10#$2))"; shift ;;
-		--lid) [[ ${2:-} =~ ^(sleep|lock|nothing)$ ]] || die "--lid takes sleep, lock or nothing"; put lid "$2"; shift ;;
-		--reset) rm -f "$file" ;;
+			k=${1#--} v=${2:-}; k=${k//-/_}
+			[[ $v == default ]] && { drop "$k"; shift 2; continue; }
+			[[ $v == never ]] && v=0; v=${v%min}; v=${v%m}
+			[[ $v =~ ^[0-9]+$ ]] || die "$1 takes minutes, such as $1 30 (0 or never is never; default is the session's)"
+			put "$k" "$((10#$v))"; shift ;;
+		--reset) rm -f "$file"; echo "All settings back to the defaults"; changed=1 ;;
 		--show) ;;
 		-h|--help) usage; exit 0 ;;
 		*) die "unknown option: $1 (see --help)" ;;
@@ -4012,7 +4077,7 @@ while (( $# )); do
 	shift
 done
 # A running session takes the settings at once
-pkill -HUP -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/power\$" 2>/dev/null || true
+[[ -z $changed ]] || pkill -HUP -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/power\$" 2>/dev/null || true
 show
 EOF
 	} | _write "$root/usr/bin/$APP_NAME-power"
@@ -4185,7 +4250,8 @@ login_background() {
 # as Raspberry Pi OS shows it. Usage: login_build ROOT
 login_build() {
 	local root=$1 logo bg
-	logo=$(_greeter_logo || true)
+	# The user picture is the menu button's logo (logo_badge_build), else Debian's
+	logo=${LOGO_BADGE:-$(_greeter_logo || true)}
 	bg=$(login_background)
 	[[ -n $bg ]] || { bg='#d6d3de'; warn "Debian's login screen artwork is unavailable; the login screen shows its colour."; }
 	{
@@ -4750,6 +4816,7 @@ record_packages_before() {
 build_pkg() {
 	local stage=$WORKDIR/pkg b f ver icons=() depends="lxsession, openbox, lxpanel | lxpanel-pi, pcmanfm"
 	rm -rf -- "$stage"; mkdir -p "$stage/DEBIAN"
+	logo_badge_build "$stage"
 	for b in PiXflat PiXtrix PiX; do
 		[[ -f $SYS_ROOT/usr/share/icons/$b/index.theme ]] || continue
 		gen_icon_overlay "$b" "$stage/usr/share/icons/$b-Debian"

@@ -6,24 +6,25 @@ icons, cursors, fonts, wallpapers, panel, file manager and login screen
 style as a separate session, **Raspberry Pi Desktop**. Debian and your other
 sessions stay as they are.
 
-![The Raspberry Pi Desktop session on Debian 13, with its menu open](screenshot/scr1.png)
-![The Raspberry Pi Desktop session on Wayland, Debian 13](screenshot/scr2.png)
-![The login screen](screenshot/scr3.png)
-![Debian 12 on a 32-bit PC](screenshot/scr4.png)
+![PiXtrix, the Raspberry Pi OS 13 look, on Debian 13 with the menu open](screenshot/pixtrix.png)
+![PiXflat, the Raspberry Pi OS 10 to 12 look](screenshot/pixflat.png)
+![PiX, the legacy Raspbian look](screenshot/pix.png)
+![The login screen](screenshot/login.png)
 
 ## Contents
 
 1. [Support](#support)
 2. [Installation](#installation)
-3. [Script options](#script-options)
-4. [Themes](#themes)
-5. [Tweaks for each user](#tweaks-for-each-user)
-6. [Keys and buttons](#keys-and-buttons)
-7. [Compared with Raspberry Pi OS](#compared-with-raspberry-pi-os)
-8. [What changes on the computer](#what-changes-on-the-computer)
-9. [Updating, upgrading and uninstalling](#updating-upgrading-and-uninstalling)
-10. [Troubleshooting](#troubleshooting)
-11. [Credits and licence](#credits-and-licence)
+3. [Desktop environments](#desktop-environments)
+4. [Script options](#script-options)
+5. [Themes](#themes)
+6. [Tweaks for each user](#tweaks-for-each-user)
+7. [Keys and buttons](#keys-and-buttons)
+8. [Compared with Raspberry Pi OS](#compared-with-raspberry-pi-os)
+9. [What changes on the computer](#what-changes-on-the-computer)
+10. [Updating, upgrading and uninstalling](#updating-upgrading-and-uninstalling)
+11. [Troubleshooting](#troubleshooting)
+12. [Credits and licence](#credits-and-licence)
 
 ## Support
 
@@ -90,6 +91,28 @@ also refreshes the running desktop.
 | Integrity | Every file is checked against `packages/SHA256SUMS` first |
 | Uninstall | Works offline too, with `packages/` next to the script |
 
+## Desktop environments
+
+The full Raspberry Pi OS desktop is the **Raspberry Pi Desktop** session the
+script adds: an LXDE session (lxsession) with Raspberry Pi OS's window
+manager, panel and file manager. Choose it on the login screen. Other
+desktops stay as they are; they can use the parts of the look that are
+ordinary themes, chosen in their own appearance settings.
+
+| Part of the look | Raspberry Pi Desktop | Debian's LXDE | Xfce, MATE, Cinnamon | GNOME | KDE Plasma, LXQt |
+|------------------|----------------------|---------------|----------------------|-------|------------------|
+| GTK theme (`PiXflat`, `PiXnoir`, `PiXtrix`, `PiXonyx`, `PiX`) | Yes | Can be chosen | Can be chosen, for GTK 2 and 3 programs | Can be chosen for GTK 3 programs, in GNOME Tweaks; most GNOME programs (GTK 4) keep Adwaita | For GTK programs only, in the GTK style settings; Qt programs keep theirs |
+| Icons (`PiXflat (Debian)` and the others) | Yes | Can be chosen | Can be chosen | Can be chosen, in GNOME Tweaks | Can be chosen |
+| Cursor | Yes | Can be chosen | Can be chosen | Can be chosen, in GNOME Tweaks | Can be chosen |
+| Fonts (Piboto, Nunito Sans) | Yes | Can be chosen | Can be chosen | Can be chosen, in GNOME Tweaks | Can be chosen |
+| Wallpapers (`/usr/share/rpd-wallpaper`) | Yes | Can be chosen | Can be chosen | Can be chosen | Can be chosen |
+| Window frames | Yes: Openbox, or labwc on Wayland | Can be chosen in Openbox's settings | No: Xfwm, Marco and Muffin keep theirs | No | No |
+| Panel and menu, with the Debian logo | Raspberry Pi's | Debian's LXDE panel (Raspberry Pi OS's build on Debian 10 to 12) | No | No | No |
+| Desktop and file manager | Raspberry Pi's | Raspberry Pi OS's build of PCManFM on Debian 10 to 12 | No | No | No |
+| Keys, screen lock and power (`rpios-look-power`) | Yes | No: LXDE's own | No: the desktop's own | No: GNOME's own | No: the desktop's own |
+| `rpios-look-set` | Yes | No | No | No | No |
+| Login screen style | With LightDM, for every desktop | Same | Same | Not with GDM | Not with SDDM |
+
 ## Script options
 
 ```bash
@@ -121,7 +144,9 @@ the theme.
 ## Themes
 
 All five themes are installed, each with the icons, cursor, font, window
-frames and wallpaper that Raspberry Pi OS gives it.
+frames and wallpaper that Raspberry Pi OS gives it. Where Raspberry Pi OS
+shows its raspberry logo, on the menu button and as the login screen's user
+picture, every theme shows Debian's logo: the white swirl on a red circle.
 
 | Theme | Style | Font | Wallpaper |
 |-------|-------|------|-----------|
@@ -162,7 +187,13 @@ and puts the computer to sleep when it is not in use, with Debian's own
 tools: light-locker (the login screen locks) on X, swayidle and swaylock on
 Wayland, and systemd-logind. Other screen lockers and power managers do not
 start in this session; Debian's other sessions keep theirs. Times are
-minutes without use; `0` is never.
+minutes without use, written `30`, `30m` or `30min`; `0` or `never` is
+never. Each user's own settings override the defaults below, which are the
+session's (in `/usr/share/rpios-look/power.conf`) and which
+`rpios-look-power --help` shows too. Any option set to `default`, such as
+`--sleep-ac default`, goes back to the default and follows it from then on;
+`--reset` does that for all of them. `--show` and every change say which
+settings are yours and what the default is.
 
 | Option | Action | Default |
 |--------|--------|---------|
@@ -174,9 +205,10 @@ minutes without use; `0` is never.
 | `--sleep-ac MIN` | Sleep after MIN minutes on mains power | `0` |
 | `--lid sleep\|lock\|nothing` | What closing the lid does while you are logged in | `sleep` |
 | `--show` | Show your settings | |
-| `--reset` | Return to the defaults | |
+| `--reset` | Return all options to the defaults | |
 
-For example: `rpios-look-power --lock-after 5 --sleep-battery 15`.
+For example, to sleep after 30 minutes on mains power and lock after 5:
+`rpios-look-power --sleep-ac 30 --lock-after 5`.
 
 On X, the screen locks with LightDM only; with GDM, SDDM or another login
 manager, the session blanks and sleeps but does not lock.
@@ -246,7 +278,7 @@ Raspberry Pi OS uses the same Debian programs for these.
 | Keyboard shortcuts | Raspberry Pi OS's own for each release; Ctrl+Alt+T opens Debian's terminal on Wayland, and Ctrl+Alt+Space (screen reader installer) is left out | |
 | Window corners | Same: rounded per theme on X, also while a window is moved or resized; square on Wayland | |
 | Resizing a window on X | Its contents are redrawn while dragging | Blank and unshaped until the mouse is released |
-| Menu button and login logo | Debian logo; Debian's white logo on the dark themes, from the next login | Raspberry Pi logo |
+| Menu button and login logo | Debian logo, the white swirl on a red circle, on every theme | Raspberry Pi logo |
 | Login screen | Debian's LightDM greeter in Raspberry Pi OS's style, with user list and session chooser | Raspberry Pi's greeter |
 | File manager on Debian 13 | Raspberry Pi's, beside Debian's | Raspberry Pi's only |
 | Network icon on Debian 10, 11, testing, unstable | Debian's, in the tray | Raspberry Pi's |
