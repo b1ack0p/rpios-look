@@ -113,7 +113,7 @@ bash rpios-look.sh [MODE] [OPTION]...
 | `-V`, `--version` | Print the version |
 
 The look itself has no options. The script always installs every theme, the
-standard wallpapers, Raspberry Pi's panel and file manager where they work
+standard wallpapers, Raspberry Pi's Openbox, panel and file manager where they work
 on your release, the login screen style where LightDM is or can be the login
 manager, and the GTK platform themes for Qt, so that Qt applications follow
 the theme.
@@ -223,6 +223,7 @@ session, the power button and the lid follow Debian's settings.
 | Themes, icons, cursors, fonts, wallpapers | `pixflat-theme`, `pixtrix-theme`, `pix-theme`, `pixflat-icons`, `pixtrix-icons`, `rpd-icons`, `fonts-piboto`, `fonts-nunito-sans`, `rpd-wallpaper*` |
 | Panel and its items | Debian 10 to 12: Raspberry Pi OS's builds of `lxpanel` with `lxplug-*`. Debian 13: `lxpanel-pi` with `lpplug-*` on X, `wf-panel-pi` with `wfplug-*` on Wayland |
 | File manager and desktop | Debian 10 to 12: Raspberry Pi OS's builds of `pcmanfm` and `libfm`. Debian 13: `pcmanfm-pi` |
+| Window manager on X | Raspberry Pi OS's build of `openbox`, which keeps the corners rounded while a window is moved or resized |
 | Dialogs and settings | `pishutdown`, `gui-runcmd`, `pipanel`, `rpcc` |
 | Magnifier | `mage-rpi` (Debian 12 and 13), `mage` (Debian 10 and 11) |
 | Panel layout, menu, desktop and window settings | Read from `raspberrypi-ui-mods` (Debian 10 to 12) and `rpd-*` (Debian 13), not installed |
@@ -230,8 +231,8 @@ session, the power button and the lid follow Debian's settings.
 ### From Debian
 
 The system and its services (BlueZ, NetworkManager, PipeWire or PulseAudio,
-udisks, systemd-logind), the applications, the window manager (Openbox, or
-labwc), the session manager (lxsession), the login screen (LightDM with
+udisks, systemd-logind), the applications, the window manager on Wayland
+(labwc), the session manager (lxsession), the login screen (LightDM with
 Debian's greeter), the screen locker and the authentication agent.
 Raspberry Pi OS uses the same Debian programs for these.
 
@@ -243,7 +244,8 @@ Raspberry Pi OS uses the same Debian programs for these.
 | Panel: items, order, spacing, size, menus | Same | |
 | Main menu, file manager, desktop | Same | |
 | Keyboard shortcuts | Raspberry Pi OS's own for each release; Ctrl+Alt+T opens Debian's terminal on Wayland, and Ctrl+Alt+Space (screen reader installer) is left out | |
-| Window corners | Same: rounded per theme on X, square on Wayland | |
+| Window corners | Same: rounded per theme on X, also while a window is moved or resized; square on Wayland | |
+| Resizing a window on X | Its contents are redrawn while dragging | Blank and unshaped until the mouse is released |
 | Menu button and login logo | Debian logo; Debian's white logo on the dark themes, from the next login | Raspberry Pi logo |
 | Login screen | Debian's LightDM greeter in Raspberry Pi OS's style, with user list and session chooser | Raspberry Pi's greeter |
 | File manager on Debian 13 | Raspberry Pi's, beside Debian's | Raspberry Pi's only |
@@ -271,7 +273,7 @@ Raspberry Pi's programs are used as Raspberry Pi ships them, with one fix:
 | Area | Changed | Not changed |
 |------|---------|-------------|
 | Raspberry Pi Desktop (new session) | Everything in this README | — |
-| Debian's LXDE | On Debian 10 to 12 it uses Raspberry Pi OS's builds of the panel and file manager | Its settings, autostart, screen lock and power |
+| Debian's LXDE | It uses Raspberry Pi OS's build of Openbox, and on Debian 10 to 12 its builds of the panel and file manager | Its settings, autostart, screen lock and power |
 | GNOME, KDE Plasma, Xfce, MATE, Cinnamon, LXQt | The Raspberry Pi themes can be chosen in their appearance settings | Their settings, panels, screen lock and power manager |
 | Login screen | LightDM's greeter gets Raspberry Pi OS's style | GDM, SDDM and other login managers |
 | System files | Raspberry Pi's APT source, pinned to the look's packages, with a check (online installations only); a polkit rule for sleep | Everything else |
@@ -286,8 +288,8 @@ covers sleep only, never remote logins.
 The script follows Debian's
 [DontBreakDebian](https://wiki.debian.org/DontBreakDebian) guidance:
 
-- No Debian package is replaced, except the panel and file manager on
-  Debian 10 to 12.
+- No Debian package is replaced, except Openbox, and the panel and file
+  manager on Debian 10 to 12, by Raspberry Pi OS's builds of them.
 - Packages that would replace, break or conflict with Debian packages are
   refused; APT's check refuses them on later updates too.
 - Debian packages come only from your own APT sources.
@@ -303,7 +305,7 @@ The script follows Debian's
 |------|-----|
 | Update | `sudo apt update && sudo apt full-upgrade` updates the look's Raspberry Pi packages with Debian. `bash rpios-look.sh --refresh` updates everything, including packages the script adapts, and lists them first. |
 | Upgrade Debian | Run `bash rpios-look.sh --prepare-upgrade` (it removes the packages built for this release and takes Raspberry Pi's archive out of APT), upgrade Debian and reboot, then run `bash rpios-look.sh` again. |
-| Uninstall | Run `bash rpios-look.sh --uninstall`. It lists what it removes and asks first, puts Debian's panel and file manager back, restores the settings it changed and, after a second question, removes the packages it installed. Packages you had before stay. Restart to finish. |
+| Uninstall | Run `bash rpios-look.sh --uninstall`. It lists what it removes and asks first, puts Debian's Openbox, panel and file manager back, restores the settings it changed and, after a second question, removes the packages it installed. Packages you had before stay. Restart to finish. |
 
 ## Troubleshooting
 

@@ -80,7 +80,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.12.0"
+readonly APP_VERSION="3.12.1"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -251,6 +251,8 @@ USE_NETMAN=0            # 1 when Raspberry Pi's network plugin and its libnma bu
 NET_NAMES=()            # those Raspberry Pi builds that carry Debian's names (libnma)
 USE_STACK=0             # 1 when Raspberry Pi's builds replace Debian's panel and file manager (PI_STACK)
 STACK_NAMES=()          # those packages, with the other installed packages of their sources
+USE_WM=0                # 1 when Raspberry Pi's build replaces Debian's Openbox (PI_WM)
+WM_NAMES=()             # those packages, with the other installed packages of their source
 declare -A PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
 declare -A IDX_LOADED=() IDX_FAILED=() IN_SET=()
 WORKDIR="" KEYRING="" DEP_INDEX="" BUILD_STAGE="" LOG_FILE="" REPO="" PKG_DEB=""
@@ -514,13 +516,14 @@ set_theme() {
 }
 
 # Print the Raspberry Pi OS packages for a release: every theme with its icons,
-# fonts, GTK 2 engines and wallpapers, and the panel and file manager
-# (Raspberry Pi's own programs from Raspberry Pi OS 13, its builds of
-# Debian's before; see pi_apps and pi_stack).
+# fonts, GTK 2 engines and wallpapers, the window manager (PI_WM), and the
+# panel and file manager (Raspberry Pi's own programs from Raspberry Pi OS 13,
+# its builds of Debian's before; see pi_apps and pi_stack).
 # Usage: rpi_pkgs SUITE ARCH
 rpi_pkgs() {
 	printf '%s\n' pixflat-theme pixtrix-theme pix-theme pixflat-icons pixtrix-icons rpd-icons \
-		gtk2-engines-pixflat gtk2-engines-clearlookspix fonts-piboto fonts-nunito-sans
+		gtk2-engines-pixflat gtk2-engines-clearlookspix fonts-piboto fonts-nunito-sans "${PI_WM[@]}"
+	[[ $O_MODE == download ]] || stack_extras "$PI_WM_SRC" "${PI_WM[@]}"
 	# The standard wallpaper sets (no code) of this and every later release.
 	local s
 	for s in $(releases); do
@@ -627,7 +630,7 @@ _no_battery() { if [[ $O_MODE == download ]] || has_battery; then cat; else grep
 pi_stack() {
 	local t names drop
 	printf '%s\n' "${PI_STACK[@]}"
-	[[ $O_MODE == download ]] || stack_extras
+	[[ $O_MODE == download ]] || stack_extras "$PI_STACK_SRC" "${PI_STACK[@]}"
 	names=$(index_names "$(rpi_aid)" "$1" "$2")
 	# The dhcpcd network plugin (dhcpcdui) is the package lxplug-network
 	drop=$(panel_drop); drop=${drop//dhcpcdui/network}
@@ -643,19 +646,22 @@ pi_stack() {
 	if grep -qx pipanel <<<"$names"; then echo pipanel; fi
 	if grep -qx pishutdown <<<"$names"; then echo pishutdown; fi
 }
-# Print the other installed packages built from the sources of PI_STACK.
+# Print the other installed packages built from the sources SRC (grep -E
+# alternatives) of the packages NAMES. Usage: stack_extras SRC NAMES...
 stack_extras() {
+	local re=$1
+	shift
 	dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${source:Package}\n' 2>/dev/null \
-		| awk -v re="^($PI_STACK_SRC)\$" '$1 ~ /^.i/ && $3 ~ re { print $2 }' \
-		| grep -vxF -f <(printf '%s\n' "${PI_STACK[@]}") || true
+		| awk -v re="^($re)\$" '$1 ~ /^.i/ && $3 ~ re { print $2 }' \
+		| grep -vxF -f <(printf '%s\n' "$@") || true
 }
-# Succeed if a .deb file is built from one of the sources of PI_STACK.
+# Succeed if a .deb file is built from one of the sources of PI_STACK or PI_WM.
 # Usage: stack_deb FILE
 stack_deb() {
 	local src
 	src=$(dpkg-deb -f "$1" Source)
 	src=${src%% *}
-	[[ ${src:-$(dpkg-deb -f "$1" Package)} =~ ^($PI_STACK_SRC)$ ]]
+	[[ ${src:-$(dpkg-deb -f "$1" Package)} =~ ^($PI_STACK_SRC|$PI_WM_SRC)$ ]]
 }
 # Succeed if this computer has a battery of its own (not that of a mouse or a
 # keyboard).
@@ -691,6 +697,13 @@ wf_drop() { echo "$(panel_drop)|connect|squeek"; }
 # and --prepare-upgrade restore Debian's.
 readonly PI_STACK=(lxpanel lxpanel-data pcmanfm libfm4 libfm-gtk4 libfm-modules libfm-data libfm-gtk-data libfm-extra4)
 readonly PI_STACK_SRC="lxpanel|libfm|pcmanfm"
+# On every release, Raspberry Pi's build of Openbox replaces Debian's, with
+# the other installed packages of its source. It keeps a window's corners
+# rounded while the window is moved or resized; Debian's carries Raspberry
+# Pi's earlier patch, whose corners turn square until the frame is redrawn.
+# --uninstall and --prepare-upgrade restore Debian's.
+readonly PI_WM=(openbox libobrender32v5 libobt2v5)
+readonly PI_WM_SRC="openbox"
 # Print the Raspberry Pi OS programs that this script installed and that are
 # built against the libraries of one Debian release; --prepare-upgrade removes
 # them. The themes and their GTK 2 engines, which need only GTK 2, stay.
@@ -1329,6 +1342,8 @@ resolve_pkg() {
 			# file manager; Raspberry Pi's serve only when they replace Debian's
 			# (USE_STACK). lxpanel-pi and pcmanfm-pi are separate programs.
 			if [[ $aid == local && $v == *+rpt* && $pkg =~ ^(lxpanel|pcmanfm|libfm) && $pkg != *-pi ]] && (( ! USE_STACK )); then continue; fi
+			# The same for its build of Openbox (USE_WM)
+			if [[ $aid == local && $v == *+rpt* && " ${PI_WM[*]} " == *" $pkg "* ]] && (( ! USE_WM )); then continue; fi
 			# The same for its build of libnma, which serves only its network plugin
 			if [[ $aid == local && $v == *+rpt* && $pkg == libnma* ]] && (( ! USE_NETMAN )); then continue; fi
 			# Raspberry Pi's builds of these, with their plugins and data, and
@@ -1617,13 +1632,13 @@ _debian_has() {
 # Check that a Raspberry Pi package leaves Debian's alone. It may not replace,
 # break, conflict with or stand in for a Debian package (Raspberry Pi's file
 # manager is repacked first, see fm_coinstall), except for the builds of
-# Debian's panel and file manager (PI_STACK) and of libnma that are installed
-# in their place. Its maintainer scripts may not edit a file under /etc that
-# the package does not ship. Any other such package is refused. Prints the
-# path of the package to install; fails for a refused one.
+# Debian's panel, file manager and Openbox (PI_STACK, PI_WM) and of libnma that
+# are installed in their place. Its maintainer scripts may not edit a file
+# under /etc that the package does not ship. Any other such package is
+# refused. Prints the path of the package to install; fails for a refused one.
 scripts_coinstall() {
 	local deb=$1 dir=$WORKDIR/scripts s f n bad="" paths
-	# Raspberry Pi's builds of PI_STACK and libnma replace Debian's on purpose.
+	# Raspberry Pi's builds of PI_STACK, PI_WM and libnma replace Debian's on purpose.
 	# A versioned relation counts only where a Debian version satisfies it.
 	stack_deb "$deb" || [[ $(dpkg-deb -f "$deb" Source) == libnma* ]] || for s in Replaces Breaks Conflicts Provides; do
 		while read -r n op v; do
@@ -1635,11 +1650,13 @@ scripts_coinstall() {
 	rm -rf -- "$dir"; mkdir -p "$dir"
 	dpkg-deb -e "$deb" "$dir"
 	paths=$(dpkg-deb --fsys-tarfile "$deb" | tar -t | sed 's:^\./:/:; s:/$::')
+	# dpkg-maintscript-helper's conffile commands act only on the package's own
+	# former conffiles
 	for s in preinst postinst prerm postrm config; do
 		[[ -f $dir/$s ]] || continue
 		while read -r f; do
 			grep -qxF -- "$f" <<<"$paths" || bad+="$s:$f "
-		done < <(grep -oE '/etc/[A-Za-z0-9._/+-]*[A-Za-z0-9_]' "$dir/$s" | sort -u)
+		done < <(grep -v 'dpkg-maintscript-helper [a-z_]*_conffile ' "$dir/$s" | grep -oE '/etc/[A-Za-z0-9._/+-]*[A-Za-z0-9_]' | sort -u)
 	done
 	if [[ -z $bad ]]; then printf '%s\n' "$deb"; return 0; fi
 	warn "$(dpkg-deb -f "$deb" Package) is left out: it would change Debian's packages or files (${bad% })"
@@ -1950,6 +1967,9 @@ _openbox_rc() {
 	_xml_child "$file" desktops number 1
 	_xml_child "$file" focus focusDesktop yes
 	_xml_child "$file" placement monitor Any
+	# Windows redraw while being resized; Raspberry Pi OS leaves them blank and
+	# unshaped until the mouse is released
+	_xml_child "$file" resize drawContents yes
 }
 
 # Bind the Openbox keys of Raspberry Pi OS (lxde-pi-rc.xml / rpd-rc.xml) whose
@@ -2557,6 +2577,13 @@ _session_themes() {
 				printf '#PanelToplevel button, #PanelToplevel:backdrop button > box > label {\n  color: @bar_fg_color; background-color: @bar_bg_color; }\n'
 				printf '#PanelToplevel button:hover, #PanelToplevel button:checked:hover {\n  background-color: shade(@bar_bg_color, 0.877); }\n'
 				printf '#PanelToplevel button:checked { background-color: shade(@bar_bg_color, 0.843); }\n'
+				# The panel's notifications carry the style class "tooltip", which
+				# the newer themes style; PiX styles only the element, so its own
+				# tooltip rules are given to the class too
+				printf '.tooltip { padding: 4px; box-shadow: none; }\n'
+				printf '.tooltip.background { background-color: rgba(160, 160, 160, 0.8); background-clip: padding-box; border: none; }\n'
+				printf '.tooltip decoration { background-color: transparent; }\n'
+				printf '.tooltip * { padding: 4px; background-color: transparent; color: white; }\n'
 			fi
 			_panel_button_css
 			# Raspberry Pi's tray does not clear an icon before redrawing it at
@@ -4278,8 +4305,11 @@ resolve_all() {
 	USE_STACK=0 STACK_NAMES=()
 	if ! suite_ge "$H_SUITE" trixie; then
 		USE_STACK=1
-		mapfile -t STACK_NAMES < <(printf '%s\n' "${PI_STACK[@]}"; stack_extras)
+		mapfile -t STACK_NAMES < <(printf '%s\n' "${PI_STACK[@]}"; stack_extras "$PI_STACK_SRC" "${PI_STACK[@]}")
 	fi
+	# On every release, Raspberry Pi's build of Openbox replaces Debian's
+	USE_WM=1
+	mapfile -t WM_NAMES < <(printf '%s\n' "${PI_WM[@]}"; stack_extras "$PI_WM_SRC" "${PI_WM[@]}")
 	netman_decide
 	while read -r p; do
 		case $p in
@@ -4318,7 +4348,15 @@ resolve_all() {
 			break
 		done
 	fi
-	if [[ $H_DISPLAY == wayland && " ${FETCH_PKGS[*]} " != *" wf-panel-pi "* ]]; then
+	for p in "${WM_NAMES[@]}"; do
+		[[ " ${FETCH_PKGS[*]} " == *" $p "* ]] && continue
+		note "Debian's Openbox is used: Raspberry Pi OS has no build of $p for $H_SUITE/$H_ARCH."
+		kept=()
+		for q in "${FETCH_PKGS[@]}"; do [[ " ${WM_NAMES[*]} " == *" $q "* ]] || kept+=("$q"); done
+		FETCH_PKGS=("${kept[@]}") USE_WM=0 WM_NAMES=()
+		break
+	done
+	if [[ $H_DISPLAY == wayland &&" ${FETCH_PKGS[*]} " != *" wf-panel-pi "* ]]; then
 		H_DISPLAY=x11 H_DISPLAY_WHY="Raspberry Pi's Wayland panel or labwc is not available for $H_SUITE/$H_ARCH"
 		note "The session runs on X: $H_DISPLAY_WHY."
 		# Leave out the packages only the Wayland session uses.
@@ -4386,13 +4424,13 @@ resolve_all() {
 _stack_member() { [[ $1 =~ ^(lxplug-|lxpanel|pcmanfm|libfm) && $1 != *-pi ]]; }
 
 # A Raspberry Pi package must never replace a package from the APT sources,
-# except its builds of Debian's panel and file manager (STACK_NAMES) and of
-# libnma (NET_NAMES), which are installed in their place.
+# except its builds of Debian's panel, file manager and Openbox (STACK_NAMES,
+# WM_NAMES) and of libnma (NET_NAMES), which are installed in their place.
 # Usage: _refuse_debian_names PACKAGE...
 _refuse_debian_names() {
 	local p
 	for p; do
-		[[ " ${STACK_NAMES[*]} ${NET_NAMES[*]} " != *" $p "* ]] || continue
+		[[ " ${STACK_NAMES[*]} ${WM_NAMES[*]} ${NET_NAMES[*]} " != *" $p "* ]] || continue
 		if [[ -n $(apt_versions "$p") ]]; then
 			die "refusing to install $p from Raspberry Pi OS: your APT sources provide a package with that name"
 		fi
@@ -4542,8 +4580,8 @@ _pin_unfixed() {
 # (--no-remove) and, offline, never downloads (--no-download). Every package
 # installed is recorded for --uninstall.
 install_all() {
-	local p f q cur sim had accts
-	local -a files=() opts=("${APT_OPTS[@]}") new=() left=() kept=()
+	local p f q v cur sim had accts
+	local -a files=() opts=("${APT_OPTS[@]}") new=() left=() kept=() deb=()
 	if [[ -n $REPO ]]; then step "Preparing packages"; else step "Downloading and verifying packages"; fi
 	if [[ -z $REPO ]]; then
 		info "Refreshing APT package lists"
@@ -4569,7 +4607,7 @@ install_all() {
 		if [[ -z $REPO ]]; then f=$(adapt_deb "$f") || { left+=("$p"); continue; }; fi
 		# APT updates only packages used unchanged from this release's suite,
 		# the one in its sources; not Raspberry Pi's builds of Debian's
-		# packages (PI_STACK, libnma), nor offline
+		# packages (PI_STACK, PI_WM, libnma), nor offline
 		if [[ -z $REPO && $f == "$q" && ${PKG_SUITE[$p]:-} == "$H_SUITE" ]] && ! stack_deb "$f" \
 			&& [[ $(dpkg-deb -f "$f" Source) != libnma* ]]; then
 			plain[$p]=1
@@ -4592,6 +4630,16 @@ install_all() {
 		q=$(nm_applet_pkg "$H_SUITE")
 		if [[ -z $(installed_version "$q") ]] && apt_has "$q"; then APT_PKGS+=("$q"); fi
 	fi
+	# Raspberry Pi's Openbox needs all of its packages: without one, Debian's
+	for p in "${left[@]}"; do
+		[[ " ${WM_NAMES[*]} " == *" $p "* ]] || continue
+		note "Debian's Openbox is used: Raspberry Pi's build of $p was left out."
+		for f in "${files[@]}"; do [[ " ${WM_NAMES[*]} " == *" $(dpkg-deb -f "$f" Package) "* ]] || kept+=("$f"); done
+		files=("${kept[@]}") kept=()
+		for q in "${FETCH_PKGS[@]}"; do [[ " ${WM_NAMES[*]} " == *" $q "* ]] || kept+=("$q"); done
+		FETCH_PKGS=("${kept[@]}") kept=() USE_WM=0 WM_NAMES=()
+		break
+	done
 	PIN_PKGS=()
 	for p in "${FETCH_PKGS[@]}"; do [[ -z ${plain[$p]:-} ]] || PIN_PKGS+=("$p"); done
 	printf '%s\n' "${PIN_PKGS[@]}" | sys_write "$SYS_DIR/apt-packages"
@@ -4605,10 +4653,17 @@ install_all() {
 	step "Installing packages"
 	if (( ${#files[@]} + ${#APT_PKGS[@]} == 0 )); then ok "Every package is installed and up to date"; return 0; fi
 	had=$(installed_names) accts=$(_accounts)
-	# APT's "automatically installed" marks of Debian's panel, file manager
-	# and libnma, before Raspberry Pi's builds replace them (see restore_debian_stack)
-	if (( USE_STACK || USE_NETMAN )) && [[ ! -f $SYS_DIR/stack-auto ]]; then
-		{ apt-mark showauto "${STACK_NAMES[@]}" "${NET_NAMES[@]}" 2>/dev/null || true; } | sys_write "$SYS_DIR/stack-auto"
+	# APT's "automatically installed" marks of Debian's panel, file manager,
+	# Openbox and libnma, before Raspberry Pi's builds replace them (see
+	# restore_debian_stack)
+	deb=()
+	for p in "${STACK_NAMES[@]}" "${WM_NAMES[@]}" "${NET_NAMES[@]}"; do
+		v=$(installed_version "$p")
+		[[ -z $v || $v == *+rpt* ]] || deb+=("$p")
+	done
+	if (( ${#deb[@]} )); then
+		{ grep -vxF -f <(printf '%s\n' "${deb[@]}") "$SYS_DIR/stack-auto" 2>/dev/null || true
+			apt-mark showauto "${deb[@]}" 2>/dev/null || true; } | sort -u | sys_write "$SYS_DIR/stack-auto"
 	fi
 	if ! sim=$(LC_ALL=C apt-get install --simulate "${opts[@]}" "${files[@]}" "${APT_PKGS[@]}" 2>&1); then
 		tail -n 15 <<<"$sim" >&2
@@ -5329,20 +5384,20 @@ _local_debs() {
 	done
 }
 
-# Install Debian's builds of the panel, file manager and libnma again in place
-# of Raspberry Pi's, from the APT sources, removing Raspberry Pi's panel
-# plugins first. Warn about builds without a Debian version.
+# Install Debian's builds of the panel, file manager, Openbox and libnma again
+# in place of Raspberry Pi's, from the APT sources, removing Raspberry Pi's
+# panel plugins first. Warn about builds without a Debian version.
 restore_debian_stack() {
 	local p v src
 	local -a args=() kept=() plugins=() autos=() debs=()
 	while read -r p v src; do
-		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC|libnma)$ ]] || continue
+		[[ $v == *+rpt* && ${src:-$p} =~ ^($PI_STACK_SRC|$PI_WM_SRC|libnma)$ ]] || continue
 		v=$(apt_versions "$p" | first_line)
 		if [[ -n $v ]]; then args+=("$p=$v"); else kept+=("$p"); fi
 	done < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version} ${source:Package}\n' 2>/dev/null | awk '$1 ~ /^.i/ { $1 = ""; print }')
 	(( ${#args[@]} + ${#kept[@]} )) || return 0
 	if (( ${#args[@]} )); then
-		step "Putting Debian's panel, file manager and libnma back"
+		step "Putting Debian's builds back"
 		# Raspberry Pi's plugins for its panel build, and the network plugins
 		# and connection editor, which need its libnma build
 		mapfile -t plugins < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'lxplug-*' '*-netman' lp-connection-editor 2>/dev/null \
@@ -5362,7 +5417,7 @@ restore_debian_stack() {
 			if (( ${#autos[@]} )); then as_root apt-mark auto "${autos[@]}" >/dev/null || true; fi
 			ok "Debian's ${args[*]%%=*} are installed again"
 		else
-			warn "APT could not put Debian's panel and file manager back; install them with: sudo apt install --allow-downgrades ${args[*]}"
+			warn "APT could not put Debian's builds back; install them with: sudo apt install --allow-downgrades ${args[*]}"
 		fi
 	fi
 	(( ${#kept[@]} == 0 )) || warn "your APT sources have no Debian version of ${kept[*]}; Raspberry Pi's build stays"
@@ -5626,10 +5681,18 @@ print_plan() {
 	log "  Packages     from $src ($H_SUITE, $H_ARCH)$([[ -n $REPO ]] || echo ", up to $(human_size "$total") to download")"
 	for p in "${FETCH_PKGS[@]}"; do _pkg_line "$p" "${PKG_VER[$p]}" "${status[$p]}"; done
 	for p in "${APT_PKGS[@]}"; do _pkg_line "$p" "(APT)" "new, from your Debian sources"; done
-	if (( USE_STACK )); then
-		log "  Replaces     Debian's panel and file manager with Raspberry Pi OS's builds of"
-		log "               them (lxpanel, pcmanfm, libfm above), which Debian's LXDE session"
-		log "               then uses too. --uninstall puts Debian's back."
+	if (( USE_STACK || USE_WM )); then
+		if (( USE_STACK && USE_WM )); then
+			log "  Replaces     Debian's panel, file manager and Openbox with Raspberry Pi OS's"
+			log "               builds of them (lxpanel, pcmanfm, libfm, openbox above),"
+		elif (( USE_STACK )); then
+			log "  Replaces     Debian's panel and file manager with Raspberry Pi OS's builds of"
+			log "               them (lxpanel, pcmanfm, libfm above),"
+		else
+			log "  Replaces     Debian's Openbox with Raspberry Pi OS's build of it (openbox above),"
+		fi
+		log "               which Debian's own sessions then use too. --uninstall puts"
+		log "               Debian's back."
 		log "  Your settings in Debian's own sessions are not changed."
 	else
 		log "  Debian's own sessions and your settings in them are not changed."
