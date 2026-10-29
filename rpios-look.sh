@@ -80,7 +80,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.13.0"
+readonly APP_VERSION="3.13.1"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -3909,6 +3909,9 @@ def main():
     idle = None if WAYLAND else Idle()
     kids, runs, done, last, closed, s = [], [], set(), 0, lid_closed(), {}
     wifi, changed = wifi_off(radios()), 0
+    # The time spent asleep: the boot clock runs on during sleep, the
+    # monotonic clock does not
+    asleep, woke = time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic(), None
     while True:
         # The wireless key acts on the next round, once a computer that
         # switches Wi-Fi itself has done so
@@ -3932,7 +3935,16 @@ def main():
         for k in kids:
             k.poll()
         if idle:
+            # Waking from sleep is use: the screen lock (light-locker) takes
+            # the keys on the login screen, so the session's time without use
+            # runs on, and the computer would not sleep again
+            a = time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()
+            if a - asleep > 1:
+                woke = time.monotonic()
+            asleep = a
             t = idle.seconds()
+            if woke is not None:
+                t = min(t, int(time.monotonic() - woke))
             if t < last:
                 done.clear()
             last = t
@@ -3947,6 +3959,8 @@ def main():
                 if after and t >= after:
                     done.add("sleep")
                     suspend()
+                    # Counted again from now, should sleep fail or end at once
+                    woke = time.monotonic()
         if s.get("lid") == "lock":
             now = lid_closed()
             if now and not closed:
