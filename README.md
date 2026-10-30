@@ -173,9 +173,20 @@ sudo, apply at once and are kept for later logins.
 | Option | Action |
 |--------|--------|
 | `--theme NAME` | Use `pixflat`, `pixnoir`, `pixtrix`, `pixonyx` or `pix` |
+| `--animations on\|off\|default` | Turn animations on or off, or back to the session's (`on`) |
 | `--list` | Show the installed themes |
 | `--show` | Show the current look |
-| `--reset` | Return to the session's look, as installed |
+| `--reset` | Return to the session's look, as installed, animations included |
+
+Animations are on by default, as in Raspberry Pi OS and LXDE: on X, Openbox
+draws a shrinking outline when a window is minimized and a growing one when
+it is restored, and GTK applications animate inside their windows (switches,
+popovers, sliding panels). Windows that draw their own title bar, such as
+Firefox and GNOME Terminal, minimize without the outline; maximizing is never
+animated. On Wayland, labwc animates nothing; only GTK's own animations
+apply there. `--animations off` turns both off, for you only:
+`rpios-look-set --animations off`. Applications that animate on their own,
+such as Spotify, are not affected.
 
 Raspberry Pi's Appearance Settings or Control Centre works as well, where
 installed; otherwise **Customize Look and Feel**.

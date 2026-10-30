@@ -80,7 +80,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.13.1"
+readonly APP_VERSION="3.14.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -2820,12 +2820,21 @@ wayland_look() {
 	sed -i -e "s|^Net/ThemeName .*|Net/ThemeName \"$(e "$theme")\"|" -e "s|^Net/IconThemeName .*|Net/IconThemeName \"$(e "$icons")\"|" \
 		-e "s|^Gtk/CursorThemeName .*|Gtk/CursorThemeName \"$(e "$cursor")\"|" -e "s|^Gtk/CursorThemeSize .*|Gtk/CursorThemeSize ${csize:-24}|" \
 		-e "s|^Gtk/FontName .*|Gtk/FontName \"$(e "$font")\"|" -e "s|^Gtk/ColorScheme .*|Gtk/ColorScheme \"$(e "$scheme")\"|" "$xs"
+	# GTK's animations: the user's choice (rpios-look-set --animations), else GTK's own
+	anim=$(v iGtk/EnableAnimations)
+	sed -i '/^Gtk\/EnableAnimations /d' "$xs"
+	[ -z "$anim" ] || echo "Gtk/EnableAnimations $anim" >>"$xs"
 	# Wayland applications (GSettings, in the session's own database)
 	if command -v dconf >/dev/null; then
 		for kv in "gtk-theme='$theme'" "icon-theme='$icons'" "cursor-theme='$cursor'" "cursor-size=${csize:-24}" \
 			"font-name='$font'" "document-font-name='$font'" "color-scheme='$cs'"; do
 			dconf write "/org/gnome/desktop/interface/${kv%%=*}" "${kv#*=}" 2>/dev/null || true
 		done
+		case $anim in
+			0) dconf write /org/gnome/desktop/interface/enable-animations false ;;
+			1) dconf write /org/gnome/desktop/interface/enable-animations true ;;
+			*) dconf reset /org/gnome/desktop/interface/enable-animations ;;
+		esac 2>/dev/null || true
 	fi
 }
 EOF
@@ -3239,12 +3248,17 @@ and other users are not changed.
   --theme NAME         pixflat, pixnoir, pixtrix, pixonyx or pix, with
                        everything Raspberry Pi OS gives it: icons, cursor,
                        font, window frames, colours and wallpaper
+  --animations on|off|default
+                       window and application animations, such as the
+                       outline when a window is minimized; default is the
+                       session's, as Raspberry Pi OS has them (on)
   --list               the themes installed
   --show               print the current look
   --reset              back to the session's look, as installed
   -h, --help           this text
 
 Examples: rpios-look-set --theme pixonyx
+          rpios-look-set --animations off
           rpios-look-set --reset
 USAGE
 }
@@ -3264,6 +3278,11 @@ ini_set() {
 		ins && index($0, ENVIRON["K"] "=") == 1 { put(); next }
 		{ print }
 		END { if (ins) put(); if (!seen) { print ""; print ENVIRON["S"]; put() } }' "$1") && printf '%s\n' "$tmp" >"$1"
+}
+ini_del() {
+	local tmp
+	tmp=$(S="[$2]" K=$3 awk '$0 == ENVIRON["S"] { f = 1; print; next } /^\[/ { f = 0 }
+		f && index($0, ENVIRON["K"] "=") == 1 { next } { print }' "$1") && printf '%s\n' "$tmp" >"$1"
 }
 # Print a value from the user's file, else from the session's
 get() { local v; v=$(ini_get "$1" "$3" "$4"); [ -n "$v" ] || v=$(ini_get "$2" "$3" "$4"); printf '%s' "$v"; }
@@ -3344,6 +3363,11 @@ show() {
 	printf 'Windows        %s\n' "${w:-$(sed -n '/<theme>/,/<\/theme>/ s|.*<name>\([^<]*\)</name>.*|\1|p' "$SHARE/openbox-rc.xml" | head -n1)}"
 	printf 'Cursor         %s, %s pixels\n' "$(get "$lxs" "$lxs_sys" GTK sGtk/CursorThemeName)" "$(get "$lxs" "$lxs_sys" GTK iGtk/CursorThemeSize)"
 	printf 'Font           %s\n' "$(get "$lxs" "$lxs_sys" GTK sGtk/FontName)"
+	case $(ini_get "$lxs" GTK iGtk/EnableAnimations) in
+		0) echo 'Animations     off, set by you (default on)' ;;
+		1) echo 'Animations     on, set by you (default on)' ;;
+		*) echo 'Animations     on, default' ;;
+	esac
 	w=$(get "$fm/desktop-items-0.conf" "$fm_sys/desktop-items-0.conf" '*' wallpaper)
 	printf 'Wallpaper      %s (%s)\n' "${w:-none}" "$(get "$fm/desktop-items-0.conf" "$fm_sys/desktop-items-0.conf" '*' wallpaper_mode)"
 	printf 'Desktop        %s, text %s\n' "$(short "$(get "$fm/desktop-items-0.conf" "$fm_sys/desktop-items-0.conf" '*' desktop_bg)")" \
@@ -3386,7 +3410,7 @@ write_desktop() {
 	done
 }
 
-theme="" reset=0
+theme="" reset=0 anim=""
 (( $# )) || { usage; exit 2; }
 while (( $# )); do
 	o=$1
@@ -3397,11 +3421,14 @@ while (( $# )); do
 		-h|--help) usage; exit 0 ;;
 		--reset) reset=1 ;;
 		--theme) (( $# >= 2 )) || die "$o needs a value"; theme=$2; shift ;;
+		--animations) (( $# >= 2 )) || die "$o needs a value"; anim=$2; shift
+			[[ $anim =~ ^(on|off|default)$ ]] || die "--animations takes on, off or default" ;;
 		*) die "unknown option '$o' (see --help)" ;;
 	esac
 	shift
 done
 [[ -z $theme ]] || (( ! reset )) || die "give --theme or --reset, not both"
+[[ -z $anim ]] || (( ! reset )) || die "give --animations or --reset, not both"
 
 [[ -f $lxs_sys ]] || die "the Raspberry Pi Desktop session is not installed"
 gtk="" icons="" font="" ob_font="" ob_weight="" wall=""
@@ -3419,14 +3446,16 @@ seed "$lxs" "$lxs_sys"
 for i in 0 1; do [[ ! -f $fm_sys/desktop-items-$i.conf ]] || seed "$fm/desktop-items-$i.conf" "$fm_sys/desktop-items-$i.conf"; done
 old_theme=$(ini_get "$lxs" GTK sNet/ThemeName) old_icons=$(ini_get "$lxs" GTK sNet/IconThemeName)
 old_cursor=$(ini_get "$lxs" GTK sGtk/CursorThemeName)/$(ini_get "$lxs" GTK iGtk/CursorThemeSize)
+old_anim=$(ini_get "$lxs" GTK iGtk/EnableAnimations)
 if (( reset )); then
 	for k in sNet/ThemeName sNet/IconThemeName sGtk/CursorThemeName iGtk/CursorThemeSize sGtk/FontName sGtk/ColorScheme; do
 		ini_set "$lxs" GTK "$k" "$(ini_get "$lxs_sys" GTK "$k")"
 	done
+	ini_del "$lxs" GTK iGtk/EnableAnimations
 	reset_desktop
 	# Openbox follows the session's look again
 	mkdir -p "${obrc%/*}" && cp "$SHARE/openbox-rc.xml" "$obrc" && cp "$SHARE/openbox-rc.xml" "${obrc%/*}/.$OBFILE.$APP"
-else
+elif [[ -n $theme ]]; then
 	ini_set "$lxs" GTK sNet/ThemeName "$gtk"
 	ini_set "$lxs" GTK sNet/IconThemeName "$icons"
 	ini_set "$lxs" GTK sGtk/CursorThemeName "$icons"
@@ -3437,6 +3466,18 @@ else
 	set_openbox_theme "$gtk"
 	set_openbox_font "$ob_font" "$ob_weight"
 	write_desktop
+fi
+# Animations: GTK's, which lxsession passes on, and Openbox's outline when a
+# window is minimized or restored (labwc has none)
+if [[ -n $anim ]]; then
+	case $anim in
+		off) ini_set "$lxs" GTK iGtk/EnableAnimations 0; ob=no ;;
+		on) ini_set "$lxs" GTK iGtk/EnableAnimations 1; ob=yes ;;
+		default) ini_del "$lxs" GTK iGtk/EnableAnimations
+			ob=$(sed -n 's|.*<animateIconify>\([^<]*\)</animateIconify>.*|\1|p' "$SHARE/openbox-rc.xml" | head -n1) ;;
+	esac
+	seed "$obrc" "$SHARE/openbox-rc.xml"
+	sed -i "s|<animateIconify>[^<]*</animateIconify>|<animateIconify>${ob:-yes}</animateIconify>|" "$obrc"
 fi
 new_theme=$(ini_get "$lxs" GTK sNet/ThemeName)
 
@@ -3479,6 +3520,18 @@ if [[ -z $p ]]; then
 	exit 0
 fi
 attach "$p"
+if [[ -n $old_anim && -z $(ini_get "$lxs" GTK iGtk/EnableAnimations) ]]; then
+	# lxsession keeps a setting the file no longer has: pass GTK's own on
+	# first, for 100 ms
+	ini_set "$lxs" GTK iGtk/EnableAnimations 1; sleep 0.1
+	ini_del "$lxs" GTK iGtk/EnableAnimations
+fi
+if [[ -z $theme ]] && (( ! reset )); then
+	# Animations only: Openbox reloads its settings
+	if running openbox; then openbox --reconfigure >/dev/null 2>&1 || true; fi
+	show
+	exit 0
+fi
 if [[ $new_theme == "$old_theme" ]]; then
 	# GTK 3 reloads colours only on a theme change: switch to another theme
 	# for 100 ms, as Raspberry Pi OS's Appearance Settings does
