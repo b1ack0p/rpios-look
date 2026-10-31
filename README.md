@@ -121,8 +121,8 @@ bash rpios-look.sh [MODE] [OPTION]...
 
 | Mode | Action |
 |------|--------|
-| *(none)* | Install, or update an existing installation |
-| `--refresh` | List available updates, then ask to apply them |
+| *(none)* | Install, or install again clean: your Raspberry Pi Desktop settings (theme, wallpaper, panel, power) go back to the defaults |
+| `--refresh` | List available updates, then ask to apply them; your settings are kept |
 | `--uninstall` | Remove everything the script added and give Debian back as it was |
 | `--prepare-upgrade` | Prepare for a Debian release upgrade |
 | `--download` | Build or refresh `packages/` for an offline installation |

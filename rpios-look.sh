@@ -8,9 +8,11 @@
 #               panel, file manager and login screen, as a "Raspberry Pi
 #               Desktop" session on the login screen.
 #
-# Usage       : bash rpios-look.sh                   install or update
+# Usage       : bash rpios-look.sh                   install, or install again clean: your
+#                                                      Raspberry Pi Desktop settings go back
+#                                                      to the defaults
 #               bash rpios-look.sh --refresh         list available updates, then
-#                                                      ask to apply them
+#                                                      ask to apply them; keeps your settings
 #               bash rpios-look.sh --uninstall       remove everything this script added
 #                                                      and restore Debian's default setup
 #               bash rpios-look.sh --prepare-upgrade before a Debian release upgrade
@@ -80,7 +82,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.14.0"
+readonly APP_VERSION="3.15.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -259,7 +261,6 @@ WORKDIR="" KEYRING="" DEP_INDEX="" BUILD_STAGE="" LOG_FILE="" REPO="" PKG_DEB=""
 ARGV=()
 NOTES=()                # lines for the summary at the end
 STEP=0                  # the number of the step being shown
-RELOGIN=0               # 1 when the user has to log in again to see the change
 SYS_ROOT=""             # filesystem root from which the package builder reads themes (tests)
 
 ###############################################################################
@@ -1999,6 +2000,16 @@ _openbox_rc() {
 	_xml_child "$file" desktops number 1
 	_xml_child "$file" focus focusDesktop yes
 	_xml_child "$file" placement monitor Any
+	# New windows open in the middle of the screen the mouse is on, as on
+	# other desktops. Openbox's Smart placement puts them in the largest free
+	# area instead, often a corner under the panel, far from where they were
+	# started. Dialogs stay over their window; programs that ask for a
+	# position keep it.
+	if ! grep -q '<application class="\*" type="normal">' "$file"; then
+		awk '!done && /<applications>/ { print; print "    <application class=\"*\" type=\"normal\">\n      <position force=\"no\">\n        <x>center</x>\n        <y>center</y>\n        <monitor>mouse</monitor>\n      </position>\n    </application>"; done = 1; next }
+			!done && /<\/openbox_config>/ { print "  <applications>\n    <application class=\"*\" type=\"normal\">\n      <position force=\"no\">\n        <x>center</x>\n        <y>center</y>\n        <monitor>mouse</monitor>\n      </position>\n    </application>\n  </applications>"; done = 1 }
+			{ print }' "$file" | _write "$file"
+	fi
 	# Windows redraw while being resized; Raspberry Pi OS leaves them blank and
 	# unshaped until the mouse is released
 	_xml_child "$file" resize drawContents yes
@@ -4819,7 +4830,6 @@ install_all() {
 	# The system users and groups the packages created, which a purge keeps
 	LC_ALL=C comm -13 <(printf '%s\n' "$accts") <(_accounts) | record_add "$SYS_DIR/accounts-new"
 	start_sound "${new[@]}"
-	RELOGIN=1
 }
 
 # Print the system's users and groups, as "user:NAME" and "group:NAME".
@@ -5063,7 +5073,8 @@ restore_user() {
 }
 
 # Apply the Raspberry Pi OS labwc look (from rpd-wayland-core's rc.xml): the
-# <theme> section, window snapping and the window switcher.
+# <theme> section, window snapping and the window switcher; new windows open
+# in the middle of the screen, as in the X session.
 # Usage: _labwc_rc FILE
 _labwc_rc() {
 	local file=$1 fonts
@@ -5079,6 +5090,9 @@ _labwc_rc() {
       <field content="title" width="95%" />
     </fields>
   </windowSwitcher>'
+	_xml_block "$file" placement '  <placement>
+    <policy>center</policy>
+  </placement>'
 }
 
 # Run gsettings on the user's own dconf database. Inside the Raspberry Pi
@@ -5303,18 +5317,19 @@ download_mode() {
 			mv -- "$deb.tmp" "$deb.base"
 		done
 		# The packages the script asks for are always bundled, since a minimal
-		# installation may lack what a desktop task brings. Debian's panel and
-		# file manager (and libnma) are bundled beside Raspberry Pi's builds of
-		# them, for a system where those builds cannot be used.
+		# installation may lack what a desktop task brings. Debian's panel, file
+		# manager and Openbox (and libnma) are bundled beside Raspberry Pi's
+		# builds of them, for a system where those builds cannot be used and for
+		# --uninstall, which puts Debian's builds back without a network too.
 		_bundle_closure "$deb" "$deb.base" "${debs[@]}" -- "${got[@]}" >"$deb.closure" \
 			|| die "cannot work out the Debian packages for $suite/$arch"
 		mapfile -t debs < <(printf '%s\n' "${debs[@]}" | cat - "$deb.closure" \
 			| LC_ALL=C sort -u | while read -r p; do
-				[[ " ${rpis[*]} " != *" $p "* || ( $p =~ ^(lxpanel|pcmanfm|libfm|libnma) && $p != *-pi ) ]] && echo "$p"
+				[[ " ${rpis[*]} " != *" $p "* || ( $p =~ ^(lxpanel|pcmanfm|libfm|libnma|openbox|libobrender|libobt) && $p != *-pi ) ]] && echo "$p"
 			done)
 		# Debian's builds of those packages depend on Debian's versions
 		for p in "${!IN_SET[@]}"; do
-			if [[ $p =~ ^(lxpanel|pcmanfm|libfm|libnma) && $p != *-pi ]]; then unset 'IN_SET[$p]'; fi
+			if [[ $p =~ ^(lxpanel|pcmanfm|libfm|libnma|openbox|libobrender|libobt) && $p != *-pi ]]; then unset 'IN_SET[$p]'; fi
 		done
 		for p in "${debs[@]}"; do
 			# A release may lack a package (PipeWire before Debian 11); the
@@ -5582,6 +5597,56 @@ _safe_purge_set() {
 # 11. Uninstall: --uninstall
 ###############################################################################
 
+# Succeed if this user has settings of the Raspberry Pi Desktop session.
+has_session_settings() {
+	local f=${XDG_CONFIG_HOME:-$HOME/.config} d=${XDG_DATA_HOME:-$HOME/.local/share} p
+	for p in "$f/lxsession/rpd-x" "$f/lxsession/LXDE-pi" "$f/lxpanel-pi" "$f/pcmanfm/rpd-x" "$f/pcmanfm/LXDE-pi" \
+		"$f/openbox/rpd-rc.xml" "$f/openbox/lxde-pi-rc.xml" "$f/wf-panel-pi" "$d/$APP_NAME"; do
+		[[ -e $p ]] && return 0
+	done
+	grep -qs '^wallpaper=/usr/share/rpd-wallpaper/' "$f/pcmanfm/default"/desktop-items-*.conf
+}
+
+# Remove this user's settings of the Raspberry Pi Desktop session, which no
+# other session reads: theme, wallpaper, panel, window manager, power and
+# the session's own data. The files the session changed outside them are
+# given back. A clean install and --uninstall start from the defaults.
+reset_session_settings() {
+	local f d p k
+	has_session_settings || return 0
+	f=${XDG_CONFIG_HOME:-$HOME/.config}
+	d=${XDG_DATA_HOME:-$HOME/.local/share}
+	for p in rpd-rc.xml lxde-pi-rc.xml; do
+		rm -f -- "$f/openbox/$p" "$f/openbox/.$p.$APP_NAME"
+	done
+	rm -rf -- "$f/lxsession/rpd-x" "$f/lxsession/LXDE-pi" "$f/lxpanel/rpd-x" "$f/lxpanel/LXDE-pi" "$f/lxpanel-pi" \
+		"$f/pcmanfm/rpd-x" "$f/pcmanfm/LXDE-pi" "$f/wf-panel-pi" "$f/wf-panel-pi.ini"
+	# Debian's file manager reads its default profile in other sessions too:
+	# only the desktop files with a Raspberry Pi OS wallpaper are the session's
+	for p in "$f/pcmanfm/default"/desktop-items-*.conf; do
+		if grep -q '^wallpaper=/usr/share/rpd-wallpaper/' "$p" 2>/dev/null; then rm -f -- "$p"; fi
+	done
+	# The user's own files that the session changed (keep_orig): given back,
+	# or removed where the session made them
+	if [[ -d $d/$APP_NAME/orig ]]; then
+		while IFS= read -r -d '' p; do
+			k=${p#"$d/$APP_NAME/orig/"}
+			if [[ $k == *.none ]]; then rm -f -- "$f/${k%.none}"; else mkdir -p "$(dirname "$f/$k")" && cp -p -- "$p" "$f/$k"; fi
+		done < <(find "$d/$APP_NAME/orig" -type f -print0)
+	fi
+	# The session's own user data (markers, saved originals), which only it reads
+	rm -rf -- "${d:?}/$APP_NAME"
+	# The session's own GSettings database
+	rm -f -- "$f/dconf/${APP_NAME//-/}"
+	# Folders the sessions left empty; rmdir keeps folders with content
+	rmdir -- "$f/pcmanfm/default" "$f/pcmanfm" "$f/xsettingsd" "$f/dconf" "$f/labwc" "$f/lxpanel" \
+		"$f/lxsession" "$f/openbox" "$d/desktop-directories" "$d/flatpak/db" "$d/flatpak" 2>/dev/null || true
+	# A running session's power helper read the user's power settings at login:
+	# it takes the defaults at once, so that it does not lock or sleep after
+	# times that are no longer set
+	pkill -HUP -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/power\$" 2>/dev/null || true
+}
+
 # --uninstall: undo what the script did. For everyone: the session, the login
 # screen, the generated package and the packages it installed. For the user
 # running it: the settings it changed. Packages that were installed before, or
@@ -5633,35 +5698,7 @@ uninstall() {
 	# session wrote that are unchanged
 	step "Restoring the settings of $(id -un)"
 	restore_user
-	# The settings of the Raspberry Pi Desktop session, which no other session
-	# reads, so that a new install starts from the defaults
-	f=${XDG_CONFIG_HOME:-$HOME/.config}
-	d=${XDG_DATA_HOME:-$HOME/.local/share}
-	for p in rpd-rc.xml lxde-pi-rc.xml; do
-		rm -f -- "$f/openbox/$p" "$f/openbox/.$p.$APP_NAME"
-	done
-	rm -rf -- "$f/lxsession/rpd-x" "$f/lxsession/LXDE-pi" "$f/lxpanel/rpd-x" "$f/lxpanel/LXDE-pi" "$f/lxpanel-pi" \
-		"$f/pcmanfm/rpd-x" "$f/pcmanfm/LXDE-pi" "$f/wf-panel-pi" "$f/wf-panel-pi.ini"
-	# Debian's file manager reads its default profile in other sessions too:
-	# only the desktop files with a Raspberry Pi OS wallpaper are the session's
-	for p in "$f/pcmanfm/default"/desktop-items-*.conf; do
-		if grep -q '^wallpaper=/usr/share/rpd-wallpaper/' "$p" 2>/dev/null; then rm -f -- "$p"; fi
-	done
-	# The user's own files that the session changed (keep_orig): given back,
-	# or removed where the session made them
-	if [[ -d $d/$APP_NAME/orig ]]; then
-		while IFS= read -r -d '' p; do
-			k=${p#"$d/$APP_NAME/orig/"}
-			if [[ $k == *.none ]]; then rm -f -- "$f/${k%.none}"; else mkdir -p "$(dirname "$f/$k")" && cp -p -- "$p" "$f/$k"; fi
-		done < <(find "$d/$APP_NAME/orig" -type f -print0)
-	fi
-	# The session's own user data (markers, saved originals), which only it reads
-	rm -rf -- "${d:?}/$APP_NAME"
-	# The session's own GSettings database
-	rm -f -- "$f/dconf/${APP_NAME//-/}"
-	# Folders the sessions left empty; rmdir keeps folders with content
-	rmdir -- "$f/pcmanfm/default" "$f/pcmanfm" "$f/xsettingsd" "$f/dconf" "$f/labwc" "$f/lxpanel" \
-		"$f/lxsession" "$f/openbox" "$d/desktop-directories" "$d/flatpak/db" "$d/flatpak" 2>/dev/null || true
+	reset_session_settings
 
 	step "Removing packages"
 	if [[ -n $(installed_version "$APP_PKG") ]]; then
@@ -5725,7 +5762,10 @@ uninstall() {
 		as_root rmdir /var/lib/AccountsService/users /var/lib/AccountsService 2>/dev/null || true
 	fi
 	if (( ${#pkgs[@]} == 0 )); then as_root rm -rf -- "$SYS_DIR"; fi
-	ok "Uninstalled. Restart the computer to finish."
+	log ""
+	ok "${C_B}Uninstalled.${C_0} Debian's own setup is back."
+	finish "Restart the computer to finish (the login screen and running services change at the restart)."
+	if [[ -n $LOG_FILE ]]; then info "Log of this run: $LOG_FILE"; fi
 }
 
 ###############################################################################
@@ -5799,6 +5839,16 @@ cleanup() {
 	if [[ -n $BUILD_STAGE && -d $BUILD_STAGE ]]; then rm -rf -- "$BUILD_STAGE"; fi
 }
 
+# Print the GTK theme that this user chose for the session (rpios-look-set,
+# Appearance Settings), if it differs from the session's; print nothing else.
+# Such a choice lives in the user's own files and survives an update.
+user_theme() {
+	local f t
+	f=${XDG_CONFIG_HOME:-$HOME/.config}/lxsession/$(session_profile)/desktop.conf
+	t=$(sed -n 's/^sNet\/ThemeName=//p' "$f" 2>/dev/null | first_line) || t=""
+	[[ -z $t || $t == "$T_GTK" ]] || printf '%s\n' "$t"
+}
+
 # Summarise what an install will do.
 print_plan() {
 	local p st total=0 src="$RPI_ARCHIVE"
@@ -5810,6 +5860,10 @@ print_plan() {
 	[[ -n $REPO ]] && src="packages/"
 	step "Plan"
 	log "  Looks        every theme; the session uses ${T_DESC%% —*} (change it with: $APP_NAME-set --theme NAME)"
+	if has_session_settings; then
+		log "  Clean        $(id -un)'s Raspberry Pi Desktop settings (theme, wallpaper, panel, power)"
+		log "               go back to the defaults; to update and keep them: $(self_cmd) --refresh"
+	fi
 	log "  Session      Raspberry Pi Desktop on $(display_name), on the login screen for every user"
 	[[ $H_DISPLAY == wayland ]] && log "               and on X (Openbox), for when Wayland does not suit"
 	log "  Packages     from $src ($H_SUITE, $H_ARCH)$([[ -n $REPO ]] || echo ", up to $(human_size "$total") to download")"
@@ -5835,19 +5889,33 @@ print_plan() {
 
 # Print the closing summary.
 summary() {
-	local n
+	local n own
 	log ""
 	if (( ${#NOTES[@]} )); then
 		warn "Not done or worth knowing:"
 		for n in "${NOTES[@]}"; do log "   - $n"; done
 	fi
-	ok "${C_B}Done.${C_0} $T_DESC is the look of the Raspberry Pi Desktop session."
-	if (( RELOGIN )) && [[ ${XDG_SESSION_DESKTOP:-} != "$SESSION_ID" ]]; then
-		info "Log out and choose ${C_B}Raspberry Pi Desktop${C_0} on the login screen (it is chosen for you); other sessions stay as they were."
+	if [[ $O_MODE == refresh ]]; then
+		ok "${C_B}Updated.${C_0} Your Raspberry Pi Desktop settings are kept."
+	else
+		ok "${C_B}Installed.${C_0} $T_DESC is the look of the Raspberry Pi Desktop session."
 	fi
-	info "Updates: $(self_cmd) --refresh    Undo: $(self_cmd) --uninstall"
+	own=$(user_theme)
+	if [[ -n $own ]]; then
+		info "You keep your own theme ($own) and wallpaper; for ${T_DESC%% —*} and its wallpaper: $APP_NAME-set --reset"
+	fi
+	if [[ ${XDG_SESSION_DESKTOP:-} == "$SESSION_ID" ]]; then
+		finish "Log out and back in (or restart the computer) to finish: the session starts again with the new settings."
+	else
+		finish "Log out and choose ${C_B}Raspberry Pi Desktop${C_0} on the login screen (it is chosen for you), or restart the computer; other sessions stay as they were."
+	fi
+	info "Updates: $(self_cmd) --refresh    Clean install: $(self_cmd)    Undo: $(self_cmd) --uninstall"
 	if [[ -n $LOG_FILE ]]; then info "Log of this run: $LOG_FILE"; fi
 }
+
+# Print what the user has to do to finish, so that it stands out at the end.
+# Usage: finish TEXT
+finish() { log ""; log "${C_B}  ==> Next: $*${C_0}"; log ""; }
 
 # Install, update or refresh the look, online or offline.
 install_mode() {
@@ -5878,6 +5946,11 @@ install_mode() {
 	apt_source_gone
 	step "Setting up the login screen and the session for $(id -un)"
 	_state_init
+	# An install starts clean; --refresh keeps the user's settings
+	if [[ $O_MODE != refresh ]] && has_session_settings; then
+		reset_session_settings
+		ok "Your Raspberry Pi Desktop settings are back to the defaults"
+	fi
 	choose_session
 	reload_session
 	save_size
