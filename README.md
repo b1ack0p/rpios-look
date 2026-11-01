@@ -22,7 +22,8 @@ are not changed.
 7. [Supported systems](#supported-systems)
 8. [Troubleshooting](#troubleshooting)
 9. [How it works](#how-it-works)
-10. [Credits and licence](#credits-and-licence)
+10. [Tests](#tests)
+11. [Credits and licence](#credits-and-licence)
 
 ## Quick start
 
@@ -233,7 +234,7 @@ As on Raspberry Pi OS:
 |-----|--------|
 | **Super**, **Ctrl+Esc** | Main menu |
 | **Alt+F2** | Run a command |
-| **Ctrl+Alt+T** | Terminal |
+| **Ctrl+Alt+T** | Terminal: LXTerminal, unless you chose another with `update-alternatives --config x-terminal-emulator` |
 | **Ctrl+Shift+Esc** | Task manager |
 | **Ctrl+Alt+Delete**, **Ctrl+Alt+End** | Shutdown dialog |
 | **Print** | Screenshot: `scrot` on X (where installed), Raspberry Pi's screenshot tool on Wayland |
@@ -333,6 +334,11 @@ The script follows Debian's
   against its SHA256 checksum.
 - The plan lists every package before anything changes.
 - Changed settings are backed up; `--uninstall` restores them.
+
+## Tests
+
+Unit tests of the script's decision helpers need no root or network:
+`bats tests/`.
 
 ## Credits and licence
 

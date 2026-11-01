@@ -79,7 +79,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.16.0"
+readonly APP_VERSION="3.16.1"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -130,7 +130,7 @@ readonly DATA_PKGS=(pixflat-theme pixtrix-theme pix-theme)
 # that provide them there; the first available candidate is used. A newer
 # release has the renamed successor (libgdk-pixbuf-2.0-0), an older one the
 # package that was later split (adwaita-icon-theme).
-declare -rA DEP_RENAMES=(
+declare -grA DEP_RENAMES=(
 	[adwaita-icon-theme-legacy]="adwaita-icon-theme"
 	[libgdk-pixbuf2.0-0]="libgdk-pixbuf-2.0-0"
 	[libglib2.0-0]="libglib2.0-0t64"
@@ -142,7 +142,7 @@ declare -rA DEP_RENAMES=(
 # Dependencies only a Raspberry Pi needs; they are dropped. The battery and CPU
 # temperature plugins (Raspberry Pi OS 10, 11) use raspi-config only to detect
 # a pi-top or a Raspberry Pi; without it they read the PC's battery and sensors.
-declare -rA DEP_DROPS=(
+declare -grA DEP_DROPS=(
 	[lxplug-ptbatt]="raspi-config"
 	[lxplug-cputemp]="raspi-config"
 )
@@ -254,8 +254,8 @@ USE_STACK=0             # 1 when Raspberry Pi's builds replace Debian's panel an
 STACK_NAMES=()          # those packages, with the other installed packages of their sources
 USE_WM=0                # 1 when Raspberry Pi's build replaces Debian's Openbox (PI_WM)
 WM_NAMES=()             # those packages, with the other installed packages of their source
-declare -A PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
-declare -A IDX_LOADED=() IDX_FAILED=() IN_SET=()
+declare -gA PKG_VER=() PKG_FILE=() PKG_SHA=() PKG_SIZE=() PKG_SUITE=() PKG_AID=()
+declare -gA IDX_LOADED=() IDX_FAILED=() IN_SET=()
 WORKDIR="" KEYRING="" DEP_INDEX="" BUILD_STAGE="" LOG_FILE="" REPO="" PKG_DEB=""
 ARGV=()
 NOTES=()                # lines for the summary at the end
@@ -750,6 +750,13 @@ theme_debs() {
 qt_debs() { printf '%s\n' qt5-gtk-platformtheme qt6-gtk-platformtheme; }
 # Succeed if this computer has a Wi-Fi adapter.
 has_wifi() { compgen -G '/sys/class/ieee80211/*' >/dev/null; }
+# Succeed if NetworkManager runs the network: it is installed, and enabled or
+# the only network manager (wicd and ConnMan are the others).
+nm_runs() {
+	[[ -n $(installed_version network-manager) ]] || return 1
+	[[ -z $(installed_version connman)$(installed_version wicd) ]] \
+		|| systemctl is-enabled --quiet NetworkManager.service 2>/dev/null
+}
 # Succeed if this computer has a Bluetooth adapter, or a Bluetooth radio that
 # rfkill blocks (some laptops power the adapter off while it is blocked).
 has_bluetooth() {
@@ -764,14 +771,14 @@ has_bluetooth() {
 # Print the Debian packages for the panel's network and Bluetooth icons, as on
 # Raspberry Pi OS, and for its Help menu. With a Wi-Fi adapter: NetworkManager
 # and the Wi-Fi tools, unless another network manager is installed; the tray
-# icon (nm-applet) also where NetworkManager is already installed. With a
+# icon (nm-applet) also where NetworkManager already runs (nm_runs). With a
 # Bluetooth adapter: BlueZ, Bluetooth audio for the sound server in use, and
 # blueman where Debian's panel, which has no Bluetooth plugin, is used.
 # ALL (1) prints every one, for packages/. Usage: tray_debs SUITE [ALL]
 tray_debs() {
 	local all=${2:-0} nm=0 rfkill=0
-	[[ -n $(installed_version network-manager) ]] && nm=1
-	if (( all )) || { (( ! nm )) && has_wifi && [[ -z $(installed_version connman)$(installed_version wicd) ]]; }; then
+	nm_runs && nm=1
+	if (( all )) || { [[ -z $(installed_version network-manager) ]] && has_wifi && [[ -z $(installed_version connman)$(installed_version wicd) ]]; }; then
 		nm=1 rfkill=1
 		printf '%s\n' network-manager wpasupplicant iw wireless-regdb rfkill
 	fi
@@ -807,7 +814,7 @@ mono_font_pkg() { if suite_ge "$1" trixie; then echo fonts-liberation; else echo
 
 # Load the Debian release numbers from the built-in list, then from Debian's
 # distro-info-data, which also names future releases.
-declare -A REL_VER=()
+declare -gA REL_VER=()
 load_releases() {
 	local e v c
 	for e in "${KNOWN_RELEASES[@]}"; do REL_VER[${e#*:}]=${e%%:*}; done
@@ -1050,7 +1057,7 @@ archive_bases() {
 }
 # Print the base URL (or the path) from which an archive serves a release.
 # Usage: archive_url ARCHIVE SUITE
-declare -A BASE=()
+declare -gA BASE=()
 archive_url() { printf '%s\n' "${BASE[$1/$2]:-$(archive_bases "$1" | first_line)}"; }
 
 # Fetch and verify the signed Release file of a release, once. Debian moves a
@@ -1284,7 +1291,7 @@ _vcmp() {
 # its resolved version if it is in the install set; otherwise, when building
 # packages/, those in the Debian index, else the installed version and the APT
 # candidate. "*" stands for any version (a virtual or unresolved package).
-declare -A AVAIL=()
+declare -gA AVAIL=()
 _avail() {
 	local n=$1
 	# Not cached: the version is known only once the package is resolved
@@ -2042,13 +2049,13 @@ _openbox_rc() {
 # and laptops to lock the screen, the wireless key for the wireless radios and
 # the power button (see power_build). A key's existing binding is replaced.
 # With RASPBERRY-PI-FILE set, the file is Raspberry Pi OS's own and keeps its
-# keys; only the session's own are added. Usage: _openbox_keys RC-XML [RASPBERRY-PI-FILE]
+# keys; only the session's own and the terminal's are set. Usage: _openbox_keys RC-XML [RASPBERRY-PI-FILE]
 _openbox_keys() {
 	local file=$1 k c ctl=lxpanelctl
 	local -a keys
 	if [[ -n ${2:-} ]]; then
 		keys=("C-A-L|$SHARE/power lock" "XF86ScreenSaver|$SHARE/power lock" "XF86WLAN|$SHARE/power wireless-radio"
-			"XF86PowerOff|$SHARE/power power-key")
+			"XF86PowerOff|$SHARE/power power-key" "C-A-T|$(_term_cmd)")
 	elif (( S_PI_PANEL )); then
 		ctl=lxpanelctl-pi
 		keys=("Super_L|$ctl command smenu menu" "C-Escape|$ctl command smenu menu" "A-F2|gui-runcmd"
@@ -2060,7 +2067,7 @@ _openbox_keys() {
 	else
 		keys=("Super_L|$ctl menu" "C-Escape|$ctl menu" "A-F2|$ctl run")
 	fi
-	[[ -n ${2:-} ]] || keys+=("C-A-S|$ctl move" "C-A-T|x-terminal-emulator" "C-S-Escape|lxtask" "Print|scrot"
+	[[ -n ${2:-} ]] || keys+=("C-A-S|$ctl move" "C-A-T|$(_term_cmd)" "C-S-Escape|lxtask" "Print|scrot"
 		"C-A-End|pishutdown" "C-A-Delete|pishutdown" "C-A-L|$SHARE/power lock" "XF86ScreenSaver|$SHARE/power lock" "XF86WLAN|$SHARE/power wireless-radio"
 		"XF86PowerOff|$SHARE/power power-key")
 	# The volume keys and the magnifier, through the panel's plugins
@@ -2108,8 +2115,21 @@ _openbox_keys() {
 		}' "$file" | _write "$file"
 }
 
-# Print the terminal's launcher: Debian's default terminal, else LXTerminal.
-_terminal() { _launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop; }
+# Print the terminal command. Raspberry Pi OS's x-terminal-emulator is
+# LXTerminal, while Debian ranks xterm above it; so LXTerminal, unless the
+# user chose the default terminal (update-alternatives) or it is missing.
+_term_cmd() {
+	if command -v lxterminal >/dev/null \
+		&& ! update-alternatives --query x-terminal-emulator 2>/dev/null | grep -qx 'Status: manual'; then
+		echo lxterminal
+	else echo x-terminal-emulator; fi
+}
+
+# Print the terminal's launcher, for the command of _term_cmd.
+_terminal() {
+	if [[ $(_term_cmd) == lxterminal ]]; then _launcher lxterminal.desktop x-terminal-emulator.desktop lxde-x-terminal-emulator.desktop
+	else _launcher x-terminal-emulator.desktop lxterminal.desktop lxde-x-terminal-emulator.desktop; fi
+}
 
 # Print the first installed application launcher (.desktop file) of a list.
 _launcher() {
@@ -2423,7 +2443,7 @@ _session_profile() {
 		printf 'clipboard/command=lxclipboard\nxsettings_manager/command=build-in\nproxy_manager/command=build-in\n'
 		printf 'keyring/command=ssh-agent\nquit_manager/command=lxsession-logout\n'
 		printf 'quit_manager/image=/usr/share/lxde/images/logout-banner.png\nquit_manager/layout=top\n'
-		printf 'lock_manager/command=%s/power lock\nterminal_manager/command=x-terminal-emulator\nlauncher_manager/command=%s\n' "$SHARE" "$ctl"
+		printf 'lock_manager/command=%s/power lock\nterminal_manager/command=%s\nlauncher_manager/command=%s\n' "$SHARE" "$(_term_cmd)" "$ctl"
 		# The session's own applications that lxsession starts only on request,
 		# for its settings window; those it starts at login are left empty
 		printf 'file_manager/command=%s\nwebbrowser/command=x-www-browser\n' "$fm"
@@ -2480,7 +2500,7 @@ _session_files() {
 			# Raspberry Pi's file manager keeps here what Debian's keeps in
 			# libfm.conf: menus, side pane and icon sizes
 			_fm_shared_conf "$f"
-			_ini_set "$f" config terminal "x-terminal-emulator %s"
+			_ini_set "$f" config terminal "$(_term_cmd) %s"
 		fi
 	done
 	# Debian's libfm.conf, with Raspberry Pi OS's values
@@ -2565,15 +2585,17 @@ _session_entries() {
 	# lacks; screen lockers, screensavers and power managers, as the sessions
 	# run their own power helper (power_build); the Bluetooth applet where
 	# Raspberry Pi's panel has its own plugin; nm-applet where its network
-	# plugin is used; and the authentication agents, as the sessions start
-	# their own (polkit_agent). A user can enable them again in Desktop
-	# Session Settings.
+	# plugin is used; the tray icons of wicd and ConnMan where NetworkManager
+	# runs the network, as the panel shows its own; and the authentication
+	# agents, as the sessions start their own (polkit_agent). A user can
+	# enable them again in Desktop Session Settings.
 	local -a pats=(volumeicon pasystray pnmixer diodon clipit parcellite
 		light-locker xscreensaver xss-lock xautolock gnome-screensaver mate-screensaver
 		xfce4-power-manager mate-power-manager lxqt-powermanagement
 		polkit-gnome-authentication-agent polkit-mate xfce-polkit lxpolkit)
 	(( S_PI_PANEL || S_PI_STACK )) && pats+=(blueman)
 	(( USE_NETMAN )) && pats+=(nm-applet)
+	nm_runs && pats+=(wicd-tray cmst connman-gtk)
 	for id in "${pats[@]}"; do
 		for f in /etc/xdg/autostart/"$id"*.desktop; do
 			[[ -f $f ]] || continue
@@ -3128,11 +3150,11 @@ _session_wayland() {
 	# Ctrl+Alt+L and the lock key lock the screen; the wireless key switches
 	# the wireless radios; the power button runs the session's helper in place
 	# of Raspberry Pi OS's pwrkey, on release as there (see power_build), and
-	# the terminal key Debian's terminal, as Debian's labwc lacks Raspberry Pi's
-	# lab-sensible-terminal
-	P="$SHARE/power" awk '
+	# the terminal key the terminal of _term_cmd, as Debian's labwc lacks
+	# Raspberry Pi's lab-sensible-terminal
+	P="$SHARE/power" TC=$(_term_cmd) awk '
 		{ pk += gsub(/command="pwrkey"/, "command=\"" ENVIRON["P"] " power-key\"")
-		  gsub(/command="lab-sensible-terminal"/, "command=\"x-terminal-emulator\"") }
+		  gsub(/command="lab-sensible-terminal"/, "command=\"" ENVIRON["TC"] "\"") }
 		!done && /<\/keyboard>/ {
 			n = split("C-A-l=lock XF86ScreenSaver=lock XF86WLAN=wireless-radio", k, " ")
 			for (i = 1; i <= n; i++) {
@@ -4491,8 +4513,8 @@ netman_decide() {
 	local rv dv
 	USE_NETMAN=0 NET_NAMES=()
 	[[ $H_SUITE == trixie || ( $H_SUITE == bookworm && USE_STACK -eq 1 ) ]] || return 0
-	[[ -n $(installed_version network-manager) ]] \
-		|| { has_wifi && [[ -z $(installed_version connman)$(installed_version wicd) ]]; } || return 0
+	nm_runs || { [[ -z $(installed_version network-manager) ]] && has_wifi \
+		&& [[ -z $(installed_version connman)$(installed_version wicd) ]]; } || return 0
 	rv=$(index_candidates "$(rpi_aid)" "$H_SUITE" "$H_ARCH" libnma0 2>/dev/null | first_line | cut -f1)
 	[[ $rv == *+rpt* ]] || return 0
 	dv=$(installed_version libnma0)
@@ -4970,7 +4992,7 @@ record_packages_before() {
 # shell, so that any failure stops the build.
 # shellcheck disable=SC2016  # maintainer scripts contain a literal $1
 build_pkg() {
-	local stage=$WORKDIR/pkg b f ver icons=() depends="lxsession, openbox, lxpanel | lxpanel-pi, pcmanfm"
+	local stage=$WORKDIR/pkg b f ver icons=() depends="lxsession, openbox, lxpanel | lxpanel-pi, pcmanfm, python3"
 	rm -rf -- "$stage"; mkdir -p "$stage/DEBIAN"
 	logo_badge_build "$stage"
 	for b in PiXflat PiXtrix PiX; do
@@ -4991,6 +5013,17 @@ build_pkg() {
 	if [[ -n $(installed_version lightdm) ]]; then login_build "$stage"; fi
 
 	ver="${APP_VERSION}+$(date -u +%Y%m%d%H%M%S)"
+	mkdir -p "$stage/usr/share/doc/$APP_PKG"
+	cat >"$stage/usr/share/doc/$APP_PKG/copyright" <<EOF
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: $APP_NAME
+Comment: Generated by $APP_NAME from the installed Raspberry Pi OS packages,
+ whose own copyright files apply to the artwork and settings taken from them.
+
+Files: *
+Copyright: 2026 b1ack0p
+License: MIT
+EOF
 	cat >"$stage/DEBIAN/control" <<EOF
 Package: $APP_PKG
 Version: $ver
