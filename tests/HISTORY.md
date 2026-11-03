@@ -70,6 +70,22 @@ own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
     manager is not changed.
   - Harness: on sid the first run checked before the session was up; it
     now waits for Openbox after the login, and the run passed.
+  - All five themes on all 8 VMs (3.17.3): LXTerminal resizes from both
+    sides and the bottom with every theme on every VM, and its bottom
+    corners behave as the file manager's: both with PiXtrix and PiXonyx
+    (Debian 10 and 11 amd64 included, which failed in the run before);
+    with PiXflat and PiXnoir the right one, the left one only from 1 px
+    out; with PiX the left one from 1 px out, the right one not; Debian
+    10 every corner with every theme.
+  - Raspberry Pi OS for comparison (LXTerminal, the themes it has for
+    Openbox): Raspberry Pi OS 13 (raspios-ref) every side and corner with
+    PiXtrix and PiXonyx; Raspberry Pi Desktop 11 (rpios11) every side with
+    PiXflat, its bottom corners only from 1 px out. The tight rounded
+    corners are Raspberry Pi's own. Raspberry Pi OS 12 has no x86 release;
+    Raspberry Pi Desktop 10 is not installed (disk space).
+  - Harness: a stopped run left a test window with the same title open on
+    raspios-ref, and the next run measured it; it was run again after a
+    restart.
 
 ## 3.17.2 (2026-11-03)
 
