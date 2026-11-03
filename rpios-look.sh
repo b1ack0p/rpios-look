@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.17.1"
+readonly APP_VERSION="3.17.2"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -1943,6 +1943,10 @@ _openbox_rc() {
 	# Windows redraw while being resized; Raspberry Pi OS leaves them blank and
 	# unshaped until the mouse is released
 	_xml_child "$file" resize drawContents yes
+	# A double-click on a title bar maximizes within 400 ms, as a double-click
+	# in GTK applications opens; Raspberry Pi OS's 200 ms misses an ordinary
+	# double-click
+	_xml_child "$file" mouse doubleClickTime 400
 }
 
 # Bind the Openbox keys of Raspberry Pi OS (lxde-pi-rc.xml / rpd-rc.xml) whose
@@ -2738,6 +2742,12 @@ elif ! cmp -s "$share/openbox-rc.xml" "$seen" 2>/dev/null; then
 		/<\/openbox_config>/ && ap != "" { printf "<applications>\n%s</applications>\n", ap; ap = "" }
 		{ print }' "$share/openbox-rc.xml" "$rc" >"$rc.new" && cat "$rc.new" >"$rc"
 	rm -f "$rc.new"
+	# The double-click time follows the session's, unless the user changed it
+	dct() { sed -n 's|.*<doubleClickTime>\([0-9]*\)</doubleClickTime>.*|\1|p' "$1" | head -n1; }
+	old=$(dct "$seen") cur=$(dct "$rc") new=$(dct "$share/openbox-rc.xml")
+	if [ -n "$new" ] && [ "$cur" = "$old" ] && [ "$cur" != "$new" ]; then
+		sed -i --follow-symlinks "s|<doubleClickTime>$cur</doubleClickTime>|<doubleClickTime>$new</doubleClickTime>|" "$rc"
+	fi
 	cp "$share/openbox-rc.xml" "$seen"
 fi
 

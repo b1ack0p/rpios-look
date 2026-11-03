@@ -366,6 +366,7 @@ agent. Raspberry Pi OS uses the same Debian programs for these.
 |------|------------|-----------------|
 | Keyboard shortcuts | Raspberry Pi OS's for each release; Ctrl+Alt+Space (screen reader installer) is omitted | Full set |
 | Resizing a window | Contents redraw while dragging | Blank until the mouse is released |
+| Double-click on a title bar | Maximizes when the clicks are up to 400 ms apart, as GTK applications count a double-click | 200 ms: a slower double-click is missed |
 | Menu button and login logo | Debian logo | Raspberry Pi logo |
 | Login screen | Debian's LightDM greeter in Raspberry Pi OS's style, with user list and session menu | Raspberry Pi's greeter |
 | File manager on Debian 13 | Raspberry Pi's, alongside Debian's | Raspberry Pi's only |

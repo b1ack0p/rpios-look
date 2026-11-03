@@ -33,6 +33,25 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.17.2 (2026-11-03)
+
+- **Double-click on a title bar missed, fixed.** On the desktop PC a
+  double-click on a title bar sometimes did not maximize, depending on the
+  spot. Measured on Debian 13 (XTest, 7 spots across the title of a file
+  manager window): every spot maximized with the clicks 110 to 180 ms
+  apart, none above 200 ms, and about half at 200 ms. Openbox's
+  doubleClickTime is 200 ms in Raspberry Pi OS's settings (raspios-ref
+  too); GTK applications count 400 ms. It is now 400 ms. A user's Openbox
+  file whose value is still the session's old one takes the new value at
+  the next login; other changes in it are kept. After `--refresh` and a
+  login on Debian 13: every spot maximized at 180, 280 and 350 ms, 5 of 7
+  at 400 ms, none at 480 ms.
+- Geany showing tiny text on the desktop PC: its `geany.conf` held
+  `editor_font=(null)`. A fresh Geany 2.0 in the Raspberry Pi Desktop
+  session and in Debian's LXDE (Debian 13 VM) saves `Monospace 10` and shows
+  normal text; not caused by the session. The desktop PC's file was
+  corrected.
+
 ## 3.17.1 (2026-11-03)
 
 Five notes from daily use on the desktop PC, tested on all 8 VMs (fresh
