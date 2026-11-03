@@ -182,7 +182,16 @@ keeping your settings:
 bash rpios-look.sh --refresh
 ```
 
-It lists every change and asks first. On an online installation, Debian's
+It checks every theme (PiXflat, PiXnoir, PiXtrix, PiXonyx and PiX) with its
+icons, fonts and wallpapers, for your Debian release, whichever theme you use;
+it also checks the other Raspberry Pi packages the look installs. A package
+that Raspberry Pi OS releases later for your Debian release is added too: a
+new theme, icon set, cursor set, GTK 2 engine, font or wallpaper set, as
+listed by Raspberry Pi OS's own `rpd-theme` package or named like its theme
+packages. A newly released theme shows up in Appearance Settings;
+`rpios-look-set --theme` offers the five themes above. The first lines show
+the session, the theme, icons and size you use, and the Raspberry Pi OS
+release the packages come from. It lists every change and asks first. On an online installation, Debian's
 own updates also update Raspberry Pi's packages:
 
 ```bash

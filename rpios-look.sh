@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.17.3"
+readonly APP_VERSION="3.17.4"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -509,6 +509,7 @@ rpi_pkgs() {
 	printf '%s\n' pixflat-theme pixtrix-theme pix-theme pixflat-icons pixtrix-icons rpd-icons \
 		gtk2-engines-pixflat gtk2-engines-clearlookspix fonts-piboto fonts-nunito-sans "${PI_WM[@]}"
 	[[ $O_MODE == download ]] || stack_extras "$PI_WM_SRC" "${PI_WM[@]}"
+	rpi_new_looks "$1" "$2"
 	# The standard wallpaper sets (no code) of this and every later release.
 	local s
 	for s in $(releases); do
@@ -516,6 +517,30 @@ rpi_pkgs() {
 		index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper' | grep -v -- '-4k$' || true
 	done | awk '!seen[$0]++'
 	if suite_ge "$1" trixie; then pi_apps "$1" "$2"; else pi_stack "$1" "$2"; fi
+}
+
+# Print the theme packages that Raspberry Pi OS has released since this
+# script was written, so that an install or --refresh adds them: what its
+# rpd-theme package recommends (Raspberry Pi OS's own list of its look), and
+# every package named like its themes, icons, cursors, GTK 2 engines and fonts.
+# Debian's own packages, debug symbols, transitional packages and the names
+# rpi_pkgs lists already are left out. Usage: rpi_new_looks SUITE ARCH
+rpi_new_looks() {
+	local aid f known='pixflat-theme|pixtrix-theme|pix-theme|pixflat-icons|pixtrix-icons|rpd-icons|gtk2-engines-pixflat|gtk2-engines-clearlookspix|fonts-piboto|fonts-nunito-sans' p
+	aid=$(rpi_aid)
+	index_load "$aid" "$1" "$2" || return 0
+	f=$WORKDIR/index/$aid/$1/Packages-$2
+	{
+		awk 'BEGIN { RS = ""; FS = "\n" } index($0, "Package: rpd-theme\n") == 1 {
+			for (i = 1; i <= NF; i++) if ($i ~ /^(Depends|Recommends): /) { sub(/^[^:]*: /, "", $i); print $i } }' "$f" | depnames
+		sed -n 's/^Package: //p' "$f" | grep -xE 'pix[a-z0-9]*-(theme|icons)|rpd-icons[a-z0-9-]*|[a-z0-9-]+-cursors?(-theme)?|gtk2-engines-(pix|clearlookspix)[a-z0-9]*|fonts-[a-z0-9-]+'
+	} | grep -v -- '-dbgsym$' | grep -vxE "$known|rpd-wallpaper.*" | sort -u | while read -r p; do
+		# An empty transitional or dummy package brings nothing new
+		awk -v p="$p" 'BEGIN { RS = ""; FS = "\n" } index($0, "Package: " p "\n") == 1 {
+			for (i = 1; i <= NF; i++) if ($i ~ /^Description: / && tolower($i) ~ /transitional|dummy/) found = 1 }
+			END { exit !found }' "$f" && continue
+		_debian_has "$p" || printf '%s\n' "$p"
+	done
 }
 
 # Print the Debian packages of the X server, which the login screen always
@@ -871,6 +896,37 @@ print_machine() {
 	[[ $H_VIRT == none ]] || log "  Virtual      $H_VIRT"
 	log "  System       ${H_PRETTY:-unknown}, $H_ARCH, kernel $H_KERNEL"
 	log "  Desktop      $( (( H_LXDE )) && echo LXDE || echo "no LXDE")${H_DM:+; login screen: $H_DM}"
+	_print_look
+}
+
+# Print the theme, icons and size that the running user's Raspberry Pi
+# Desktop session uses, when the look is installed: the user's own choice
+# (rpios-look-set, Appearance Settings), else the session's default; and the
+# Raspberry Pi OS release that its packages come from.
+_print_look() {
+	local f k v theme="" icons="" size
+	for f in "${XDG_CONFIG_HOME:-$HOME/.config}/lxsession/$(session_profile)/desktop.conf" \
+		"$SHARE/xdg/lxsession/$(session_profile)/desktop.conf"; do
+		[[ -f $f ]] || continue
+		while IFS='=' read -r k v; do
+			case $k in
+				sNet/ThemeName)     [[ -n $theme ]] || theme=$v ;;
+				sNet/IconThemeName) [[ -n $icons ]] || icons=$v ;;
+			esac
+		done <"$f"
+	done
+	[[ -n $theme && -n $(installed_version "$APP_PKG") ]] || return 0
+	size=$(sed -n 's/^size=//p' "$SYS_DIR/options" 2>/dev/null | first_line) || size=""
+	local wm panel fm now=""
+	wm=$(installed_version openbox) wm=${wm%%-*}
+	if suite_ge "$H_SUITE" trixie; then panel=lxpanel-pi fm=pcmanfm-pi; else panel=lxpanel fm=pcmanfm; fi
+	panel="$panel $(installed_version "$panel")" fm="$fm $(installed_version "$fm")"
+	if [[ ${XDG_SESSION_DESKTOP:-} == "$SESSION_ID" ]]; then now="running now"
+	elif [[ -n ${XDG_SESSION_DESKTOP:-} ]]; then now="running now: ${XDG_SESSION_DESKTOP}"; fi
+	log "  Session      Raspberry Pi Desktop on X${now:+, $now}"
+	log "               Openbox ${wm:-?}, panel ${panel% }, file manager ${fm% }"
+	log "  Look         $theme theme${icons:+, $icons icons}, ${size:-medium} size"
+	log "  Packages     Raspberry Pi OS ${REL_VER[$H_SUITE]:+${REL_VER[$H_SUITE]} }($H_SUITE), $H_ARCH"
 }
 
 # Print the major Debian version of this system: from os-release, otherwise
@@ -5100,6 +5156,9 @@ save_state() { state_lines | cmp -s - "$SYS_DIR/state" 2>/dev/null || state_line
 refresh_check() {
 	local p st n=0 line key saved
 	step "Updates for the Raspberry Pi OS look"
+	log "  Checks all ${#FETCH_PKGS[@]} Raspberry Pi OS packages for $H_SUITE/$H_ARCH: every theme"
+	log "  (PiXflat, PiXnoir, PiXtrix, PiXonyx, PiX) with its icons, fonts and wallpapers,"
+	log "  whichever one you use, and Raspberry Pi's programs that the look installs."
 	while read -r line; do
 		key=${line#?}
 		case $line in
@@ -5600,7 +5659,7 @@ summary() {
 	fi
 	own=$(user_theme)
 	if [[ -n $own ]]; then
-		info "You keep your own theme ($own) and wallpaper; for ${T_DESC%% —*} and its wallpaper: $APP_NAME-set --reset"
+		info "Your theme ($own) and wallpaper stay; every theme was updated. To go back to this release's default (${T_DESC%% —*}): $APP_NAME-set --reset"
 	fi
 	if [[ ${XDG_SESSION_DESKTOP:-} == "$SESSION_ID" ]]; then
 		finish "Log out and back in (or restart the computer) to finish: the session starts again with the new settings."

@@ -33,6 +33,27 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.17.4 (2026-11-04)
+
+`--refresh` checks every theme and picks up newly released ones.
+
+- The update check already compared every theme package (PiXflat, PiXnoir,
+  PiXtrix, PiXonyx, PiX, their icons, engines, fonts, wallpapers), whichever
+  theme is in use; it now says so, and the closing note no longer reads as if
+  only the default theme was updated.
+- New: packages that Raspberry Pi OS releases later are added (what its
+  `rpd-theme` package recommends, and names like its theme, icon, cursor,
+  engine and font packages), leaving out Debian's own, debug and transitional
+  packages. Dry run against the live archive, amd64: Debian 10–13 add nothing
+  today (Debian 10's `pix-icons` is transitional and skipped). With a made-up
+  index holding a new theme, icon set, cursor set, a transitional, a debug and
+  a Debian package, only the theme, icons and cursors were added.
+- The machine summary shows the session (Openbox, panel and file manager
+  versions), the theme, icons and size in use, and the Raspberry Pi OS release.
+- User desktop (Debian 13 amd64, PiXflat): `--refresh` checked 34 packages,
+  up to date; the new lines read PiXflat, PiXflat-Debian icons, medium,
+  Raspberry Pi OS 13 (trixie). bats: 10 of 10 pass.
+
 ## 3.17.3 (2026-11-03)
 
 - **LXTerminal could not be resized from its edges, fixed.** On the desktop
