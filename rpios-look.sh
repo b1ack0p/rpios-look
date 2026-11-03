@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.17.2"
+readonly APP_VERSION="3.17.3"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -1922,7 +1922,11 @@ _ob_round() {
 _openbox_rc() {
 	local file=$1 fonts
 	fonts=$(_xml_fonts ActiveWindow InactiveWindow MenuHeader MenuItem ActiveOnScreenDisplay InactiveOnScreenDisplay)
-	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>%s</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$(_ob_round "$T_GTK")" "$fonts")"
+	# The invisible resize borders are 12 pixels wide, as Raspberry Pi OS's
+	# Appearance Settings set them (Raspberry Pi's Openbox from Raspberry Pi OS
+	# 13; earlier builds ignore the setting); a theme without a border, such
+	# as PiXtrix, has none otherwise.
+	_xml_block "$file" theme "$(printf '  <theme>\n    <name>%s</name>\n    <titleLayout>LIMC</titleLayout>\n    <keepBorder>yes</keepBorder>\n    <roundCorners>%s</roundCorners>\n    <invisibleHandles>yes</invisibleHandles>\n    <invHandleWidth>12</invHandleWidth>\n    <animateIconify>yes</animateIconify>\n%s\n  </theme>' "$T_GTK" "$(_ob_round "$T_GTK")" "$fonts")"
 	# Use Openbox's own menu when LXDE's is missing
 	if [[ ! -f /usr/share/lxde/openbox/menu.xml ]]; then
 		sed -i 's#<file>/usr/share/lxde/openbox/menu.xml</file>#<file>menu.xml</file>#' "$file"
@@ -2625,15 +2629,21 @@ color_scheme() {
 # and the appearance settings wrapper, which lists the session's themes.
 # Usage: _session_programs ROOT
 _session_programs() {
-	local root=$1 pcm="" f
+	local root=$1 f
 	# Raspberry Pi's file manager runs as "pcmanfm" in the session, as on
 	# Raspberry Pi OS, whose Appearance Settings call it by that name
 	if (( S_PI_FM )); then
-		# shellcheck disable=SC2016  # written as is, for session-env
-		pcm='export PATH="$share/bin:$PATH"'
 		printf '#!/bin/sh\nif command -v pcmanfm-pi >/dev/null; then exec pcmanfm-pi "$@"; fi\nexec /usr/bin/pcmanfm "$@"\n' | _write "$root$SHARE/bin/pcmanfm"
 		chmod 0755 "$root$SHARE/bin/pcmanfm"
 	fi
+	# LXTerminal opens a window without an alpha channel, as Raspberry Pi OS
+	# builds it: Raspberry Pi's Openbox gives a window with one (Debian's
+	# LXTerminal asks for it) no invisible resize borders, so it could be
+	# resized only from its frame's edge, or not at all with PiXtrix. Every
+	# way the session starts it (menu, panel, keys, file manager) finds this
+	# first; a second window shares the first one's process.
+	printf '#!/bin/sh\n[ -x /usr/bin/lxterminal ] || exit 127\nXLIB_SKIP_ARGB_VISUALS=1 exec /usr/bin/lxterminal "$@"\n' | _write "$root$SHARE/bin/lxterminal"
+	chmod 0755 "$root$SHARE/bin/lxterminal"
 	cat <<EOF | _write "$root$SHARE/session-env"
 # The environment and helpers of both Raspberry Pi Desktop sessions, written
 # by $APP_NAME. Only these sessions put $SHARE first in the XDG paths.
@@ -2654,7 +2664,7 @@ export FONTCONFIG_FILE=\$share/fonts.conf
 [ ! -f "\$share/dconf/profile" ] || export DCONF_PROFILE=\$share/dconf/profile
 export SAL_USE_VCLPLUGIN=gtk3
 export QT_QPA_PLATFORMTHEME=gtk3
-$pcm
+export PATH="\$share/bin:\$PATH"
 
 # Create the Desktop folder if it is missing
 if [ -e "\$config/user-dirs.dirs" ]; then . "\$config/user-dirs.dirs"; fi
@@ -2747,6 +2757,11 @@ elif ! cmp -s "$share/openbox-rc.xml" "$seen" 2>/dev/null; then
 	old=$(dct "$seen") cur=$(dct "$rc") new=$(dct "$share/openbox-rc.xml")
 	if [ -n "$new" ] && [ "$cur" = "$old" ] && [ "$cur" != "$new" ]; then
 		sed -i --follow-symlinks "s|<doubleClickTime>$cur</doubleClickTime>|<doubleClickTime>$new</doubleClickTime>|" "$rc"
+	fi
+	# The width of the invisible resize borders is added where it is missing
+	w=$(sed -n 's|.*\(<invHandleWidth>[0-9]*</invHandleWidth>\).*|\1|p' "$share/openbox-rc.xml" | head -n1)
+	if [ -n "$w" ] && ! grep -q '<invHandleWidth>' "$rc"; then
+		sed -i --follow-symlinks "s|<invisibleHandles>[a-z]*</invisibleHandles>|&\n    $w|" "$rc"
 	fi
 	cp "$share/openbox-rc.xml" "$seen"
 fi

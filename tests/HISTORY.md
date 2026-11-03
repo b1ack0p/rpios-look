@@ -33,6 +33,44 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.17.3 (2026-11-03)
+
+- **LXTerminal could not be resized from its edges, fixed.** On the desktop
+  PC with PiXtrix, LXTerminal resized from no side or bottom corner, while
+  the file manager did; raspios-ref resizes both. Measured (drags from 1, 3
+  and 6 px outside each edge and bottom corner) on Debian 10 to 13:
+  LXTerminal resized from no edge with PiXtrix and PiXonyx and only from
+  1 px out with PiXflat and PiX, on every release; the file manager from
+  6 px out with every theme. Two causes:
+  - Debian's LXTerminal opens a 32-bit (alpha) window, Raspberry Pi's
+    build (0.4.1-1+rpt1, Raspberry Pi OS 13 only) a 24-bit one, and
+    Raspberry Pi's Openbox gives an alpha window no invisible resize
+    borders. The session now starts LXTerminal with
+    `XLIB_SKIP_ARGB_VISUALS=1` (a wrapper first on the session's PATH), so
+    it opens a 24-bit window; Debian's LXDE session is not changed.
+  - Raspberry Pi OS 13's Appearance Settings write `invHandleWidth` 12 into
+    Openbox's settings; without it a theme without a border (PiXtrix,
+    PiXonyx) has no resize border on Raspberry Pi's Openbox 13. The session
+    sets it, and a user's own Openbox file gets it at the next login.
+    Openbox builds before Raspberry Pi OS 13 ignore it.
+  - With both, on Debian 13: every edge and both bottom corners resize
+    with PiXtrix and PiXonyx, as on raspios-ref; PiXflat and PiX every
+    edge, their rounded bottom corners from 1 px out, as the file manager.
+    Debian 12 with the 24-bit window alone: the same.
+  - 3.17.3 on all 8 VMs (`--refresh` of the earlier install, a fresh
+    install on Debian 13), after a new login: every user's Openbox file
+    has `invHandleWidth` 12 and doubleClickTime 400; the session's PATH
+    starts with its own folder; Ctrl+Alt+T opens LXTerminal in a 24-bit
+    window. LXTerminal resizes from every edge with PiXtrix and PiXflat on
+    every VM, and from both bottom corners with PiXtrix everywhere but
+    Debian 10 and 11 amd64, whose Openbox ignores `invHandleWidth`
+    (PiXflat is their default theme). The file manager's bottom edge
+    failed in two runs (Debian 12 and 13 amd64), where its window,
+    enlarged by earlier tests, reached the bottom of the screen; the file
+    manager is not changed.
+  - Harness: on sid the first run checked before the session was up; it
+    now waits for Openbox after the login, and the run passed.
+
 ## 3.17.2 (2026-11-03)
 
 - **Double-click on a title bar missed, fixed.** On the desktop PC a
