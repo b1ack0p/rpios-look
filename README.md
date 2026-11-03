@@ -32,61 +32,86 @@ session, which is not changed.
 rights (do not run the script as root); internet access, except for an
 [offline installation](#offline-installation).
 
-1. Download `rpios-look.sh`, or clone this repository.
-2. In a terminal, in the script's folder, run `bash rpios-look.sh`.
+1. Download `rpios-look.sh`, or clone this repository:
+
+   ```bash
+   git clone https://github.com/b1ack0p/rpios-look.git
+   cd rpios-look
+   ```
+
+2. Install:
+
+   ```bash
+   bash rpios-look.sh
+   ```
+
 3. Enter your password, review the plan (every package with its version and
    origin) and answer `y`.
 4. Log out. **Raspberry Pi Desktop** is preselected on the login screen; log in.
 
-The script is safe to run again. Run from a terminal inside the session, it
-also refreshes the running desktop.
+Every command is safe to run again. Run from a terminal inside the session,
+it also refreshes the running desktop.
 
 ## Modes and options
 
-```bash
-bash rpios-look.sh [MODE] [OPTION]...
-```
+Run the script from its folder. Each command below is complete; copy it as
+it is.
 
-| Mode | Action |
-|------|--------|
-| *(none)* | Install, or reinstall cleanly. Your Raspberry Pi Desktop settings (theme, wallpaper, panel, power) return to the defaults. |
-| `--refresh` | List available updates, then ask before applying them. Your settings are kept. |
-| `--uninstall` | Remove what the script added and restore Debian's setup. |
-| `--prepare-upgrade` | Prepare for a Debian release upgrade. |
-| `--download` | Build or refresh `packages/` for an offline installation. |
-| `--offline` | Install from `packages/`, without a network. |
-| `--help` | Show the help. |
+| Command | What it does | Your settings |
+|---------|--------------|---------------|
+| `bash rpios-look.sh` | Install, or reinstall cleanly | Back to the defaults (theme, wallpaper, panel, power) |
+| `bash rpios-look.sh --refresh` | Update: list the available updates, then ask before applying them | Kept |
+| `bash rpios-look.sh --uninstall` | Remove what the script added and restore Debian's setup | Yours restored as before the installation |
+| `bash rpios-look.sh --prepare-upgrade` | Prepare for a Debian release upgrade (see [Upgrade Debian](#updating-upgrading-and-uninstalling)) | Kept |
+| `bash rpios-look.sh --download` | Build or refresh `packages/` for an offline installation | Not touched |
+| `bash rpios-look.sh --offline` | Install from `packages/`, without a network | Back to the defaults |
+| `bash rpios-look.sh --help` | Show the help | |
+| `bash rpios-look.sh --version` | Print the version | |
 
-| Option | Description |
-|--------|-------------|
-| `--size SIZE` | Raspberry Pi OS's size presets for fonts, icons, panel and cursor: `small`, `medium` (default), `large` or `larger`. It is saved and reused by later runs. |
-| `-v`, `--verbose` | Also print the commands run as root, the files downloaded and other details. |
-| `-V`, `--version` | Print the version. |
+Options, added to any command above:
 
-The look has no other options. Every theme is installed, and the default
-theme matches your Debian release (see [Themes](#themes)).
+| Example | What it does |
+|---------|--------------|
+| `bash rpios-look.sh --size large` | Use Raspberry Pi OS's size preset for fonts, icons, panel and cursor: `small`, `medium` (default), `large` or `larger`. It is saved and reused by later runs. |
+| `bash rpios-look.sh --refresh --verbose` | Also print the commands run as root, the files downloaded and other details (`-v` for short). |
+
+Every theme is installed; the default theme matches your Debian release (see
+[Themes](#themes)). To change it, use `rpios-look-set`.
 
 ## Changing the look: rpios-look-set
 
-`rpios-look-set` changes the Raspberry Pi Desktop session for the current
-user only. It needs no sudo, applies at once and is kept for later logins.
+`rpios-look-set` changes the Raspberry Pi Desktop session for you only. It
+needs no sudo, applies at once (within about a second) and is kept for later
+logins.
 
-| Option | Action |
-|--------|--------|
-| `--theme NAME` | Use `pixflat`, `pixnoir`, `pixtrix`, `pixonyx` or `pix`. |
-| `--animations on\|off\|default` | Turn animations on or off, or return to the session's default (`on`). |
-| `--list` | List the installed themes. |
-| `--show` | Show the current look. |
-| `--reset` | Return to the session's look, animations included. |
+| Command | What it does |
+|---------|--------------|
+| `rpios-look-set --theme pixflat` | Light theme of Raspberry Pi OS 10 to 12 |
+| `rpios-look-set --theme pixnoir` | Dark theme of Raspberry Pi OS 12 |
+| `rpios-look-set --theme pixtrix` | Light theme of Raspberry Pi OS 13 |
+| `rpios-look-set --theme pixonyx` | Dark theme of Raspberry Pi OS 13 |
+| `rpios-look-set --theme pix` | Legacy Raspbian theme |
+| `rpios-look-set --animations off` | Turn animations off |
+| `rpios-look-set --animations on` | Turn animations on |
+| `rpios-look-set --animations default` | Follow the session's default (on) |
+| `rpios-look-set --list` | List the installed themes |
+| `rpios-look-set --show` | Show the current look |
+| `rpios-look-set --reset` | Return to the session's look, animations included |
+| `rpios-look-set --help` | Show the help |
 
-Animations are on by default, as in Raspberry Pi OS. Openbox draws an
-outline when a window is minimized or restored, and GTK applications animate
-switches, popovers and panels. `--animations off` turns both off. Windows that draw their
-own title bar (such as Firefox) and applications with their own animations
-are not affected.
+A theme brings its own icons, cursor, font, window frames, colours and
+wallpaper, as Raspberry Pi OS gives them. A theme with new icons restarts the
+panel, so the panel disappears for a moment; the network and running
+programs are not affected.
+
+Animations are on by default, as in Raspberry Pi OS: Openbox draws an outline
+when a window is minimized or restored, and GTK applications animate
+switches, popovers and panels. `rpios-look-set --animations off` turns both
+off. Windows that draw their own title bar (such as Firefox) and applications
+with their own animations are not affected.
 
 Raspberry Pi's Appearance Settings also works, where installed (Debian 10 to
-12); otherwise use **Customize Look and Feel**.
+12); otherwise use **Customize Look and Feel** in the menu.
 
 ## Screen lock and power: rpios-look-power
 
@@ -95,41 +120,51 @@ and suspends the computer when idle. It uses Debian's tools: the X server's
 blanking, light-locker and systemd-logind. Other screen lockers and power
 managers do not start in this session; Debian's LXDE session keeps its own.
 
-`rpios-look-power` sets these for the current user only, without sudo.
+`rpios-look-power` changes these for you only. It needs no sudo and applies
+at once.
 
-| Option | Action | Default |
-|--------|--------|---------|
-| `--lock on\|off` | Lock after `--lock-after`, on waking and with the lock keys | `on` |
-| `--lock-after MIN` | Lock after MIN idle minutes | `10` |
-| `--blank MIN` | Blank the screen after MIN idle minutes | `10` |
-| `--monitor-off MIN` | Switch the monitor off after MIN idle minutes | `10` |
-| `--sleep-battery MIN` | Suspend after MIN idle minutes on battery | `30` |
-| `--sleep-ac MIN` | Suspend after MIN idle minutes on mains power | `0` (never) |
-| `--lid sleep\|lock\|nothing` | Action when the lid closes while you are logged in | `sleep` |
-| `--show` | Show your settings and the defaults | |
-| `--reset` | Return every setting to the default | |
+| Command | What it does | Default |
+|---------|--------------|---------|
+| `rpios-look-power --lock off` | Do not lock the screen (`on` locks after the idle time, on waking and with the lock keys) | `on` |
+| `rpios-look-power --lock-after 5` | Lock after 5 idle minutes | `10` |
+| `rpios-look-power --blank 15` | Blank the screen after 15 idle minutes | `10` |
+| `rpios-look-power --monitor-off 20` | Switch the monitor off after 20 idle minutes | `10` |
+| `rpios-look-power --sleep-battery 15` | Suspend after 15 idle minutes on battery | `30` |
+| `rpios-look-power --sleep-ac 60` | Suspend after 60 idle minutes on mains power | `never` |
+| `rpios-look-power --lid lock` | When the lid closes while you are logged in: `sleep`, `lock` or `nothing` | `sleep` |
+| `rpios-look-power --sleep-ac default` | Return one setting to its default (works with every option) | |
+| `rpios-look-power --show` | Show your settings and the defaults | |
+| `rpios-look-power --reset` | Return every setting to its default | |
+| `rpios-look-power --help` | Show the help and the defaults | |
 
-- Minutes may be written `30`, `30m` or `30min`; `0` or `never` disables the action.
-- Any option set to `default` (for example `--sleep-ac default`) returns to the
-  default and follows it from then on.
-- The defaults are stored in `/usr/share/rpios-look/power.conf`;
-  `rpios-look-power --help` lists them.
+- Minutes may be written `30`, `30m` or `30min`; `0` or `never` turns the
+  action off, for example `rpios-look-power --blank never`.
+- Several options can go in one command:
+
+  ```bash
+  rpios-look-power --sleep-ac 30 --lock-after 5
+  ```
+
+- The defaults for every user are in `/usr/share/rpios-look/power.conf`.
 - The screen locks only with the LightDM login manager, which Debian's LXDE
   uses. With another login manager, the session blanks and suspends but does
   not lock.
 
-Example: suspend after 30 minutes on mains power and lock after 5:
-
-```bash
-rpios-look-power --sleep-ac 30 --lock-after 5
-```
-
 ## Offline installation
 
-1. On a computer with internet access, run `bash rpios-look.sh --download`.
+1. On a computer with internet access, in the script's folder:
+
+   ```bash
+   bash rpios-look.sh --download
+   ```
+
    It builds `packages/` next to the script.
 2. Copy `rpios-look.sh` and `packages/` to the offline computer.
-3. There, run `bash rpios-look.sh --offline`.
+3. There, in the same folder:
+
+   ```bash
+   bash rpios-look.sh --offline
+   ```
 
 - **Releases:** Debian 10 to 12 on `amd64` and `i386`; Debian 13 on `amd64`.
   Debian testing and unstable are not covered, because they change daily.
@@ -140,11 +175,51 @@ rpios-look-power --sleep-ac 30 --lock-after 5
 
 ## Updating, upgrading and uninstalling
 
-| Task | How |
-|------|-----|
-| Update | `sudo apt update && sudo apt full-upgrade` updates the Raspberry Pi packages with Debian (online installations). `bash rpios-look.sh --refresh` also updates the packages the script adapts, and lists every change first. |
-| Upgrade Debian | 1. Run `bash rpios-look.sh --prepare-upgrade`. It removes the packages built for this release, restores Debian's panel and file manager, and removes Raspberry Pi's APT source. Themes, icons, fonts and wallpapers stay. 2. Upgrade Debian and reboot. 3. Run `bash rpios-look.sh` again. |
-| Uninstall | Run `bash rpios-look.sh --uninstall`. It lists what it removes and asks first. It restores Debian's Openbox, panel and file manager and the current user's settings; other users keep theirs. After a second question, it removes the packages it installed, hardware support included; packages you had before, or that other software needs, stay. Restart to finish. |
+**Update** to a newer version of the script or of Raspberry Pi's packages,
+keeping your settings:
+
+```bash
+bash rpios-look.sh --refresh
+```
+
+It lists every change and asks first. On an online installation, Debian's
+own updates also update Raspberry Pi's packages:
+
+```bash
+sudo apt update && sudo apt full-upgrade
+```
+
+Running `bash rpios-look.sh` without `--refresh` also updates, but returns
+your Raspberry Pi Desktop settings to the defaults.
+
+**Upgrade Debian** to its next release:
+
+1. Prepare. This removes the packages built for the current release,
+   restores Debian's panel and file manager, and removes Raspberry Pi's APT
+   source; themes, icons, fonts and wallpapers stay:
+
+   ```bash
+   bash rpios-look.sh --prepare-upgrade
+   ```
+
+2. Upgrade Debian as usual and restart.
+3. Install again for the new release:
+
+   ```bash
+   bash rpios-look.sh
+   ```
+
+**Uninstall:**
+
+```bash
+bash rpios-look.sh --uninstall
+```
+
+It lists what it removes and asks first. It restores Debian's Openbox, panel
+and file manager and your settings; other users keep theirs. After a second
+question it removes the packages it installed, hardware support included;
+packages you had before, or that other software needs, stay. Restart to
+finish.
 
 ## Supported systems
 
@@ -202,14 +277,17 @@ window is moved. Other drivers get no compositor, as on Raspberry Pi OS.
 | Problem | Solution |
 |---------|----------|
 | The look is missing after login | Select *Raspberry Pi Desktop* in the login screen's session menu. |
-| The login screen is not styled | The style needs LightDM: `sudo apt install lightdm lightdm-gtk-greeter && sudo dpkg-reconfigure lightdm`, then run the script again. |
-| dpkg was interrupted | Run `sudo dpkg --configure -a` and `sudo apt-get -f install`, then run the script again. |
+| The login screen is not styled | The style needs LightDM: `sudo apt install lightdm lightdm-gtk-greeter && sudo dpkg-reconfigure lightdm`, then `bash rpios-look.sh --refresh`. |
+| dpkg was interrupted | `sudo dpkg --configure -a && sudo apt-get -f install`, then run the script again. |
 | 404 Not Found | Your Debian release has moved to archive.debian.org. Update `/etc/apt/sources.list` as [Debian describes](https://www.debian.org/distrib/archive), run `sudo apt update`, then run the script again. |
-| Something looks incomplete | Run the same command again; every step is safe to repeat. |
+| Something looks incomplete | `bash rpios-look.sh --refresh`; every step is safe to repeat. |
+| The theme looks wrong after a change | `rpios-look-set --reset`, or set the theme again, for example `rpios-look-set --theme pixtrix`. |
+| The microphone is unmuted after logging out and in (Debian 13 and later) | WirePlumber's behaviour, the same on Raspberry Pi OS 13: the login screen starts its own sound service, which resets the sound card, and your session saves that state. Mute it again after logging in. Debian 10 to 12 keep the mute. |
 
 Each run writes a log to your home folder, for example
 `~/rpios-look-install-<date>-<time>.log`. The ten newest logs of each mode are
-kept. `-v` adds detail.
+kept. For more detail, add `--verbose`, for example
+`bash rpios-look.sh --refresh --verbose`.
 
 ## How it works
 
@@ -344,7 +422,11 @@ The test runs and their results are recorded in
 [tests/HISTORY.md](tests/HISTORY.md).
 
 Unit tests of the script's decision helpers need no root or network:
-`bats tests/`.
+
+```bash
+sudo apt install bats
+bats tests/
+```
 
 ## Credits and licence
 

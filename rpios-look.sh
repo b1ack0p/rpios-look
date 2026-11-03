@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.17.0"
+readonly APP_VERSION="3.17.1"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -3219,18 +3219,18 @@ if [[ $new_theme == "$old_theme" ]]; then
 fi
 # Openbox restarts in place rather than reloading its settings: a reload
 # leaves open windows without the theme's rounded corners (roundCorners).
-# The panel restarts after Openbox is back (it names a new check window), not
-# while no window manager runs.
+# The panel restarts after Openbox is back, not while no window manager runs.
+# Openbox names its version on the root window when it starts: the name is
+# removed first and awaited. (Its check window can keep the same ID: the new
+# X connection may get the old one's client slot.)
 if running openbox; then
-	wm=$(xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null)
+	xprop -root -remove _OB_VERSION 2>/dev/null
 	openbox --restart >/dev/null 2>&1 || true
-	if [[ -n $wm ]]; then
-		for _ in {1..30}; do
-			[[ $(xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null) == "$wm" ]] || break
-			sleep 0.1
-		done
-		sleep 0.3
-	fi
+	for _ in {1..60}; do
+		[[ $(xprop -root _OB_VERSION 2>/dev/null) == *\"* ]] && break
+		sleep 0.05
+	done
+	sleep 0.2
 fi
 # The menu's entries are rebuilt. The panel reloads its icons, as Raspberry
 # Pi OS's Appearance Settings has it; a new icon theme needs a restart, as

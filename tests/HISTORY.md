@@ -33,6 +33,47 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.17.1 (2026-11-03)
+
+Five notes from daily use on the desktop PC, tested on all 8 VMs (fresh
+install, every theme), raspios-ref and the desktop PC.
+
+- **Slow theme change, fixed.** `rpios-look-set --theme` took up to 4 s:
+  after `openbox --restart` it waited for Openbox's check window to change,
+  but Openbox restarts on a new X connection that can get the old client
+  slot, so the window kept its ID and the wait ran its full 3 s. It now
+  removes `_OB_VERSION` from the root window and waits for Openbox to set it
+  again. Result: 0.6–1.1 s on every release and theme (Debian 13, first
+  change: 3.96 s before).
+- Network during the panel restart: a ping every 0.1 s lost no packets and
+  NetworkManager stayed connected on every release and theme.
+- Launch bar after a quick logout and login (the user saw a "+" once): the
+  browser, file manager and terminal launchers were there after all 28
+  logins through the login screen (4 per VM, 1 s and 15 s after the
+  logout). Not reproduced; the desktop PC's session log of that login shows
+  no error.
+- Desktop icon tooltips: shown 3 of 3 times on every release and theme
+  where the icon was visible. Harness: on the 1024×768 VMs a window left
+  open by the resize check covered the Trash after the first theme.
+- Microphone mute after logout: lost on Debian 13 and sid, kept on Debian
+  10 to 12. The login screen starts PipeWire and WirePlumber as the
+  `lightdm` user; they reset the sound card and the user's WirePlumber
+  (0.5.8) saves the route as unmuted. raspios-ref does the same (same
+  WirePlumber). A restart of LightDM without the login screen keeps the
+  mute. Left as Debian and Raspberry Pi OS have it; README notes it.
+- Window resize: on the VMs (no compositor) the contents redraw cleanly
+  while a window grows or shrinks. On the desktop PC (NVIDIA's driver,
+  picom) the right side and title bar break up during fast resizing; frames
+  grabbed with `import` do not show it. picom with `--xrender-sync-fence`
+  is being tried there.
+- Harness: the login screen hides the user list until a user has logged in
+  once, and the VMs' remembered session was Debian's LXDE; the relogin
+  check now types the user name, waits out the failed-login delay, then
+  the password, and sets the session through AccountsService.
+- Desktop PC: a capture script closed its test window with `xkill`, which
+  ended the desktop (`pcmanfm-pi --desktop`); it was started again. Test
+  windows are now closed with WM_DELETE_WINDOW.
+
 ## 3.17.0 (2026-11-01 to 11-03)
 
 Support narrowed to Debian's LXDE on X: the Wayland session, the code for
