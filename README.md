@@ -1,10 +1,10 @@
 # rpios-look
 
-rpios-look installs the official Raspberry Pi OS desktop on Debian for 32-bit
-(`i386`) and 64-bit (`amd64`) PCs: Raspberry Pi's themes, icons, cursors,
-fonts, wallpapers, panel, file manager and login screen style. It adds a
-separate session, **Raspberry Pi Desktop**. Debian and your other sessions
-are not changed.
+rpios-look installs the official Raspberry Pi OS desktop on Debian's LXDE
+for 32-bit (`i386`) and 64-bit (`amd64`) PCs: Raspberry Pi's themes, icons,
+cursors, fonts, wallpapers, panel, file manager and login screen style. It
+adds a separate X session, **Raspberry Pi Desktop**, beside Debian's LXDE
+session, which is not changed.
 
 ![PiXtrix, the Raspberry Pi OS 13 look, on Debian 13 with the menu open](screenshot/pixtrix.png)
 ![PiXflat, the Raspberry Pi OS 10 to 12 look](screenshot/pixflat.png)
@@ -27,9 +27,10 @@ are not changed.
 
 ## Quick start
 
-**Requirements:** Debian 10 or later, or a derivative; bash 4.4 or later; a
-normal user account with sudo rights (do not run the script as root);
-internet access, except for an [offline installation](#offline-installation).
+**Requirements:** Debian 10 or later with Debian's LXDE desktop
+(`task-lxde-desktop`); bash 4.4 or later; a normal user account with sudo
+rights (do not run the script as root); internet access, except for an
+[offline installation](#offline-installation).
 
 1. Download `rpios-look.sh`, or clone this repository.
 2. In a terminal, in the script's folder, run `bash rpios-look.sh`.
@@ -78,22 +79,21 @@ user only. It needs no sudo, applies at once and is kept for later logins.
 | `--show` | Show the current look. |
 | `--reset` | Return to the session's look, animations included. |
 
-Animations are on by default, as in Raspberry Pi OS. On X, Openbox draws an
+Animations are on by default, as in Raspberry Pi OS. Openbox draws an
 outline when a window is minimized or restored, and GTK applications animate
-switches, popovers and panels. On Wayland, labwc has no window animations;
-only GTK's apply. `--animations off` turns both off. Windows that draw their
+switches, popovers and panels. `--animations off` turns both off. Windows that draw their
 own title bar (such as Firefox) and applications with their own animations
 are not affected.
 
-Raspberry Pi's Appearance Settings or Control Centre also work, where
-installed; otherwise use **Customize Look and Feel**.
+Raspberry Pi's Appearance Settings also works, where installed (Debian 10 to
+12); otherwise use **Customize Look and Feel**.
 
 ## Screen lock and power: rpios-look-power
 
 The session blanks the screen, switches the monitor off, locks the screen
-and suspends the computer when idle. It uses Debian's tools: light-locker on
-X, swayidle and swaylock on Wayland, and systemd-logind. Other screen lockers
-and power managers do not start in this session; other sessions keep theirs.
+and suspends the computer when idle. It uses Debian's tools: the X server's
+blanking, light-locker and systemd-logind. Other screen lockers and power
+managers do not start in this session; Debian's LXDE session keeps its own.
 
 `rpios-look-power` sets these for the current user only, without sudo.
 
@@ -114,8 +114,9 @@ and power managers do not start in this session; other sessions keep theirs.
   default and follows it from then on.
 - The defaults are stored in `/usr/share/rpios-look/power.conf`;
   `rpios-look-power --help` lists them.
-- On X, the screen locks only with the LightDM login manager. With GDM, SDDM
-  or another login manager, the session blanks and suspends but does not lock.
+- The screen locks only with the LightDM login manager, which Debian's LXDE
+  uses. With another login manager, the session blanks and suspends but does
+  not lock.
 
 Example: suspend after 30 minutes on mains power and lock after 5:
 
@@ -152,52 +153,55 @@ rpios-look-power --sleep-ac 30 --lock-after 5
 | 10 (buster) | 32-bit, 64-bit | X | Raspberry Pi OS 10 builds | PiXflat |
 | 11 (bullseye) | 32-bit, 64-bit | X | Raspberry Pi OS 11 builds | PiXflat |
 | 12 (bookworm) | 32-bit, 64-bit | X | Raspberry Pi OS 12 builds | PiXflat |
-| 13 (trixie) | 64-bit | X or Wayland | Raspberry Pi OS 13 | PiXtrix |
-| testing, unstable | 64-bit | X or Wayland | Raspberry Pi OS 13 | PiXtrix |
+| 13 (trixie) | 64-bit | X | Raspberry Pi OS 13 | PiXtrix |
+| testing, unstable | 64-bit | X | Raspberry Pi OS 13 | PiXtrix |
 
-Derivatives of these releases also work.
+The script runs on Debian itself with Debian's LXDE installed, and stops
+before changing anything otherwise. The session runs on X (Openbox).
 
 **Network icon.** On Debian 12 and 13, Raspberry Pi's network item is used
 when NetworkManager manages the network and Raspberry Pi OS has a matching
 build of `libnma`. Otherwise (always on Debian 10 and 11, usually on testing
 and unstable), Debian's network icon (nm-applet) appears in the tray.
 
-### X or Wayland
+### What is tested
 
-The session uses **Wayland (labwc)** when all of the following hold, and
-**X (Openbox)** otherwise. The plan states the reason.
+Every release above, 32-bit and 64-bit where available, from a fresh Debian
+LXDE installation, with every theme: online and offline installation,
+uninstallation, look, keys, menus, launchers, screen lock, package health
+and speed, compared with Raspberry Pi OS and with Debian's own LXDE. The
+results are in [tests/HISTORY.md](tests/HISTORY.md).
 
-| Condition | Needed for Wayland |
-|-----------|--------------------|
-| Debian | 13 or later |
-| System | 64-bit, with at least 2 GB of memory |
-| Processor | SSE4.2 |
-| Graphics | Kernel modesetting and 3D acceleration with `i915`, `xe`, `amdgpu`, `virtio_gpu` or `vmwgfx` |
+### Speed and resources
 
-NVIDIA graphics (the proprietary driver or nouveau) and older AMD graphics
-(`radeon`) always use X.
+The target is Debian's own LXDE on the same computer. Measured on virtual
+machines (2 CPUs, 3 GB, no GPU driver):
 
-### Other desktops
+| | rpios-look | Debian's LXDE |
+|---|---|---|
+| Login to a ready panel | 1.3–2.5 s | 1.7–2.4 s |
+| Idle CPU | 10–50 ms per minute | 30–90 ms per minute |
+| Main menu opens | 25–51 ms | 285–378 ms |
+| Terminal, file manager start | Within ±15% | |
+| Memory of the session | The same on Debian 10, 13 and unstable; 37–74 MB more on Debian 11 and 12 | |
+| Disk | 113–178 MB more | |
 
-Other desktops are not changed. They can use the parts of the look that are
-ordinary themes, selected in their own appearance settings.
+On Debian 11 and 12, Raspberry Pi's panel and file manager are GTK 3
+programs (Debian's are GTK 2). GTK 3 loads the OpenGL driver when a program
+starts; without a GPU driver that is Mesa's software renderer (llvmpipe),
+about 23 MB per program. This is left as it is: turning it off
+(`GDK_GL=disable`) would also turn off OpenGL in the programs you start
+from the session.
 
-| Part of the look | Raspberry Pi Desktop | Debian's LXDE | Xfce, MATE, Cinnamon | GNOME | KDE Plasma, LXQt |
-|------------------|----------------------|---------------|----------------------|-------|------------------|
-| GTK theme | Yes | Selectable | Selectable (GTK 2 and 3) | GTK 3 only, in GNOME Tweaks; GTK 4 keeps Adwaita | GTK programs only; Qt programs keep theirs |
-| Icons, cursor, fonts | Yes | Selectable | Selectable | Selectable, in GNOME Tweaks | Selectable |
-| Wallpapers (`/usr/share/rpd-wallpaper`) | Yes | Selectable | Selectable | Selectable | Selectable |
-| Window frames | Openbox on X, labwc on Wayland | Selectable in Openbox's settings | No | No | No |
-| Panel, menu, file manager | Raspberry Pi's | Raspberry Pi OS builds on Debian 10 to 12 | No | No | No |
-| Keys, screen lock, power, `rpios-look-set` | Yes | No | No | No | No |
-| Login screen style | With LightDM, for every desktop | Same | Same | Not with GDM | Not with SDDM |
+With NVIDIA's own driver the session runs `picom` (no effects) as the
+compositor. Without one, that driver draws window corners square while a
+window is moved. Other drivers get no compositor, as on Raspberry Pi OS.
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
 | The look is missing after login | Select *Raspberry Pi Desktop* in the login screen's session menu. |
-| The session runs on X, not Wayland | The plan gives the reason; see [X or Wayland](#x-or-wayland). |
 | The login screen is not styled | The style needs LightDM: `sudo apt install lightdm lightdm-gtk-greeter && sudo dpkg-reconfigure lightdm`, then run the script again. |
 | dpkg was interrupted | Run `sudo dpkg --configure -a` and `sudo apt-get -f install`, then run the script again. |
 | 404 Not Found | Your Debian release has moved to archive.debian.org. Update `/etc/apt/sources.list` as [Debian describes](https://www.debian.org/distrib/archive), run `sudo apt update`, then run the script again. |
@@ -237,7 +241,7 @@ As on Raspberry Pi OS:
 | **Ctrl+Alt+T** | Terminal: LXTerminal, unless you chose another with `update-alternatives --config x-terminal-emulator` |
 | **Ctrl+Shift+Esc** | Task manager |
 | **Ctrl+Alt+Delete**, **Ctrl+Alt+End** | Shutdown dialog |
-| **Print** | Screenshot: `scrot` on X (where installed), Raspberry Pi's screenshot tool on Wayland |
+| **Print** | Screenshot with `scrot`, where installed |
 | **Ctrl+Alt+Left/Right** | Move the window to the left or right half of the screen |
 | **Ctrl+Alt+Up/Down** | Maximize, restore |
 | **Ctrl+Alt+D** | Show the desktop |
@@ -266,15 +270,15 @@ power button and the lid follow Debian's settings.
 | Part | Raspberry Pi OS packages |
 |------|--------------------------|
 | Themes, icons, cursors, fonts, wallpapers | `pixflat-theme`, `pixtrix-theme`, `pix-theme`, `pixflat-icons`, `pixtrix-icons`, `rpd-icons`, `fonts-piboto`, `fonts-nunito-sans`, `rpd-wallpaper*` |
-| Panel | Debian 10 to 12: Raspberry Pi OS builds of `lxpanel` with `lxplug-*`. Debian 13: `lxpanel-pi` with `lpplug-*` on X, `wf-panel-pi` with `wfplug-*` on Wayland |
+| Panel | Debian 10 to 12: Raspberry Pi OS builds of `lxpanel` with `lxplug-*`. Debian 13: `lxpanel-pi` with `lpplug-*` |
 | File manager and desktop | Debian 10 to 12: Raspberry Pi OS builds of `pcmanfm` and `libfm`. Debian 13: `pcmanfm-pi` |
-| Window manager on X | Raspberry Pi OS build of `openbox` (keeps corners rounded while moving or resizing) |
-| Dialogs and settings | `pishutdown`, `gui-runcmd`, `pipanel`, `rpcc` |
+| Window manager | Raspberry Pi OS build of `openbox` (keeps corners rounded while moving or resizing) |
+| Dialogs and settings | `pishutdown`, `gui-runcmd`, `pipanel` (Debian 10 to 12) |
 | Magnifier | `mage` (Debian 10, 11), `mage-rpi` (Debian 12, 13) |
 | Panel layout, menu, desktop and window settings | Read from `raspberrypi-ui-mods` (Debian 10 to 12) and `rpd-*` (Debian 13); not installed |
 
 **From Debian:** the system services (BlueZ, NetworkManager, PipeWire or
-PulseAudio, udisks, systemd-logind), the applications, labwc, lxsession,
+PulseAudio, udisks, systemd-logind), the applications, lxsession,
 LightDM with Debian's greeter, the screen locker and the authentication
 agent. Raspberry Pi OS uses the same Debian programs for these.
 
@@ -283,7 +287,7 @@ agent. Raspberry Pi OS uses the same Debian programs for these.
 | Item | rpios-look | Raspberry Pi OS |
 |------|------------|-----------------|
 | Keyboard shortcuts | Raspberry Pi OS's for each release; Ctrl+Alt+Space (screen reader installer) is omitted | Full set |
-| Resizing a window on X | Contents redraw while dragging | Blank until the mouse is released |
+| Resizing a window | Contents redraw while dragging | Blank until the mouse is released |
 | Menu button and login logo | Debian logo | Raspberry Pi logo |
 | Login screen | Debian's LightDM greeter in Raspberry Pi OS's style, with user list and session menu | Raspberry Pi's greeter |
 | File manager on Debian 13 | Raspberry Pi's, alongside Debian's | Raspberry Pi's only |
@@ -310,8 +314,7 @@ Raspberry Pi's programs are used unchanged, with one fix:
 |------|---------|-------------|
 | Raspberry Pi Desktop | New session | — |
 | Debian's LXDE | Uses Raspberry Pi OS's Openbox, and on Debian 10 to 12 its panel and file manager | Its settings, autostart, screen lock and power |
-| Other desktops | Raspberry Pi themes become selectable | Their settings, panels, screen lock and power manager |
-| Login screen | LightDM's greeter gets Raspberry Pi OS's style | GDM, SDDM and other login managers |
+| Login screen | LightDM's greeter gets Raspberry Pi OS's style | Other login managers |
 | Packages | Raspberry Pi OS packages listed above; Debian packages the session needs, including hardware support (X server, network, Bluetooth, sound) where missing | Packages already installed |
 | System files | Raspberry Pi's APT source, pinned to the look's packages, with an APT check (online installations only); a polkit rule for suspend | Everything else |
 
@@ -336,6 +339,9 @@ The script follows Debian's
 - Changed settings are backed up; `--uninstall` restores them.
 
 ## Tests
+
+The test runs and their results are recorded in
+[tests/HISTORY.md](tests/HISTORY.md).
 
 Unit tests of the script's decision helpers need no root or network:
 `bats tests/`.

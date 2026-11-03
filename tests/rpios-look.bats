@@ -56,37 +56,6 @@ setup() {
 	[ "$(_q a 'b c' "d'e")" = "a b\\ c d\\'e" ]
 }
 
-# pick_display with a described machine: SUITE DRIVER KMS MEM RENDER ARCH OLD_CPU
-display() {
-	H_SUITE=$1 H_GPU_DRV=$2 H_KMS=$3 H_MEM_MB=$4 H_RENDER=$5 H_ARCH=$6 H_OLD_CPU=$7
-	pick_display
-	echo "$H_DISPLAY"
-}
-
-@test "Wayland only on capable PCs with Debian 13 and later" {
-	[ "$(display trixie i915 1 8000 1 amd64 0)" = wayland ]
-	[ "$(display trixie amdgpu 1 4000 1 amd64 0)" = wayland ]
-	[ "$(display forky xe 1 4000 1 amd64 0)" = wayland ]
-	[ "$(display bookworm i915 1 8000 1 amd64 0)" = x11 ]
-	[ "$(display trixie nvidia 1 8000 1 amd64 0)" = x11 ]
-	[ "$(display trixie nouveau 1 8000 1 amd64 0)" = x11 ]
-	[ "$(display trixie i915 0 8000 1 amd64 0)" = x11 ]
-	[ "$(display trixie i915 1 1700 1 amd64 0)" = x11 ]
-	[ "$(display trixie i915 1 1900 1 amd64 0)" = wayland ]
-	[ "$(display trixie i915 1 8000 0 amd64 0)" = x11 ]
-	[ "$(display trixie i915 1 8000 1 i386 0)" = x11 ]
-	[ "$(display trixie i915 1 8000 1 amd64 1)" = x11 ]
-	[ "$(display trixie radeon 1 8000 1 amd64 0)" = x11 ]
-	[ "$(display trixie "" 1 8000 1 amd64 0)" = x11 ]
-}
-
-@test "every X choice gives a reason" {
-	# shellcheck disable=SC2034  # read by pick_display
-	H_SUITE=trixie H_GPU_DRV=nvidia H_KMS=1 H_MEM_MB=8000 H_RENDER=1 H_ARCH=amd64 H_OLD_CPU=0
-	pick_display
-	[ -n "$H_DISPLAY_WHY" ]
-}
-
 @test "NetworkManager counts only when it runs the network" {
 	installed_version() { case $1 in network-manager) echo 1.0 ;; wicd) echo "${WICD:-}" ;; *) ;; esac; }
 	systemctl() { return "${NM_ENABLED:-1}"; }
@@ -103,4 +72,11 @@ display() {
 	LXT=1; [ "$(_term_cmd)" = lxterminal ]
 	LXT=1 MODE=manual; [ "$(_term_cmd)" = x-terminal-emulator ]
 	LXT="" MODE=auto; [ "$(_term_cmd)" = x-terminal-emulator ]
+}
+
+@test "only Debian's LXDE is accepted" {
+	H_LXDE=1; require_lxde
+	# shellcheck disable=SC2034  # read by require_lxde
+	H_LXDE=0; run ! require_lxde
+	[[ $output == *"LXDE only"* ]]
 }
