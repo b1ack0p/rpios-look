@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.19.0"
+readonly APP_VERSION="3.19.1"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -2926,7 +2926,15 @@ if command -v dbus-launch >/dev/null && [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
 	fi
 fi
 
+# lxsession writes back the settings it read at login whenever a setting
+# changes through it: settings-keeper keeps the look set since (see rpios-look)
+keeper=""
+if [ -x "$share/settings-keeper" ] && command -v python3 >/dev/null; then
+	"$share/settings-keeper" "$lxs" "$share/xdg/lxsession/$profile/desktop.conf" $$ </dev/null &
+	keeper=$!
+fi
 /usr/bin/lxsession -s "$profile" -e LXDE
+[ -z "$keeper" ] || kill "$keeper" 2>/dev/null
 # lxsession's SSH agent outlives the logout and keeps the login session open
 # (the login screen would show the user as logged in): end this session's one
 s=$(cat /proc/self/sessionid 2>/dev/null)
@@ -3587,6 +3595,142 @@ while True:
         keep(ev.prop.window)
 EOF
 	chmod 0755 "$1$SHARE/popup-keeper"
+}
+
+# Keep the appearance in the user's lxsession settings file. lxsession reads
+# desktop.conf once, at login. When the file changes it only passes the new
+# look on (XSETTINGS) and keeps its own copy as it was. A setting changed
+# through lxsession (LXSession Configuration's default applications, for
+# example) makes it write that copy back over the whole file, so the theme,
+# icons, cursor, font, mouse and keyboard return to their login values: the
+# desktop redraws with the old icons. lxsession changes only settings outside
+# [GTK], [Mouse] and [Keyboard]; rpios-look-set, Appearance Settings and
+# LXInput change only these. settings-keeper watches the file: when one
+# write changes both, it is lxsession's, and the three sections are put back
+# as they were just before it. The start script runs it for the session, and
+# it ends with the process whose ID it is given. Usage: settings_keeper_build ROOT
+settings_keeper_build() {
+	cat <<'EOF' | _write "$1$SHARE/settings-keeper"
+#!/usr/bin/python3
+# Keep the appearance in lxsession's settings file (see rpios-look).
+# Usage: settings-keeper USER-FILE SESSION-FILE PID
+import ctypes
+import ctypes.util
+import os
+import select
+import struct
+import sys
+
+KEEP = ("[GTK]", "[Mouse]", "[Keyboard]")
+IN_CLOSE_WRITE, IN_MOVED_TO = 0x8, 0x80
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8", errors="surrogateescape") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def sections(text):
+    """The file's sections in order, as [header, text]; '' for the lines before the first."""
+    out = [["", ""]]
+    for line in text.splitlines(keepends=True):
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            out.append([s, ""])
+        out[-1][1] += line
+    return out
+
+
+def values(secs, keep):
+    d = {}
+    for head, body in secs:
+        if (head in KEEP) != keep:
+            continue
+        for line in body.splitlines()[1 if head else 0:]:
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                d[head, k.strip()] = v.strip()
+    return d
+
+
+def merge(prev, new):
+    """The new file with the previous appearance, if lxsession wrote it; else None."""
+    ps, ns = sections(prev), sections(new)
+    if values(ps, False) == values(ns, False) or values(ps, True) == values(ns, True):
+        return None
+    old = {h: b for h, b in ps if h in KEEP}
+    out = []
+    for head, body in ns:
+        if head in KEEP:
+            body = old.pop(head, "")
+        out.append(body)
+    for head, body in ps:
+        if head in old:
+            out.append(body)
+    text = ""
+    for body in out:
+        if body and text and not text.endswith("\n"):
+            text += "\n"
+        if body.startswith("[") and text and not text.endswith("\n\n"):
+            text += "\n"
+        text += body
+    return text
+
+
+def main():
+    if len(sys.argv) != 4 or not sys.argv[3].isdigit():
+        sys.exit("usage: settings-keeper USER-FILE SESSION-FILE PID")
+    path, pid = sys.argv[1], int(sys.argv[3])
+    folder, name = os.path.split(path)
+    os.makedirs(folder, exist_ok=True)
+    # What lxsession read at login: the user's file, else the session's
+    prev = read(path)
+    if prev is None:
+        prev = read(sys.argv[2]) or ""
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    fd = libc.inotify_init1(os.O_CLOEXEC)
+    if fd < 0 or libc.inotify_add_watch(fd, os.fsencode(folder), IN_CLOSE_WRITE | IN_MOVED_TO) < 0:
+        sys.exit("settings-keeper: cannot watch " + folder)
+    while True:
+        # It ends with the session (PID)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        if not select.select([fd], [], [], 5)[0]:
+            continue
+        data, i, hit = os.read(fd, 65536), 0, False
+        while i + 16 <= len(data):
+            _, _, _, n = struct.unpack_from("iIII", data, i)
+            hit |= data[i + 16:i + 16 + n].rstrip(b"\0") == os.fsencode(name)
+            i += 16 + n
+        if not hit:
+            continue
+        new = read(path)
+        if new is None:
+            continue
+        fixed = merge(prev, new)
+        if fixed is not None:
+            target = os.path.realpath(path)
+            tmp = target + ".settings-keeper"
+            try:
+                with open(tmp, "w", encoding="utf-8", errors="surrogateescape") as f:
+                    f.write(fixed)
+                os.replace(tmp, target)
+                new = fixed
+            except OSError:
+                pass
+        prev = new
+
+
+main()
+EOF
+	chmod 0755 "$1$SHARE/settings-keeper"
 }
 
 # Composite the X session with NVIDIA's own driver. Without a compositor that
@@ -4780,6 +4924,7 @@ build_pkg() {
 	session_build "$stage"
 	lxde_panel_build "$stage"
 	popup_keeper_build "$stage"
+	settings_keeper_build "$stage"
 	compositor_build "$stage"
 	power_build "$stage"
 	wallpaper_links "$stage"
@@ -4873,6 +5018,16 @@ reload_session() {
 	# a running one starts again as this version, with the new settings
 	pkill -HUP -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/power\$" \
 		|| setsid -f sh -c ". $SHARE/session-env; exec $SHARE/power" >/dev/null 2>&1 9<&- || true
+	# settings-keeper, which a session started before this version lacks; a
+	# running one starts again as this version, for as long as lxsession runs
+	local prof lx
+	prof=$(session_profile)
+	lx=$(pgrep -u "$(id -u)" -f "^/usr/bin/lxsession -s $prof( |\$)" | head -n1)
+	if [[ -n $lx && -x $SHARE/settings-keeper ]]; then
+		pkill -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/settings-keeper " 2>/dev/null || true
+		setsid -f "$SHARE/settings-keeper" "${XDG_CONFIG_HOME:-$HOME/.config}/lxsession/$prof/desktop.conf" \
+			"$SHARE/xdg/lxsession/$prof/desktop.conf" "$lx" </dev/null >/dev/null 2>&1 9<&- || true
+	fi
 	ok "The running session shows the new look; log out and back in for the theme of open applications"
 }
 

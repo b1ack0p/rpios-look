@@ -170,6 +170,12 @@ are not affected.
 Raspberry Pi's Appearance Settings also works, where installed (Debian 10 to
 12); otherwise use **Customize Look and Feel** in the menu.
 
+The look you set stays when you change other session settings, such as the
+default applications in LXSession Configuration. lxsession would otherwise
+write back the look the session started with: it reads its settings file
+only at login. A small helper in the session puts your look back after such
+a write.
+
 ## Screen lock and power: rpios-look-power
 
 The session blanks the screen, switches the monitor off, locks the screen

@@ -33,6 +33,39 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.19.1 (2026-11-04)
+
+The look stays when a setting is changed through lxsession.
+
+- Reported: changing a default application in LXSession Configuration
+  redrew the desktop with PiXtrix icons after `rpios-look-set --theme
+  pixflat`. Cause (lxsession's source, `settings.vala`): lxsession reads
+  `desktop.conf` once at login; a file change only reloads XSETTINGS, and
+  every setting changed over D-Bus (`SessionSet`) saves its login-time copy
+  over the whole file. Its D-Bus API cannot update the [GTK] values it holds
+  (`XsettingsSet` stores them under another group), so `rpios-look-set`
+  cannot sync it.
+- New session helper `settings-keeper` (Python, inotify), started by the
+  session's start script, and by an install from inside a running session:
+  a write that changes settings both outside and inside [GTK], [Mouse] and
+  [Keyboard] is lxsession's, and those three sections are put back as they
+  were just before.
+
+Checked on the Debian 13 desktop PC (session running, helper started as an
+install from inside the session starts it):
+
+- Reproduced first without the helper: `rpios-look-set --theme pixflat`, then
+  `SessionSet text_editor command gedit` over D-Bus wrote back PiXtrix.
+- With the helper: pixflat, then pixonyx, then pixflat again, each followed
+  by one to three `SessionSet` changes (text editor, image viewer): the
+  default applications changed, the theme stayed, and GTK's live theme and
+  icons (read through Gtk.Settings) matched.
+- Merge unit checks: an lxsession write restores the appearance (a key added
+  since login, `iGtk/EnableAnimations`, included); an appearance-only write,
+  a default-application-only write and the helper's own write are left as
+  they are.
+- Not run: the VM suite, and a fresh login with the new start script.
+
 ## 3.18.0 (2026-11-04)
 
 Wallpaper sets in folders, size and settings reset on a plain run, README
