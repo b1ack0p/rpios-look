@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.18.0"
+readonly APP_VERSION="3.19.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -86,6 +86,8 @@ readonly APP_PKG="rpios-look-debian"
 readonly SYS_DIR="/var/lib/rpios-look"
 # Configuration and data of the session, shipped in the generated package.
 readonly SHARE="/usr/share/rpios-look"
+# The wallpapers, a folder of links per wallpaper package (see wallpaper_links)
+readonly WALLS="/usr/share/backgrounds/rpios-look"
 readonly SESSION_ID="rpios-look"
 # APT options: never remove a package, never ask, and wait for another
 # package manager to finish. Recommended packages are not installed: every
@@ -479,15 +481,16 @@ set_theme() {
 	else
 		T_FONT_FAMILY=PibotoLt T_FONT_WEIGHT=Normal T_FONT="PibotoLt $T_FONT_SIZE"
 	fi
-	# The default wallpaper of the look in Raspberry Pi OS. PiXflat's changed
-	# with each release (raspberrypi-ui-mods); PiX uses Raspbian Stretch's.
+	# The default wallpaper of the look in Raspberry Pi OS, as PACKAGE/FILE
+	# under $WALLS. PiXflat's changed with each release (raspberrypi-ui-mods);
+	# PiX uses Raspbian Stretch's.
 	case $T_ERA in
-		trixie) T_WALL_DEFAULT=sunrise.jpg ;;
-		legacy) T_WALL_DEFAULT=road.jpg ;;
+		trixie) T_WALL_DEFAULT="rpd-wallpaper-trixie/sunrise.jpg" ;;
+		legacy) T_WALL_DEFAULT="rpd-wallpaper/road.jpg" ;;
 		*) case $H_SUITE in
-			buster)   T_WALL_DEFAULT=temple.jpg ;;
-			bullseye) T_WALL_DEFAULT=clouds.jpg ;;
-			*)        T_WALL_DEFAULT=fisherman.jpg ;;
+			buster)   T_WALL_DEFAULT="rpd-wallpaper/temple.jpg" ;;
+			bullseye) T_WALL_DEFAULT="rpd-wallpaper/clouds.jpg" ;;
+			*)        T_WALL_DEFAULT="rpd-wallpaper/fisherman.jpg" ;;
 		   esac ;;
 	esac
 	# The adapted icon set, with the Debian logo and the icon names that
@@ -514,7 +517,7 @@ rpi_pkgs() {
 	# Raspberry Pi OS's wallpaper sets (no code) of this and every later
 	# release: the standard and 4K sets, any set released later and the
 	# Cambridge wallpapers (only those: not its screensaver), each shown in its
-	# own folder (see wallpaper_links, wall_own_dir). Transitional packages are
+	# own folder under $WALLS (see wallpaper_links). Transitional packages are
 	# left out.
 	local s aid n
 	aid=$(rpi_aid)
@@ -1606,54 +1609,50 @@ fm_coinstall() {
 	deb_pack
 }
 
-# Print the folder name under /usr/share/rpd-wallpaper that shows a wallpaper
-# set: rpd-wallpaper is Classic, rpd-wallpaper-trixie Trixie, a -4k package
-# the same name with 4K, and cantab-wallpaper Cambridge.
-# Usage: wall_folder PACKAGE
-wall_folder() {
-	local n=$1 k=""
-	[[ $n == *-4k ]] && { k=" 4K"; n=${n%-4k}; }
-	case $n in
-		rpd-wallpaper)    n=Classic ;;
-		rpd-wallpaper-*)  n=${n#rpd-wallpaper-} ;;
-		cantab-wallpaper) n=Cambridge ;;
-	esac
-	printf '%s%s\n' "${n^}" "$k"
-}
-
 # The Cambridge wallpapers (cantab-wallpaper) are in /usr/share/rpd-wallpaper
 # too, under names that the standard sets use (sunrise.jpg). Repack them into
-# their own folder there (see wall_folder), so that no file of another set is
-# replaced. Prints the path of the package to install.
+# a Cambridge folder there, so that no file of another set is replaced.
+# Prints the path of the package to install.
 wall_own_dir() {
-	local deb=$1 n dir sub
+	local deb=$1 n dir
 	n=$(dpkg-deb -f "$deb" Package)
 	[[ $n == cantab-wallpaper ]] || { printf '%s\n' "$deb"; return 0; }
 	deb_unpack "$deb" folder
 	dir=$R_DIR/usr/share/rpd-wallpaper
 	[[ -d $dir ]] || { deb_pack; return 0; }
-	sub=$(wall_folder "$n")
 	mkdir -p "$R_DIR/.wall"
 	find "$dir" -mindepth 1 -maxdepth 1 -exec mv -t "$R_DIR/.wall" {} +
-	mv -- "$R_DIR/.wall" "$dir/$sub"
+	mv -- "$R_DIR/.wall" "$dir/Cambridge"
 	deb_pack
 }
 
-# Add a folder of links to the session package for each standard wallpaper
-# set that is installed (rpd-wallpaper*), named by wall_folder, so that the
-# wallpaper picker offers the sets one by one. The files stay where Raspberry
-# Pi OS keeps them, which the defaults and settings name.
+# Print the wallpapers (pictures) of an installed wallpaper package, one path
+# per line, as the package installs them under /usr/share/rpd-wallpaper.
+# Usage: wall_files PACKAGE
+wall_files() {
+	local f
+	[[ $(dpkg-query -W -f '${db:Status-Abbrev}' "$1" 2>/dev/null) == ii* ]] || return 0
+	while read -r f; do
+		[[ $f == /usr/share/rpd-wallpaper/*.* && -f $f ]] || continue
+		[[ ${f,,} == *.jpg || ${f,,} == *.jpeg || ${f,,} == *.png ]] || continue
+		printf '%s\n' "$f"
+	done < <(dpkg -L "$1" 2>/dev/null)
+	return 0
+}
+
+# Add to the session package a folder of links under $WALLS for each
+# installed wallpaper package (rpd-wallpaper*, cantab-wallpaper), named after
+# the package, so that the wallpaper picker offers the sets one by one in one
+# place. The files stay where Raspberry Pi OS installs them, so that its
+# packages update them.
 # Usage: wallpaper_links STAGE
 wallpaper_links() {
-	local stage=$1 p f sub
-	for p in $(dpkg-query -W -f '${Package} ${db:Status-Abbrev}\n' 'rpd-wallpaper*' 2>/dev/null | awk '$2 ~ /^ii/ { print $1 }'); do
-		sub=$(wall_folder "$p")
+	local stage=$1 p f
+	for p in $(dpkg-query -W -f '${Package}\n' 'rpd-wallpaper*' cantab-wallpaper 2>/dev/null); do
 		while read -r f; do
-			[[ $f == /usr/share/rpd-wallpaper/*.* && $f != */*/*/*/*/* ]] || continue
-			[[ ${f,,} == *.jpg || ${f,,} == *.jpeg || ${f,,} == *.png ]] || continue
-			mkdir -p "$stage/usr/share/rpd-wallpaper/$sub"
-			ln -sfn "../${f##*/}" "$stage/usr/share/rpd-wallpaper/$sub/${f##*/}"
-		done < <(dpkg -L "$p" 2>/dev/null)
+			mkdir -p "$stage$WALLS/$p"
+			ln -sfn "../../../${f#/usr/share/}" "$stage$WALLS/$p/${f##*/}"
+		done < <(wall_files "$p")
 	done
 }
 
@@ -2454,9 +2453,17 @@ _greeter_logo() {
 }
 
 # Print the theme's wallpaper; print nothing (and warn) if it is not installed.
+# The session package brings the link (see wallpaper_links), so the package's
+# file is checked.
 _wallpaper_path() {
-	local w=/usr/share/rpd-wallpaper/$T_WALL_DEFAULT
-	if [[ -f $w ]]; then printf '%s\n' "$w"; else warn "Wallpaper $w not found; the desktop shows its background colour."; fi
+	local w=$WALLS/$T_WALL_DEFAULT files
+	# Not a pipe into grep -q: with pipefail, its early exit fails the pipe
+	files=$'\n'$(wall_files "${T_WALL_DEFAULT%%/*}")$'\n'
+	if [[ $files == *$'\n'"/usr/share/rpd-wallpaper/${T_WALL_DEFAULT##*/}"$'\n'* ]]; then
+		printf '%s\n' "$w"
+	else
+		warn "Wallpaper $w not found; the desktop shows its background colour."
+	fi
 }
 
 # Write the session's lxsession profile: Raspberry Pi OS's desktop.conf with
@@ -3082,6 +3089,7 @@ _session_command() {
 	{
 		printf '#!/bin/bash\n# The look of the Raspberry Pi Desktop session for you, written by %s %s.\n' "$APP_NAME" "$APP_VERSION"
 		printf 'APP=%s PROFILE=%s SHARE=%s OBFILE=%s FMPROFILE=%s\n' "$APP_NAME" "$S_PROFILE" "$SHARE" "$(ob_file)" "$S_FM_PROFILE"
+		printf 'WALLS=%s\n' "$WALLS"
 		printf 'FONT_SIZE=%s\n' "$T_FONT_SIZE"
 		printf 'CURSOR_SIZE=%s DESK_BG=%q DESK_FG=%q DESK_SHADOW=%q\n' "$T_CURSOR_SIZE" "$T_DESK_BG" "$T_DESK_FG" "$T_DESK_SHADOW"
 		printf 'COLOR_SCHEME=%q\n' "$T_COLOR_SCHEME"
@@ -3291,7 +3299,7 @@ if [[ -n $theme ]]; then
 	theme_look "$theme" || die "unknown theme '$theme': pixflat, pixnoir, pixtrix, pixonyx or pix"
 	gtk_theme "$gtk" || die "the $gtk theme is not installed (see --list)"
 	icon_theme "$icons" || die "the $icons icons are not installed"
-	wall=/usr/share/rpd-wallpaper/$wall
+	wall=$WALLS/$wall
 	[[ -f $wall ]] || { printf 'rpios-look-set: the wallpaper %s is not installed; the desktop keeps its own\n' "$wall" >&2; wall=""; }
 fi
 
@@ -4193,7 +4201,9 @@ _panel_size() {
 login_background() {
 	local f=/usr/share/desktop-base/active-theme/login/background.svg
 	if [[ -e $f ]]; then printf '%s\n' "$f"; return 0; fi
-	if [[ -n ${S_WALL:-} && -f $S_WALL ]]; then printf '%s\n' "$S_WALL"; fi
+	# S_WALL is set only when its wallpaper is installed; the link comes
+	# with the session package
+	if [[ -n ${S_WALL:-} ]]; then printf '%s\n' "$S_WALL"; fi
 }
 
 # Write the Raspberry Pi OS login screen for LightDM: Debian's GTK greeter in
@@ -5309,12 +5319,12 @@ _stack_installed() { [[ $(installed_version lxpanel) == *+rpt* ]]; }
 # Covers PCManFM, in every profile.
 reset_wallpapers() {
 	local def=/etc/alternatives/desktop-background f p k
-	local rpd='/usr/share/rpd-wallpaper/'
+	local rpd="/usr/share/(rpd-wallpaper|${WALLS#/usr/share/})/"
 	[[ -e $def ]] || def=""
 	for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/pcmanfm/*/desktop-items-*.conf "${XDG_CONFIG_HOME:-$HOME/.config}"/pcmanfm/*/pcmanfm.conf; do
-		grep -q "^wallpaper=$rpd" "$f" 2>/dev/null || continue
-		if [[ -n $def ]]; then sed -i --follow-symlinks "s#^wallpaper=$rpd.*#wallpaper=$def#" "$f"
-		else sed -i --follow-symlinks "\#^wallpaper=$rpd#d; s/^wallpaper_mode=.*/wallpaper_mode=color/" "$f"; fi
+		grep -qE "^wallpaper=$rpd" "$f" 2>/dev/null || continue
+		if [[ -n $def ]]; then sed -i -E --follow-symlinks "s#^wallpaper=$rpd.*#wallpaper=$def#" "$f"
+		else sed -i -E --follow-symlinks "\#^wallpaper=$rpd#d; s/^wallpaper_mode=.*/wallpaper_mode=color/" "$f"; fi
 	done
 }
 
@@ -5436,7 +5446,7 @@ has_session_settings() {
 		"$f/openbox/rpd-rc.xml" "$f/openbox/lxde-pi-rc.xml" "$d/$APP_NAME"; do
 		[[ -e $p ]] && return 0
 	done
-	grep -qs '^wallpaper=/usr/share/rpd-wallpaper/' "$f/pcmanfm/default"/desktop-items-*.conf
+	grep -qsE "^wallpaper=/usr/share/(rpd-wallpaper|${WALLS#/usr/share/})/" "$f/pcmanfm/default"/desktop-items-*.conf
 }
 
 # Remove this user's settings of the Raspberry Pi Desktop session, which no
@@ -5456,7 +5466,7 @@ reset_session_settings() {
 	# Debian's file manager reads its default profile in other sessions too:
 	# only the desktop files with a Raspberry Pi OS wallpaper are the session's
 	for p in "$f/pcmanfm/default"/desktop-items-*.conf; do
-		if grep -q '^wallpaper=/usr/share/rpd-wallpaper/' "$p" 2>/dev/null; then rm -f -- "$p"; fi
+		if grep -qE "^wallpaper=/usr/share/(rpd-wallpaper|${WALLS#/usr/share/})/" "$p" 2>/dev/null; then rm -f -- "$p"; fi
 	done
 	# The session's own user data (markers), which only it reads
 	rm -rf -- "${d:?}/$APP_NAME"

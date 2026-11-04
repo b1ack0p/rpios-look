@@ -142,20 +142,24 @@ panel, so the panel disappears for a moment; the network and running
 programs are not affected.
 
 **Wallpapers.** Every Raspberry Pi OS wallpaper set is installed, 4K
-included, each in its own folder under `/usr/share/rpd-wallpaper`:
+included, each in its own folder under `/usr/share/backgrounds/rpios-look`,
+named after its package:
 
-| Folder       | Package                   | Size   |
-|--------------|---------------------------|--------|
-| `Classic`    | `rpd-wallpaper`           | 26 MB  |
-| `Classic 4K` | `rpd-wallpaper-4k`        | 95 MB  |
-| `Trixie`     | `rpd-wallpaper-trixie`    | 44 MB  |
-| `Trixie 4K`  | `rpd-wallpaper-trixie-4k` | 100 MB |
-| `Cambridge`  | `cantab-wallpaper`        | 28 MB  |
+| Folder                    | Size   |
+|---------------------------|--------|
+| `rpd-wallpaper`           | 26 MB  |
+| `rpd-wallpaper-4k`        | 95 MB  |
+| `rpd-wallpaper-trixie`    | 44 MB  |
+| `rpd-wallpaper-trixie-4k` | 100 MB |
+| `cantab-wallpaper`        | 28 MB  |
 
-A set that Raspberry Pi OS releases later gets its own folder. The theme
-sets the default wallpaper (see [Themes](#themes)); to pick another,
-right-click the desktop, choose Desktop Preferences and open one of these
-folders. The Cambridge set brings its wallpapers only, not its screensaver.
+The folders hold links: the files stay where Raspberry Pi OS's packages
+install them (`/usr/share/rpd-wallpaper`), so that updates of those packages
+keep working. A set that Raspberry Pi OS releases later gets its own folder.
+The theme sets the default wallpaper, the one Raspberry Pi OS uses for that
+look and release (see [Themes](#themes)); to pick another, right-click the
+desktop, choose Desktop Preferences and open one of these folders. The
+Cambridge set brings its wallpapers only, not its screensaver.
 
 **Animations.** Openbox draws an outline when a window is minimized or
 restored, and GTK applications animate switches, popovers and panels.
@@ -421,10 +425,14 @@ theme shows the Debian logo: a white swirl on a red circle.
 
 Default wallpaper of each theme:
 
-- `pixflat`, `pixnoir`: `temple.jpg` (Debian 10), `clouds.jpg` (11),
-  `fisherman.jpg` (12 and later).
-- `pixtrix`, `pixonyx`: `sunrise.jpg`.
-- `pix`: `road.jpg`.
+- `pixflat`, `pixnoir`: `rpd-wallpaper/temple.jpg` (Debian 10),
+  `rpd-wallpaper/clouds.jpg` (11), `rpd-wallpaper/fisherman.jpg` (12 and
+  later), as Raspberry Pi OS Buster, Bullseye and Bookworm.
+- `pixtrix`, `pixonyx`: `rpd-wallpaper-trixie/sunrise.jpg`, as Raspberry Pi
+  OS Trixie.
+- `pix`: `rpd-wallpaper/road.jpg`, as Raspbian Stretch.
+
+All are under `/usr/share/backgrounds/rpios-look`.
 
 Qt applications follow the theme through the GTK platform themes.
 
