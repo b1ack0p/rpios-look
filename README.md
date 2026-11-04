@@ -87,6 +87,17 @@ Options, added to a mode above:
   `small`, `medium`, `large` or `larger` (default: `medium`). It is saved
   and reused by `--refresh`; a plain run goes back to `medium`, as every
   other setting goes back to its default.
+- `bash rpios-look.sh --no-reboot`:
+  Do not restart the computer at the end. Without it, an installation
+  (also `--offline`) and `--uninstall` end with a 60-second countdown, then
+  restart the computer: Enter restarts at once, `n` or Ctrl+C cancels.
+  `--refresh` asks before restarting, and only when an update changed the
+  login screen, the display server, or sound, network or Bluetooth
+  services, which keep running after you log out; otherwise logging out is
+  enough. `--prepare-upgrade` and `--download` never restart. Without a
+  terminal (for example, when the script is run by another program) the
+  computer is never restarted; the end of the run says that a restart is
+  needed.
 - `bash rpios-look.sh --refresh --verbose`:
   Also print the commands run as root, the files downloaded and other
   details; `-v` for short (default: off).

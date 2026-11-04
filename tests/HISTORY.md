@@ -33,6 +33,44 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.20.0 (2026-11-04)
+
+A restart at the end of the runs that need one.
+
+- An install (also `--offline`) and `--uninstall` end with a warning, then a
+  60-second countdown that restarts the computer: Enter restarts at once,
+  `n` or Ctrl+C cancels. `--refresh` asks (`[y/N]`) only when an update
+  changed the login screen, the display server, or sound, network or
+  Bluetooth services (`pkg_category`: greeter, display, sound, network),
+  which keep running after a logout; otherwise it says to log out.
+  `--prepare-upgrade` and `--download` never restart. `--no-reboot` skips
+  the restart; without a terminal the computer is never restarted. The
+  warning is terminal text only, as asked (no desktop notification).
+- The countdown is written to the terminal, not the log. The lines before
+  it reach the terminal through the log's pipe, which is let through first
+  (0.5 s); without that, the first run printed the warning after the
+  countdown had started.
+
+Checked:
+
+- bats on the Debian 13 desktop PC: 13 of 13 pass (3 new: the restart
+  decision of `--refresh`, no restart without a terminal or with
+  `--no-reboot`, the option).
+- Countdown in a pseudo-terminal, reboot command stubbed: Enter restarts, `n`
+  cancels, Ctrl+C cancels, running out restarts; `[y/N]`: y restarts, Enter
+  does not.
+- deb13-lxde, fresh snapshot, online install driven through a terminal: the
+  run ended with the countdown, which ran out and restarted the VM; it came
+  back with LightDM running and Raspberry Pi Desktop chosen. `--uninstall`
+  answered `n`: the restart notice and log path came before the countdown,
+  "Not restarted", the VM kept running. VM reverted to its snapshot.
+- Not run: `--refresh` with an update that needs a restart (only the
+  decision function, in bats), and the older releases.
+- Seen on the way: on a never-logged-in VM the greeter starts at "Other...";
+  a login typed in milliseconds (virsh send-key) got Debian's default session
+  and LightDM saved it as the user's XSession. A login at normal speed chose
+  Raspberry Pi Desktop. Not a script problem.
+
 ## 3.19.1 (2026-11-04)
 
 The look stays when a setting is changed through lxsession.

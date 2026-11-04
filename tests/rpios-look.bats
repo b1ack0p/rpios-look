@@ -80,3 +80,26 @@ setup() {
 	H_LXDE=0; run ! require_lxde
 	[[ $output == *"LXDE only"* ]]
 }
+
+@test "--refresh asks for a restart only for services that outlive a logout" {
+	b=$'lightdm 1.0\nfonts-piboto 1.0\npixflat-theme 0.24\nxserver-xorg-core 2'
+	[ -z "$(reboot_reason "$b" "$b")" ]
+	[ -z "$(reboot_reason "$b" "${b/0.24/0.25}")" ]
+	[ "$(reboot_reason "$b" "${b/lightdm 1.0/lightdm 1.1}")" = "updated: the login screen" ]
+	[ "$(reboot_reason "$b" "$b"$'\npipewire 1\nbluez 5')" = "updated: the sound server, network and Bluetooth services" ]
+	[ "$(reboot_reason "$b" "${b/xserver-xorg-core 2/}")" = "updated: the display server" ]
+}
+
+@test "no restart without a terminal or with --no-reboot" {
+	init_colors
+	as_root() { echo "RAN $*"; }
+	O_INTERACTIVE=0 run offer_reboot auto test
+	[[ $output != *RAN* ]] && [[ $output == *"restart is needed"* ]]
+	O_INTERACTIVE=1 O_NO_REBOOT=1 run offer_reboot auto test
+	[[ $output != *RAN* ]]
+}
+
+@test "--no-reboot is accepted" {
+	parse_args --uninstall --no-reboot
+	[ "$O_NO_REBOOT" = 1 ] && [ "$O_MODE" = uninstall ]
+}

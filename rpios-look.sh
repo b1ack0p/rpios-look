@@ -30,6 +30,11 @@
 #                                    cursor. Default: medium, Raspberry Pi OS's own.
 #                                    An install run saves it; later runs reuse it
 #                                    unless it is given again
+#               --no-reboot          do not restart the computer at the end: an
+#                                    install and --uninstall restart it after a
+#                                    60-second countdown, which Enter shortens
+#                                    and n cancels; --refresh asks first when
+#                                    what it changed needs a restart
 #               -v, --verbose        also print the commands run as root, the
 #                                    files downloaded and other details
 #               -V, --version        print the version
@@ -78,7 +83,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.19.1"
+readonly APP_VERSION="3.20.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -234,7 +239,9 @@ O_MODE="install"        # install | refresh | uninstall | prepare-upgrade | down
 O_SIZE=medium           # the size preset: small, medium (Raspberry Pi OS's default), large or larger
 O_SIZE_GIVEN=0          # 1 when --size is given on this command line
 O_VERBOSE=0
+O_NO_REBOOT=0          # 1 with --no-reboot: never restart the computer at the end
 O_INTERACTIVE=0        # 1 when a terminal can answer questions (ask)
+REBOOT_WHY=""           # why the changes of --refresh need a restart, if they do
 
 # Host (H_*) and run state. The theme variables (T_*) are set by set_theme.
 H_ARCH="" H_ID="" H_CODENAME="" H_PRETTY="" H_SUITE=""
@@ -307,6 +314,76 @@ ask() {
 	ans=${ans,,}
 	[[ -z $ans ]] && ans=$def
 	[[ $ans == y || $ans == yes ]]
+}
+
+# Finish a run that needs a restart: say so at the end of the run, then
+# restart the computer. "auto" counts down 60 seconds and restarts unless n
+# (or Ctrl+C) cancels; Enter restarts at once. "ask" restarts only on a yes.
+# Without a terminal, or with --no-reboot, it only says so.
+# Usage: offer_reboot auto|ask REASON
+offer_reboot() {
+	local how=$1 why=$2 key t rc go=0 stop=0
+	log ""
+	warn "A restart is needed to finish: $why."
+	if (( O_NO_REBOOT || ! O_INTERACTIVE )); then
+		info "Restart the computer when you are ready."
+		return 0
+	fi
+	if [[ $how == ask ]]; then
+		sleep 0.5
+		ask "Restart the computer now" n && go=1
+	else
+		# The countdown goes to the terminal only, not to the log. The lines
+		# before it reach the terminal through the log's pipe (start_log):
+		# they are let through first.
+		sleep 0.5
+		trap 'stop=1' INT
+		for (( t = 60; t > 0 && ! stop; t-- )); do
+			printf '\r%s?%s Restarting in %2d s. Enter: restart now, n: cancel ' "$C_C" "$C_0" "$t" >/dev/tty
+			rc=0; key=""; IFS= read -r -s -n 1 -t 1 key </dev/tty || rc=$?
+			(( stop )) && break
+			if (( rc > 128 )); then continue; fi
+			(( rc == 0 )) || { stop=1; break; }
+			case ${key,,} in
+				'') go=1; break ;;
+				n|$'\e') stop=1; break ;;
+			esac
+		done
+		trap 'die "interrupted"' INT TERM
+		printf '\n' >/dev/tty
+		(( stop )) || go=1
+	fi
+	if (( ! go )); then
+		info "Not restarted. Restart the computer when you are ready."
+		return 0
+	fi
+	ok "Restarting the computer"
+	sleep 1
+	if command -v systemctl >/dev/null; then as_root systemctl reboot; else as_root reboot; fi
+}
+
+# Print the installed packages with their versions, one "name version" line
+# each, to see what a run changed.
+pkg_versions() {
+	dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' 2>/dev/null | awk '$1 ~ /^.i/ { print $2, $3 }' | LC_ALL=C sort
+}
+
+# Print why the packages a run changed need a restart, or nothing when
+# logging out is enough: the login screen, the display server, sound and
+# network services, which keep running across a logout.
+# Usage: reboot_reason BEFORE AFTER (pkg_versions outputs)
+reboot_reason() {
+	local p c out=""
+	local -A seen=()
+	while read -r p; do
+		[[ -n $p ]] && seen[$(pkg_category "$p")]=1
+	done < <(LC_ALL=C comm -3 <(printf '%s\n' "$1" | LC_ALL=C sort) <(printf '%s\n' "$2" | LC_ALL=C sort) \
+		| awk '{ print $1 }' | LC_ALL=C sort -u)
+	for c in "greeter|the login screen" "display|the display server" "sound|the sound server" \
+		"network|network and Bluetooth services"; do
+		[[ -z ${seen[${c%%|*}]:-} ]] || out+="${out:+, }${c#*|}"
+	done
+	[[ -z $out ]] || printf 'updated: %s\n' "$out"
 }
 
 # Format a byte count, e.g. 27MB.
@@ -5755,6 +5832,7 @@ uninstall() {
 	ok "${C_B}Uninstalled.${C_0} Debian's own setup is back."
 	finish "Restart the computer to finish (the login screen and running services change at the restart)."
 	if [[ -n $LOG_FILE ]]; then info "Log of this run: $LOG_FILE"; fi
+	offer_reboot auto "the login screen and running services change with it"
 }
 
 ###############################################################################
@@ -5784,6 +5862,7 @@ parse_args() {
 				size_ok "${2,,}" || die "unknown size '$2' (small, medium, large or larger)"
 				O_SIZE=${2,,} O_SIZE_GIVEN=1; shift; eq=0 ;;
 			-v|--verbose)     O_VERBOSE=1 ;;
+			--no-reboot)      O_NO_REBOOT=1 ;;
 			-h|--help)        usage; exit 0 ;;
 			-V|--version)     echo "$APP_NAME $APP_VERSION"; exit 0 ;;
 			*) die "unknown argument '$opt'; see: $(self_cmd) --help" ;;
@@ -5892,13 +5971,24 @@ summary() {
 	if [[ -n $own ]]; then
 		info "Your theme ($own) and wallpaper stay; every theme was updated. To go back to this release's default (${T_DESC%% —*}): $APP_NAME-set --reset"
 	fi
-	if [[ ${XDG_SESSION_DESKTOP:-} == "$SESSION_ID" ]]; then
-		finish "Log out and back in (or restart the computer) to finish: the session starts again with the new settings."
+	if [[ $O_MODE != refresh ]]; then
+		finish "Restart the computer to finish; the login screen then offers ${C_B}Raspberry Pi Desktop${C_0} (chosen for you). Other sessions stay as they were."
+	elif [[ -n $REBOOT_WHY ]]; then
+		finish "Restart the computer to finish ($REBOOT_WHY)."
+	elif [[ ${XDG_SESSION_DESKTOP:-} == "$SESSION_ID" ]]; then
+		finish "Log out and back in to finish: the session starts again with the new settings."
 	else
-		finish "Log out and choose ${C_B}Raspberry Pi Desktop${C_0} on the login screen (it is chosen for you), or restart the computer; other sessions stay as they were."
+		finish "Log out and choose ${C_B}Raspberry Pi Desktop${C_0} on the login screen to use it; other sessions stay as they were."
 	fi
 	info "Updates: $(self_cmd) --refresh    Clean install: $(self_cmd)    Undo: $(self_cmd) --uninstall"
 	if [[ -n $LOG_FILE ]]; then info "Log of this run: $LOG_FILE"; fi
+	# An install restarts the computer by itself after a countdown; an
+	# update asks, when what it changed keeps running across a logout
+	if [[ $O_MODE != refresh ]]; then
+		offer_reboot auto "the login screen and the new session start with it"
+	elif [[ -n $REBOOT_WHY ]]; then
+		offer_reboot ask "$REBOOT_WHY"
+	fi
 }
 
 # Print what the user has to do to finish, so that it stands out at the end.
@@ -5907,6 +5997,7 @@ finish() { log ""; log "${C_B}  ==> Next: $*${C_0}"; log ""; }
 
 # Install, update or refresh the look, online or offline.
 install_mode() {
+	local before
 	if [[ $O_MODE == refresh ]]; then
 		[[ -f $SYS_DIR/installed-packages || -n $(installed_version "$APP_PKG") ]] \
 			|| die "the Raspberry Pi OS look is not installed; install it with: $(self_cmd)"
@@ -5929,6 +6020,7 @@ install_mode() {
 	require_dpkg_ready
 	as_root install -d -m 0755 "$SYS_DIR"
 	record_packages_before
+	before=$(pkg_versions)
 	install_all
 	install_pkg
 	apt_source_gone
@@ -5943,6 +6035,7 @@ install_mode() {
 	reload_session
 	save_size
 	save_state
+	[[ $O_MODE != refresh ]] || REBOOT_WHY=$(reboot_reason "$before" "$(pkg_versions)")
 	summary
 }
 
