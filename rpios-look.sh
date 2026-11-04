@@ -54,6 +54,16 @@
 # Requires    : Debian 10 or later with Debian's LXDE desktop; a normal user
 #               (not root) with sudo rights; internet access, except for
 #               --offline.
+#
+# Disclaimer  : Use at your own risk. This script installs packages and
+#               changes system files as root. It is provided "as is", without
+#               warranty of any kind (see LICENSE). The authors accept no
+#               responsibility for a broken system, lost data, security issues
+#               or any other damage, whether caused by the script, by the
+#               packages it installs or by the release it runs on. Debian
+#               releases older than the current stable one may no longer get
+#               security updates and may contain known vulnerabilities. Back
+#               up your data before running it.
 # =============================================================================
 
 # Contents
@@ -83,7 +93,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.20.0"
+readonly APP_VERSION="3.21.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -123,6 +133,16 @@ readonly DEBIAN_OLD_KEYRING="/usr/share/keyrings/debian-archive-removed-keys.gpg
 # Debian releases by major version. Debian's distro-info-data, if installed,
 # adds releases named after this script was written.
 readonly KNOWN_RELEASES=(9:stretch 10:buster 11:bullseye 12:bookworm 13:trixie 14:forky 15:duke)
+# Debian releases' life cycle, as distro-info-data gives it: major version,
+# release date, end of regular security support, end of LTS. Debian's
+# distro-info-data, if installed, replaces and extends it (load_releases).
+readonly KNOWN_LIFECYCLE=(
+	9:2017-06-17:2020-07-18:2022-06-30
+	10:2019-07-06:2022-09-10:2024-06-30
+	11:2021-08-14:2024-08-14:2026-08-31
+	12:2023-06-10:2026-07-11:2028-06-30
+	13:2025-08-09:2028-08-09:2030-06-30
+)
 # OLDEST: the oldest Debian host accepted (pick_suite) and the oldest Raspberry
 # Pi OS release whose indexes are read. Debian 9 is accepted but unsupported;
 # the documented minimum, and the oldest release --download bundles, is 10.
@@ -887,14 +907,31 @@ mono_font_pkg() { if suite_ge "$1" trixie; then echo fonts-liberation; else echo
 
 # Load the Debian release numbers from the built-in list, then from Debian's
 # distro-info-data, which also names future releases.
-declare -gA REL_VER=()
+# REL_DATES maps a major version to "RELEASE EOL EOL-LTS" dates (YYYY-MM-DD,
+# empty when not known yet).
+declare -gA REL_VER=() REL_DATES=()
 load_releases() {
-	local e v c
+	local e v c rel eol lts
 	for e in "${KNOWN_RELEASES[@]}"; do REL_VER[${e#*:}]=${e%%:*}; done
+	for e in "${KNOWN_LIFECYCLE[@]}"; do IFS=: read -r v rel eol lts <<<"$e"; REL_DATES[$v]="$rel $eol $lts"; done
 	[[ -r /usr/share/distro-info/debian.csv ]] || return 0
-	while IFS=, read -r v _ c _; do
-		if [[ $v =~ ^[0-9]+ && $c =~ ^[a-z]+$ ]]; then REL_VER[$c]=${v%%.*}; fi
+	while IFS=, read -r v _ c _ rel eol lts _; do
+		[[ $v =~ ^[0-9]+ && $c =~ ^[a-z]+$ ]] || continue
+		REL_VER[$c]=${v%%.*}
+		if [[ $rel =~ ^[0-9-]+$ ]]; then REL_DATES[${v%%.*}]="$rel ${eol:--} ${lts:--}"; fi
 	done </usr/share/distro-info/debian.csv
+}
+
+# Print the major version of the current Debian stable release: the newest
+# one released by today, from REL_DATES.
+stable_rank() {
+	local v rel today best=0
+	printf -v today '%(%Y-%m-%d)T' -1
+	for v in "${!REL_DATES[@]}"; do
+		read -r rel _ <<<"${REL_DATES[$v]}"
+		[[ $rel == - || $rel > $today ]] || (( v <= best )) || best=$v
+	done
+	echo "$best"
 }
 # Print the archive that provides the Raspberry Pi OS packages: packages/ for
 # an offline install, otherwise Raspberry Pi's.
@@ -6045,6 +6082,46 @@ require_lxde() {
 	(( H_LXDE )) || die "rpios-look supports Debian with LXDE only, and LXDE is not installed. Install it first: sudo apt install task-lxde-desktop"
 }
 
+# Warn that the run is at the user's own risk, before anything changes.
+risk_warning() {
+	log ""
+	warn "${C_B}Use at your own risk.${C_0}"
+	log "  This script installs packages and changes system files as root. It is"
+	log "  provided \"as is\", without warranty of any kind (see LICENSE). The authors"
+	log "  accept no responsibility for a broken system, lost data, security issues"
+	log "  or any other damage, whether caused by the script, by the packages it"
+	log "  installs or by the Debian release it runs on. Back up your data first."
+}
+
+# Warn when this Debian release is older than the current stable one: it may
+# no longer get security updates, and neither may the packages installed for it.
+old_release_warning() {
+	local rank stable rel eol lts today status
+	rank=$(host_rank) || return 0
+	stable=$(stable_rank)
+	(( stable && rank < stable )) || return 0
+	printf -v today '%(%Y-%m-%d)T' -1
+	read -r rel eol lts <<<"${REL_DATES[$rank]:-- - -}"
+	if [[ $lts != - && ! $lts > $today ]]; then
+		status="Debian's security support for it, LTS included, ended on $lts"
+	elif [[ $eol != - && ! $eol > $today ]]; then
+		status="its regular security support ended on $eol; only LTS updates follow"
+		[[ $lts == - ]] || status+=", until $lts"
+	elif [[ $eol != - ]]; then
+		status="its regular security support ends on $eol"
+	else
+		status="its security support may have ended"
+	fi
+	log ""
+	warn "${C_B}Old Debian release:${C_0} ${H_PRETTY:-Debian $rank} is older than the current stable release, Debian $stable."
+	log "  ${status^}."
+	log "  Old releases and the packages made for them (Debian's and Raspberry Pi"
+	log "  OS's) may no longer be maintained and may contain known security"
+	log "  vulnerabilities that will not be fixed. Use it at your own risk, ideally"
+	log "  away from untrusted networks, and consider upgrading to Debian $stable."
+	NOTES+=("${H_PRETTY:-Debian $rank} is older than the current stable release (Debian $stable) and may not get security fixes; at your own risk")
+}
+
 # Parse the command line, set up the run and start the chosen mode.
 main() {
 	ARGV=("$@")
@@ -6062,11 +6139,15 @@ main() {
 	start_log
 	log ""
 	log "${C_B}  $APP_NAME $APP_VERSION${C_0} — the Raspberry Pi OS desktop look for Debian"
+	# --download changes nothing on this computer; the warnings come with
+	# --offline on the target
+	[[ $O_MODE == download ]] || risk_warning
 	case $O_MODE in
 		download)  download_mode; return 0 ;;
 		uninstall) uninstall; return 0 ;;
 	esac
 	pick_suite
+	old_release_warning
 	load_size
 	case $O_MODE in
 		prepare-upgrade) prepare_upgrade ;;

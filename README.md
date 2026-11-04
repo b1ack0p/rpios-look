@@ -11,6 +11,14 @@ session, which is not changed.
 ![PiX, the legacy Raspbian look](screenshot/pix.png)
 ![The login screen](screenshot/login.png)
 
+> [!WARNING]
+> **Use at your own risk.** The script installs packages and changes system
+> files as root. It is provided "as is", without warranty of any kind (see
+> [LICENSE](LICENSE)). The authors accept no responsibility for a broken
+> system, lost data, security issues or any other damage, whether caused by
+> the script, by the packages it installs or by the Debian release it runs on.
+> Back up your data before running it. See [Disclaimer](#disclaimer).
+
 ## Contents
 
 1. [Quick start](#quick-start)
@@ -23,7 +31,8 @@ session, which is not changed.
 8. [Troubleshooting](#troubleshooting)
 9. [How it works](#how-it-works)
 10. [Tests](#tests)
-11. [Credits and licence](#credits-and-licence)
+11. [Disclaimer](#disclaimer)
+12. [Credits and licence](#credits-and-licence)
 
 ## Quick start
 
@@ -45,7 +54,7 @@ rights (do not run the script as root); internet access, except for an
    bash rpios-look.sh
    ```
 
-3. Enter your password, review the plan (every package with its version and
+3. Read the warnings, enter your password, review the plan (every package with its version and
    origin) and answer `y`.
 4. Log out. **Raspberry Pi Desktop** is preselected on the login screen; log in.
 
@@ -341,6 +350,14 @@ The script runs on Debian itself with Debian's LXDE installed, and stops
 before changing anything otherwise. The session runs on X (Openbox) on every
 release.
 
+**Old releases.** When Debian is older than the current stable release, the
+script warns before it starts, says when Debian's security support for that
+release ends or ended, and repeats it in the summary. Old releases and the
+packages made for them, Debian's and Raspberry Pi OS's, may no longer be
+maintained and may contain known security vulnerabilities that will not be
+fixed. Running the script on them is at your own risk; keep such a computer
+away from untrusted networks, or upgrade it.
+
 **Network icon.** On Debian 12 and 13, Raspberry Pi's network item is used
 when NetworkManager manages the network and Raspberry Pi OS has a matching
 build of `libnma`. Otherwise (always on Debian 10 and 11, usually on testing
@@ -611,6 +628,27 @@ Unit tests of the script's decision helpers need no root or network:
 sudo apt install bats
 bats tests/
 ```
+
+## Disclaimer
+
+**Use at your own risk.** rpios-look installs packages and changes system
+files as root. It is provided "as is", without warranty of any kind, as the
+[MIT licence](LICENSE) states. The authors and contributors accept no
+responsibility or liability for any damage or loss, including a broken or
+unbootable system, lost data, security issues, or problems caused by the
+packages it installs, by Raspberry Pi's or Debian's archives, or by the
+Debian release it runs on.
+
+**Old Debian releases.** Releases older than the current stable one may
+have reached the end of Debian's security support, and the Raspberry Pi OS
+packages made for them may no longer be updated. They may contain known
+security vulnerabilities that will never be fixed. The script warns about
+this when it runs; using it on such a release is entirely your own choice
+and risk.
+
+Every mode that changes the computer (install, `--offline`, `--refresh`,
+`--prepare-upgrade`, `--uninstall`) prints this warning before it starts.
+Back up your data before running it, and read the plan before answering `y`.
 
 ## Credits and licence
 
