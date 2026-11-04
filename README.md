@@ -366,10 +366,15 @@ window is moved. Other drivers get no compositor, as on Raspberry Pi OS.
 - **The look is missing after login.**
   Select *Raspberry Pi Desktop* in the login screen's session menu.
 - **The login screen is not styled.**
-  The style needs LightDM:
+  The script installs LightDM and styles it when no login manager is set up
+  or LightDM is the one in use, as with Debian's LXDE. Another login manager
+  (GDM, SDDM, LXDM) is left as it is, without the style. To switch to
+  LightDM, choose it when asked:
   `sudo apt install lightdm lightdm-gtk-greeter && sudo dpkg-reconfigure lightdm`,
   then `bash rpios-look.sh --refresh`.
-- **dpkg was interrupted.**
+- **"dpkg was interrupted".**
+  An earlier installation, by any program, stopped half-way; the script
+  checks this before it starts and changes nothing. Finish it with
   `sudo dpkg --configure -a && sudo apt-get -f install`, then run the script
   again.
 - **404 Not Found.**
@@ -539,8 +544,9 @@ Raspberry Pi's programs are used unchanged, with one fix:
 - **Debian's LXDE:** uses Raspberry Pi OS's Openbox, and on Debian 10 to 12
   its panel and file manager. Its settings, autostart, screen lock and power
   are not changed.
-- **Login screen:** LightDM's greeter gets Raspberry Pi OS's style. Other
-  login managers are not changed.
+- **Login screen:** LightDM and its greeter are installed where no other
+  login manager is in use, and the greeter gets Raspberry Pi OS's style.
+  Other login managers are not changed.
 - **Packages:** the Raspberry Pi OS packages listed above; the Debian
   packages the session needs, including hardware support (X server,
   network, Bluetooth, sound) where missing. Packages already installed are
