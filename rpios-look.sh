@@ -93,7 +93,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.21.0"
+readonly APP_VERSION="3.21.1"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -4529,8 +4529,10 @@ preflight_tools() {
 	for t in dpkg-deb gpgv base64 sha256sum awk sed gzip perl flock; do
 		command -v "$t" >/dev/null || missing+=("$t")
 	done
-	if [[ $O_MODE != offline ]] && ! command -v curl >/dev/null && ! command -v wget >/dev/null; then missing+=(curl); fi
 	(( ${#missing[@]} == 0 )) || die "missing tools: ${missing[*]} (install them with apt)"
+	if [[ $O_MODE != offline ]] && ! command -v curl >/dev/null && ! command -v wget >/dev/null; then
+		die "curl or wget is needed to download the packages; install curl with: sudo apt install curl ca-certificates"
+	fi
 }
 
 # Stop unless every file of the offline repository matches SHA256SUMS.
@@ -6039,7 +6041,6 @@ install_mode() {
 		[[ -f $SYS_DIR/installed-packages || -n $(installed_version "$APP_PKG") ]] \
 			|| die "the Raspberry Pi OS look is not installed; install it with: $(self_cmd)"
 	fi
-	preflight_tools
 	[[ -z $REPO ]] || verify_repo
 	print_machine
 	require_lxde
@@ -6146,6 +6147,8 @@ main() {
 		download)  download_mode; return 0 ;;
 		uninstall) uninstall; return 0 ;;
 	esac
+	# Before pick_suite, which already downloads Raspberry Pi's indexes
+	preflight_tools
 	pick_suite
 	old_release_warning
 	load_size
