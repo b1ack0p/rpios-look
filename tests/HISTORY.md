@@ -64,6 +64,13 @@ i386/amd64, 13 amd64, sid amd64):
 - Debian 13: `--size large` install saved large; `--refresh` kept size and
   power settings; a plain run reset size to medium and power to defaults.
 - bats: 10 of 10 pass.
+- README examples of combined options, run on a fresh Debian 13 VM:
+  `rpios-look-power` with several options and with `default` (all applied,
+  rc 0); `bash rpios-look.sh --refresh --size large --verbose` and
+  `--refresh --size=large` accepted; two modes at once refused with a clear
+  message. `rpios-look-set --theme pixonyx --animations off` was run there
+  too; its output fell outside the captured log, so it is checked by
+  reading the option handling only.
 
 ## 3.17.4 (2026-11-04)
 

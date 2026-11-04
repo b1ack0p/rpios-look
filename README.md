@@ -91,6 +91,14 @@ Options, added to a mode above:
   Also print the commands run as root, the files downloaded and other
   details; `-v` for short (default: off).
 
+Options combine with a mode in one command, in any order, and
+`--size=large` works as well as `--size large`:
+
+```bash
+bash rpios-look.sh --refresh --size large --verbose
+bash rpios-look.sh --offline --size small
+```
+
 Every theme is installed; the default theme matches your Debian release (see
 [Themes](#themes)). To change it, use `rpios-look-set`.
 
@@ -114,6 +122,13 @@ logins.
 | `rpios-look-set --show`               | Show the current look                 |
 | `rpios-look-set --reset`              | Back to the session's look            |
 | `rpios-look-set --help`               | Show the help                         |
+
+`--theme` and `--animations` go together in one command; `--reset` is
+given alone:
+
+```bash
+rpios-look-set --theme pixonyx --animations off
+```
 
 Defaults:
 
@@ -190,10 +205,13 @@ Notes:
 
 - Minutes may be written `30`, `30m` or `30min`; `0` or `never` turns the
   action off, for example `rpios-look-power --blank never`.
-- Several options can go in one command:
+- Several options can go in one command, together with `default` for any
+  of them:
 
   ```bash
   rpios-look-power --sleep-ac 30 --lock-after 5
+  rpios-look-power --blank 15 --monitor-off 20 --lock-after 20 --lid lock
+  rpios-look-power --sleep-battery default --sleep-ac never
   ```
 
 - The defaults for every user are in `/usr/share/rpios-look/power.conf`.
