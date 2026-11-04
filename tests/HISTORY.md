@@ -33,6 +33,38 @@ Suite phases (queue.sh): 1 online install, uninstall, fix checks,
 package health, Don't Break Debian; 4 speed and resources against Debian's
 own LXDE; 5 A/B of Raspberry Pi's packages against Debian's; 6 report.
 
+## 3.18.0 (2026-11-04)
+
+Wallpaper sets in folders, size and settings reset on a plain run, README
+readable in a text editor.
+
+- Every Raspberry Pi OS wallpaper set is installed, 4K included
+  (`rpd-wallpaper*`), plus the Cambridge wallpapers (`cantab-wallpaper` only;
+  its screensaver and xscreensaver were tried and left out on request). Each
+  set has its own folder under `/usr/share/rpd-wallpaper`: links for the rpd
+  sets, the Cambridge files moved there by repacking, as that package ships
+  its own `sunrise.jpg` over Trixie's.
+- A plain run returns the size to `medium`, like every other setting; only
+  `--refresh` keeps it. Power and sleep were already reset by a plain run.
+- The machine summary shows the Raspberry Pi OS release.
+- Desktop labels: compared pixel by pixel with Raspberry Pi OS 13 (same
+  colours, shadow, font and smoothing); kept as Raspberry Pi OS has them.
+
+Fresh install on all 8 VMs (Debian 10 i386/amd64, 11 i386/amd64, 12
+i386/amd64, 13 amd64, sid amd64):
+
+- Five wallpaper packages installed; folders Classic 17, Classic 4K 16,
+  Trixie 16, Trixie 4K 16 links, none broken; Cambridge 17 files.
+  `dpkg -V` clean; `sunrise.jpg` still Trixie's.
+- Default wallpaper: temple (10), clouds (11), fisherman (12), sunrise (13,
+  sid).
+- `rpios-look-set --theme` for all five themes on all 8: each theme applied,
+  wallpaper present (PiXflat/PiXnoir the release's, PiXtrix/PiXonyx
+  sunrise, PiX road); `--reset` back to the release default.
+- Debian 13: `--size large` install saved large; `--refresh` kept size and
+  power settings; a plain run reset size to medium and power to defaults.
+- bats: 10 of 10 pass.
+
 ## 3.17.4 (2026-11-04)
 
 `--refresh` checks every theme and picks up newly released ones.

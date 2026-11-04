@@ -78,7 +78,7 @@ fi
 ###############################################################################
 
 readonly APP_NAME="rpios-look"
-readonly APP_VERSION="3.17.4"
+readonly APP_VERSION="3.18.0"
 # The package this script generates. It holds the session, the login screen
 # style and the adapted icon sets, so that dpkg tracks and removes them.
 readonly APP_PKG="rpios-look-debian"
@@ -226,8 +226,8 @@ readonly ICON_ALIASES=(
 # 13) shows the Shutdown icon, as from 13 on (see ICON_ALIASES).
 readonly LOGO_ICONS=(start-here distributor-logo launch rpi-logo)
 
-# Options (O_*). An install run saves the size in $SYS_DIR/options; later
-# runs reuse it unless --size is given again.
+# Options (O_*). An install saves the size in $SYS_DIR/options; --refresh
+# reuses it unless --size is given again, an install starts from medium.
 O_MODE="install"        # install | refresh | uninstall | prepare-upgrade | download | offline
 O_SIZE=medium           # the size preset: small, medium (Raspberry Pi OS's default), large or larger
 O_SIZE_GIVEN=0          # 1 when --size is given on this command line
@@ -380,8 +380,9 @@ size_ok() { [[ $1 == small || $1 == medium || $1 == large || $1 == larger ]]; }
 load_size() {
 	local val
 	(( ! O_SIZE_GIVEN )) && [[ -f $SYS_DIR/options ]] || return 0
-	# Only an update reuses it; a fresh install starts from the default.
-	[[ -n $(installed_version "$APP_PKG") ]] || return 0
+	# Only --refresh reuses it; an install, also over an installed look,
+	# starts from the default, as every other setting does.
+	[[ $O_MODE == refresh && -n $(installed_version "$APP_PKG") ]] || return 0
 	val=$(sed -n 's/^size=//p' "$SYS_DIR/options" 2>/dev/null | first_line) || val=""
 	if size_ok "$val"; then O_SIZE=$val; else debug "ignoring saved size '$val'"; fi
 }
@@ -510,13 +511,29 @@ rpi_pkgs() {
 		gtk2-engines-pixflat gtk2-engines-clearlookspix fonts-piboto fonts-nunito-sans "${PI_WM[@]}"
 	[[ $O_MODE == download ]] || stack_extras "$PI_WM_SRC" "${PI_WM[@]}"
 	rpi_new_looks "$1" "$2"
-	# The standard wallpaper sets (no code) of this and every later release.
-	local s
+	# Raspberry Pi OS's wallpaper sets (no code) of this and every later
+	# release: the standard and 4K sets, any set released later and the
+	# Cambridge wallpapers (only those: not its screensaver), each shown in its
+	# own folder (see wallpaper_links, wall_own_dir). Transitional packages are
+	# left out.
+	local s aid n
+	aid=$(rpi_aid)
 	for s in $(releases); do
 		suite_ge "$s" "$1" || continue
-		index_names "$(rpi_aid)" "$s" "$2" | grep -E '^rpd-wallpaper' | grep -v -- '-4k$' || true
+		index_load "$aid" "$s" "$2" || continue
+		for n in $(index_names "$aid" "$s" "$2" | grep -E '^(rpd-wallpaper[a-z0-9-]*|cantab-wallpaper)$' | grep -v -- '-dbgsym$'); do
+			index_transitional "$WORKDIR/index/$aid/$s/Packages-$2" "$n" || echo "$n"
+		done
 	done | awk '!seen[$0]++'
 	if suite_ge "$1" trixie; then pi_apps "$1" "$2"; else pi_stack "$1" "$2"; fi
+}
+
+# Succeed if a package of an index file is an empty transitional or dummy
+# package, which brings nothing of its own. Usage: index_transitional FILE PACKAGE
+index_transitional() {
+	awk -v p="$2" 'BEGIN { RS = ""; FS = "\n" } index($0, "Package: " p "\n") == 1 {
+		for (i = 1; i <= NF; i++) if ($i ~ /^Description: / && tolower($i) ~ /transitional|dummy/) found = 1 }
+		END { exit !found }' "$1"
 }
 
 # Print the theme packages that Raspberry Pi OS has released since this
@@ -534,11 +551,8 @@ rpi_new_looks() {
 		awk 'BEGIN { RS = ""; FS = "\n" } index($0, "Package: rpd-theme\n") == 1 {
 			for (i = 1; i <= NF; i++) if ($i ~ /^(Depends|Recommends): /) { sub(/^[^:]*: /, "", $i); print $i } }' "$f" | depnames
 		sed -n 's/^Package: //p' "$f" | grep -xE 'pix[a-z0-9]*-(theme|icons)|rpd-icons[a-z0-9-]*|[a-z0-9-]+-cursors?(-theme)?|gtk2-engines-(pix|clearlookspix)[a-z0-9]*|fonts-[a-z0-9-]+'
-	} | grep -v -- '-dbgsym$' | grep -vxE "$known|rpd-wallpaper.*" | sort -u | while read -r p; do
-		# An empty transitional or dummy package brings nothing new
-		awk -v p="$p" 'BEGIN { RS = ""; FS = "\n" } index($0, "Package: " p "\n") == 1 {
-			for (i = 1; i <= NF; i++) if ($i ~ /^Description: / && tolower($i) ~ /transitional|dummy/) found = 1 }
-			END { exit !found }' "$f" && continue
+	} | grep -v -- '-dbgsym$' | grep -vxE "$known|.*wallpaper.*" | sort -u | while read -r p; do
+		index_transitional "$f" "$p" && continue
 		_debian_has "$p" || printf '%s\n' "$p"
 	done
 }
@@ -1590,6 +1604,57 @@ fm_coinstall() {
 	rm -f -- "$dir/DEBIAN/conffiles" "$dir/DEBIAN/postinst"
 	for n in Breaks Replaces Conflicts Provides; do control_set "$n" ""; done
 	deb_pack
+}
+
+# Print the folder name under /usr/share/rpd-wallpaper that shows a wallpaper
+# set: rpd-wallpaper is Classic, rpd-wallpaper-trixie Trixie, a -4k package
+# the same name with 4K, and cantab-wallpaper Cambridge.
+# Usage: wall_folder PACKAGE
+wall_folder() {
+	local n=$1 k=""
+	[[ $n == *-4k ]] && { k=" 4K"; n=${n%-4k}; }
+	case $n in
+		rpd-wallpaper)    n=Classic ;;
+		rpd-wallpaper-*)  n=${n#rpd-wallpaper-} ;;
+		cantab-wallpaper) n=Cambridge ;;
+	esac
+	printf '%s%s\n' "${n^}" "$k"
+}
+
+# The Cambridge wallpapers (cantab-wallpaper) are in /usr/share/rpd-wallpaper
+# too, under names that the standard sets use (sunrise.jpg). Repack them into
+# their own folder there (see wall_folder), so that no file of another set is
+# replaced. Prints the path of the package to install.
+wall_own_dir() {
+	local deb=$1 n dir sub
+	n=$(dpkg-deb -f "$deb" Package)
+	[[ $n == cantab-wallpaper ]] || { printf '%s\n' "$deb"; return 0; }
+	deb_unpack "$deb" folder
+	dir=$R_DIR/usr/share/rpd-wallpaper
+	[[ -d $dir ]] || { deb_pack; return 0; }
+	sub=$(wall_folder "$n")
+	mkdir -p "$R_DIR/.wall"
+	find "$dir" -mindepth 1 -maxdepth 1 -exec mv -t "$R_DIR/.wall" {} +
+	mv -- "$R_DIR/.wall" "$dir/$sub"
+	deb_pack
+}
+
+# Add a folder of links to the session package for each standard wallpaper
+# set that is installed (rpd-wallpaper*), named by wall_folder, so that the
+# wallpaper picker offers the sets one by one. The files stay where Raspberry
+# Pi OS keeps them, which the defaults and settings name.
+# Usage: wallpaper_links STAGE
+wallpaper_links() {
+	local stage=$1 p f sub
+	for p in $(dpkg-query -W -f '${Package} ${db:Status-Abbrev}\n' 'rpd-wallpaper*' 2>/dev/null | awk '$2 ~ /^ii/ { print $1 }'); do
+		sub=$(wall_folder "$p")
+		while read -r f; do
+			[[ $f == /usr/share/rpd-wallpaper/*.* && $f != */*/*/*/*/* ]] || continue
+			[[ ${f,,} == *.jpg || ${f,,} == *.jpeg || ${f,,} == *.png ]] || continue
+			mkdir -p "$stage/usr/share/rpd-wallpaper/$sub"
+			ln -sfn "../${f##*/}" "$stage/usr/share/rpd-wallpaper/$sub/${f##*/}"
+		done < <(dpkg -L "$p" 2>/dev/null)
+	done
 }
 
 # Hide the menu entry of Raspberry Pi's Appearance Settings (pipanel) in
@@ -4482,7 +4547,7 @@ with_rpi_deps() {
 # refused. Usage: adapt_deb FILE
 adapt_deb() {
 	local f
-	f=$(deps_drop "$1") && f=$(compat_fix "$f") && f=$(fm_coinstall "$f") && f=$(pipanel_session "$f") && f=$(bt_pin_entry "$f") \
+	f=$(deps_drop "$1") && f=$(compat_fix "$f") && f=$(fm_coinstall "$f") && f=$(wall_own_dir "$f") && f=$(pipanel_session "$f") && f=$(bt_pin_entry "$f") \
 		&& scripts_coinstall "$f"
 }
 
@@ -4707,6 +4772,7 @@ build_pkg() {
 	popup_keeper_build "$stage"
 	compositor_build "$stage"
 	power_build "$stage"
+	wallpaper_links "$stage"
 	apt_files "$stage"
 	if [[ -n $(installed_version lightdm) ]]; then login_build "$stage"; fi
 
