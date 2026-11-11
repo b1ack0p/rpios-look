@@ -29,6 +29,36 @@ Physical machines:
 | Desktop PC: Intel Core i5-3550, 32 GB, NVIDIA GeForce GT 1030 (NVIDIA's driver), SATA SSD | Debian 13 with rpios-look, X | VM host; daily use of the session; NVIDIA window dragging (picom), theme switching, lock |
 | Laptop: Intel Core i7-1355U, 32 GB, Intel Iris Xe | Debian 13 | `--download` (packages/ for the offline tests) |
 
+## 1.0.0, clean install on a real Debian 13 desktop (2026-11-11)
+
+The desktop PC above (NVIDIA's driver), in daily use, from a fresh clone of
+GitHub at the v1.0.0 tag (the same file as tested in AUD4).
+
+- `--uninstall` of the build installed before, with the script that
+  installed it: rc 0; the 71 packages it had installed removed; no rpios-look
+  or Raspberry Pi package, session, APT source, polkit rule or icon folder
+  left; the user's login choice back to Debian's default session.
+- Old run logs and the old clone deleted by hand. Then a restart: LightDM up,
+  no failed unit.
+- Fresh install, default options: rc 0, no note; both sessions installed (X
+  and Wayland); PiXtrix; no power helper, no polkit rule, `swayidle` and
+  `wlopm` not installed; no `C-A-l` key in the X session,
+  `lock_manager/command=lxlock`, the power button bound to the session's own
+  program.
+- After a restart: LightDM's login screen up, no failed system unit.
+- `--refresh` twice: rc 0, "up to date; nothing to apply" both times, and no
+  notice of a newer script.
+- After the user logged in (X session, NVIDIA's driver): `lxsession` under
+  `systemd-inhibit` (`handle-power-key`), `openbox-pi`, `lxpanel-pi`,
+  `pcmanfm-pi`, the settings keeper, the compositor starter with `picom`
+  (GLX, direct rendering on the NVIDIA card); PiXtrix with its icons, cursor,
+  font and wallpaper; the X server's blanking 600/600/600; no failed system
+  or user unit. The session log has the panel's and file manager's known GTK
+  messages and lxsession's one warning of a first login (it cannot save into
+  the session's system file and then writes the user's own).
+- Not checked: the Wayland session on NVIDIA's driver, the power button, the
+  lid and the sleep keys.
+
 ## 1.0.0: fourth audit, shape and logic (2026-11-11)
 
 Working tree, both scripts, on every release, architecture and theme. Both
