@@ -703,6 +703,27 @@ Raspberry Pi OS; a long press still forces the power off. Without the session
 
 ### Compared with Raspberry Pi OS
 
+**The same as on Raspberry Pi OS:**
+
+- the themes with their icons, cursors, fonts, window frames and default
+  wallpaper, and the defaults of each release;
+- the panel with its layout, main menu and items (clock, volume, Bluetooth,
+  network, eject), and the desktop with its file manager;
+- the window manager's behaviour, rounded corners included, and the keys;
+- the Shutdown and Run dialogs, and the power button opening the Shutdown
+  dialog (Debian 12 and later);
+- the size presets Small, Medium, Large and Larger of Appearance Settings;
+- Qt programs following the GTK theme, and the light or dark style of GTK 4
+  programs (Debian 13 and later);
+- the Wayland session (Debian 13 and later): labwc with Raspberry Pi OS's
+  settings, its panel, its screen lock on Ctrl+Alt+L, the on-screen keyboard
+  with a touch screen;
+- no automatic screen lock or sleep, and no screen blanking beyond the X
+  server's own;
+- the login screen's style.
+
+The packages behind this are listed under [Packages](#packages).
+
 **From Raspberry Pi OS:** the theme, icon, cursor, font and wallpaper
 packages; the panel (`lxpanel-pi` with its `lpplug-*` plugins), the file
 manager and desktop (`pcmanfm-pi`), the window
@@ -759,6 +780,81 @@ the Bluetooth pairing dialog takes keyboard focus, so Bluetooth 2.0 devices
 can be paired. The fix applies only while Raspberry Pi's dialog still has the
 bug. Those repacked beside Debian's keep their code; only the names of their
 program, folders and libraries change.
+
+### Packages
+
+Every run lists the packages it will install, with versions and origins,
+before it changes anything. This is the full set, for every release; 32-bit
+and 64-bit PCs get the same packages (Debian 13 and later are 64-bit only).
+
+**From Raspberry Pi OS** (Raspberry Pi's archive, `archive.raspberrypi.org`):
+
+| Package | Debian | What it is for |
+|---|---|---|
+| `pixtrix-theme` | 13+ | The PiXtrix and PiXonyx themes: GTK 2, 3 and 4, window frames, the session's defaults |
+| `pixflat-theme` | 10+ | The PiXflat and PiXnoir themes, the same way |
+| `pix-theme` | all | The PiX theme of Raspbian Stretch |
+| `pixtrix-icons`, `pixflat-icons`, `rpd-icons` | 13+, 10+, all | The icon and cursor sets of PiXtrix, PiXflat and PiX |
+| `gtk2-engines-pixflat`, `gtk2-engines-clearlookspix` | 10+, all | The drawing engines that the PiXflat and PiX themes need in GTK 2 programs |
+| `fonts-nunito-sans`, `fonts-piboto` | 13+, all | The desktop fonts: Nunito Sans (PiXtrix), Piboto (PiXflat, PiX) |
+| `rpd-wallpaper`, `rpd-wallpaper-trixie` | all, 13+ | Raspberry Pi OS's wallpapers, the default one among them |
+| `rpd-wallpaper-4k`, `rpd-wallpaper-trixie-4k`, `cantab-wallpaper` | 11+, 13+, all | More wallpapers to pick from: 4K copies and the Cambridge set. Raspberry Pi OS does not install these by default |
+| `openbox`, `libobrender32v5` ¹ | all | Raspberry Pi's build of the window manager: windows keep rounded corners while they move |
+| `lxpanel-pi` | 13+ | Raspberry Pi's panel |
+| `lxpanel`, `lxpanel-data` ¹ | 9 to 12 | Raspberry Pi's build of the panel, which its plugins need |
+| `lpplug-menu`, `-clock`, `-ejecter`, `-volumepulse`, `-bluetooth`, `-netman` ² | 13+ | The panel's items: main menu, clock, eject, volume, Bluetooth, network |
+| `lpplug-cpu`, `-cputemp`, `-magnifier`, `-batt` ³ | 13+ | Panel items to add by hand (CPU load, temperature, magnifier) and the battery item |
+| `lxplug-menu` (11, 12), `-ejecter` (10 to 12), `-volumepulse` (10 to 12), `-volume` (9), `-bluetooth`, `-netman` ² (12) | 9 to 12 | The same panel items, as each release has them |
+| `lxplug-cpu` (12), `-cputemp` (10 to 12), `-magnifier` (10 to 12), the battery item ³ | 9 to 12 | The same items to add by hand, and the battery item |
+| `pplug-ejecter-data`, `pplug-netman-schema` | 13+ (schema: 12+) | Data and settings that the eject and network items need |
+| `mage-rpi` (10, 11: `mage`) | 10+ | The magnifier program that the magnifier item and Ctrl+Alt+M start |
+| `pcmanfm-pi` ¹ | 13+ | Raspberry Pi's file manager, which also draws the desktop |
+| `pcmanfm`, `libfm4`, `libfm-gtk4`, `libfm-modules`, `libfm-data`, `libfm-gtk-data`, `libfm-extra4` ¹ | 9 to 12 | Raspberry Pi's build of the file manager and its library |
+| `pishutdown` | all | The Shutdown dialog |
+| `gui-runcmd` | 13+ | The Run dialog (Alt+F2) |
+| `libnma0` ¹, `lp-connection-editor` ² | 12+ | The network item's library and its connection editor |
+| `wf-panel-pi` | 13+ | Raspberry Pi's panel of the Wayland session |
+| `wfplug-menu`, `-imenu`, `-wlist`, `-clock`, `-ejecter`, `-volumepulse`, `-bluetooth`, `-netman` ², `-cpu`, `-cputemp`, `-squeek`, `-batt` ³ | 13+ | Its items: menu, launchers, window list, clock, eject, volume, Bluetooth, network, CPU load and temperature, on-screen keyboard, battery |
+| `swaylock` ¹ | 13+ | Raspberry Pi's screen lock of the Wayland session (Ctrl+Alt+L) |
+| `gui-screenshot` | 13+ | The screenshot tool of the Wayland session (Print) |
+| `qt5-style-plugins`, `qt5-gtk2-platformtheme`, `qt5-style-plugin-cleanlooks`, `-motif`, `-plastique`, `qt6gtk2` | 13 | Qt 5 and Qt 6 programs follow the GTK theme (Raspberry Pi's builds for Debian 13's Qt) |
+
+¹ Repacked to install beside Debian's package of the same name (see
+[Keeping Debian safe](#keeping-debian-safe)). ² Only where NetworkManager
+manages the network. ³ Only on a computer with a battery.
+
+Read but not installed: `rpd-common`, `rpd-x-core` and `rpd-wayland-core`
+(13 and later) and `raspberrypi-ui-mods` (9 to 12), for Raspberry Pi OS's
+panel layout, keys, menu and labwc settings. `raspberrypi-archive-keyring` is
+downloaded for the key that verifies Raspberry Pi's archive.
+
+**From Debian** (your own APT sources; a package you already have is left as
+it is):
+
+| Package | Debian | What it is for |
+|---|---|---|
+| `lxsession`, `lxpolkit` | all | The session manager and the password prompt, as Raspberry Pi OS uses them |
+| `openbox`, `lxpanel`, `pcmanfm` | all | Debian's LXDE, which the look is installed beside; Debian's own session keeps using them |
+| `gvfs-backends`, `gvfs-fuse` | all | Removable drives, network folders and the trash in the file manager |
+| `lxappearance` | all | Customize Look and Feel, in place of Raspberry Pi's Appearance Settings |
+| `dconf-cli`, `libglib2.0-bin`, `python3` | all | Used by the session's own helpers to apply the look's settings and keep them |
+| `xserver-xorg`, `x11-utils`, `libgl1-mesa-dri` | all | The X server, where missing |
+| `lightdm`, `lightdm-gtk-greeter`, `desktop-base` | all | The login screen, where no other login manager is in use |
+| `gtk2-engines-pixbuf`, `libgtk2.0-bin` | all | GTK 2 support that the themes need |
+| `gnome-icon-theme`, `adwaita-icon-theme-legacy` (13+) | all | Icons that the Raspberry Pi icon sets fall back to |
+| `sound-theme-freedesktop` | all | The event sounds |
+| `fonts-liberation` (13+), `fonts-liberation2` (9 to 12) | all | Liberation Mono, the monospace font |
+| `pipewire-audio` (12+), `pulseaudio` (10, 11) | 10+ | Sound, on a computer with a sound card and no sound server |
+| `bluez`, `rfkill`, `libspa-0.2-bluetooth` or `pulseaudio-module-bluetooth` | all | Bluetooth for the panel's item, on a computer that has it |
+| `network-manager`, `wpasupplicant`, `iw`, `wireless-regdb`, `rfkill`, `dnsmasq-base` | 12+ | Wi-Fi for Raspberry Pi's network item, only on a computer with Wi-Fi and no network manager |
+| `labwc`, `kanshi`, `wlr-randr`, `xsettingsd`, `squeekboard` | 13+ | The Wayland session: compositor, screen layout, GTK settings for X programs, on-screen keyboard |
+| `qt5-style-plugins` (9, 10, 12), `qt5-gtk-platformtheme` (11) | 9 to 12 | Qt 5 programs follow the GTK theme |
+| `qt5-gtk-platformtheme`, `qt6-gtk-platformtheme` | testing, unstable | The same, where Raspberry Pi's Qt plugins do not fit Debian's newer Qt |
+| `debian-reference-common`, `debian-reference-en` | 9 to 12 | Debian Reference in the Help menu, as on Raspberry Pi OS 9 to 12 |
+| `fakeroot`, `apt-transport-https` | 9 | Needed on Debian 9 to build packages and to reach Raspberry Pi's archive; removed by `--uninstall` |
+
+APT adds the libraries these packages depend on; the plan and the log of
+each run name them.
 
 ### What changes on the computer
 

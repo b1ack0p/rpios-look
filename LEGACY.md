@@ -110,6 +110,9 @@ later one, with Raspberry Pi OS's own defaults.
 - **Debian's LXDE session** is not changed: Debian's panel, file manager and
   Openbox, with Debian's layout.
 
+The README lists every package of each release, from Raspberry Pi OS and
+from Debian, with what it is for: [Packages](README.md#packages).
+
 ## Offline installation
 
 1. On a computer with internet access and Debian 12 or later, in the script's
