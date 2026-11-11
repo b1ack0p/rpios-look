@@ -29,6 +29,24 @@ Physical machines:
 | Desktop PC: Intel Core i5-3550, 32 GB, NVIDIA GeForce GT 1030 (NVIDIA's driver), SATA SSD | Debian 13 with rpios-look, X | VM host; daily use of the session; NVIDIA window dragging (picom), theme switching, lock |
 | Laptop: Intel Core i7-1355U, 32 GB, Intel Iris Xe | Debian 13 | `--download` (packages/ for the offline tests) |
 
+## 1.0.0, LXTerminal maximized and restored (2026-11-12)
+
+A report from the real desktop: LXTerminal, maximized and then restored, does
+not get its first size back. Tried on deb13-lxde with LXTerminal 0.4.1-1,
+through the window manager's maximize state.
+
+| Session | First | Maximized | Restored |
+|---------|-------|-----------|----------|
+| Debian's LXDE, before the install | 656 x 436 | 1280 x 752 | 1280 x 742 |
+| Raspberry Pi Desktop (X), PiXtrix, the session's `lxterminal` | 655 x 442 | 1280 x 736 | 1279 x 731 |
+| the same, `/usr/bin/lxterminal` started directly | 655 x 442 | 1280 x 736 | 1279 x 731 |
+| the same, PiXflat | 655 x 441 | 1280 x 736 | 1279 x 730 |
+| Debian's LXDE, after the install | 656 x 436 | 1280 x 752 | 1280 x 742 |
+
+The same in every session, also in Debian's LXDE before the look is
+installed: Debian 13's LXTerminal keeps the maximized size as its own. Not
+caused by the look; nothing changed.
+
 ## 1.0.0, clean install on a real Debian 13 desktop (2026-11-11)
 
 The desktop PC above (NVIDIA's driver), in daily use, from a fresh clone of
