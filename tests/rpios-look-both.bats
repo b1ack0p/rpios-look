@@ -17,7 +17,7 @@ DIFFERENT="
 	netman_debs_drop netman_decide _no_battery _openbox_keys _openbox_rc panel_drop _panel_tasks
 	parse_args pick_suite _pi_layout _pin_unfixed pi_unpack pkg_category _pkg_status preflight_tools
 	_print_look print_plan qt_debs refresh_check _release_csv release_load release_ok reload_session
-	require_own_install resolve_all resolve_pkg rpi_arches rpi_new_looks rpi_pkgs rpi_populated
+	require_own_install reset_file_manager reset_power resolve_all resolve_pkg restore_user rpi_arches rpi_new_looks rpi_pkgs rpi_populated
 	self_cmd session_build _session_command _session_dconf _session_entries _session_files
 	_session_icons _session_menu _session_profile _session_programs _session_themes session_vars
 	set_theme size_ok start_log summary theme_debs tray_debs uninstall usage version_newer

@@ -503,6 +503,116 @@ CSV
 	rm "$HOME/.dmrc"; forget_dmrc; [ ! -e "$HOME/.dmrc" ]
 }
 
+@test "an install puts the file manager and the desktop back to the session's: the 'default' profile's preferences, desktop files, the bookmarks and the desktop's shortcuts go, your files stay, --uninstall gives back what was there and keeps what you added since" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	d=$XDG_CONFIG_HOME/pcmanfm/default; mkdir -p "$d" "$HOME/Desktop" "$XDG_CONFIG_HOME/libfm" "$XDG_CONFIG_HOME/pcmanfm/LXDE"
+	warn() { :; }; ok() { :; }
+	S_PI_FM=1 S_PROFILE=rpd-x S_FM_PROFILE=default
+	# Your own from before the look: preferences, a desktop with your wallpaper, a file on the desktop
+	printf '[ui]\nwin_width=1200\nview_mode=list\n' >"$d/pcmanfm.conf"
+	printf '[*]\nwallpaper=/home/me/photo.jpg\nshow_trash=0\n[note.txt]\nx=300\ny=200\n' >"$d/desktop-items-0.conf"
+	echo mine >"$HOME/Desktop/note.txt"
+	printf '[ui]\nbig_icon_size=96\n' >"$XDG_CONFIG_HOME/libfm/libfm.conf"; echo keep >"$XDG_CONFIG_HOME/pcmanfm/LXDE/pcmanfm.conf"
+	cp "$d/pcmanfm.conf" "$BATS_TEST_TMPDIR/p"; cp "$d/desktop-items-0.conf" "$BATS_TEST_TMPDIR/d0"
+	mkdir -p "$XDG_CONFIG_HOME/gtk-3.0"; echo "file://$HOME/Work Work" >"$XDG_CONFIG_HOME/gtk-3.0/bookmarks"; mkdir "$HOME/Work"
+	echo 'gtk-theme-name=Mine' >"$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+	# Shortcuts on the desktop: a launcher and a link; a document and a folder beside them
+	xdg-user-dir() { return 1; }
+	printf '[Desktop Entry]\nType=Application\nName=Game\nExec=game\n' >"$HOME/Desktop/game.desktop"
+	ln -s "$HOME/Work" "$HOME/Desktop/work"; mkdir "$HOME/Desktop/Photos"; echo x >"$HOME/Desktop/Photos/a.jpg"; echo y >"$HOME/Work/inside.txt"
+	_state_init; reset_file_manager
+	# Raspberry Pi OS's desktop has no shortcut: the launcher and the link go, the rest stays
+	[ ! -e "$HOME/Desktop/game.desktop" ] && [ ! -L "$HOME/Desktop/work" ]
+	[ -f "$HOME/Desktop/Photos/a.jpg" ] && [ "$(cat "$HOME/Work/inside.txt")" = y ]
+	[ ! -e "$d/pcmanfm.conf" ] && [ ! -e "$d/desktop-items-0.conf" ]
+	# The side pane's bookmarks go; the folders they named and GTK's other settings stay
+	[ ! -e "$XDG_CONFIG_HOME/gtk-3.0/bookmarks" ] && [ -d "$HOME/Work" ] && [ -f "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" ]
+	# Files and folders, and what Debian's file manager keeps for its own LXDE session
+	[ "$(cat "$HOME/Desktop/note.txt")" = mine ]
+	grep -qx 'big_icon_size=96' "$XDG_CONFIG_HOME/libfm/libfm.conf"; [ "$(cat "$XDG_CONFIG_HOME/pcmanfm/LXDE/pcmanfm.conf")" = keep ]
+	# The session's file manager writes its own since; a later install resets those too
+	printf '[ui]\nwin_width=900\n' >"$d/pcmanfm.conf"; printf '[*]\nshow_trash=1\n' >"$d/desktop-items-1.conf"
+	# A bookmark added since goes with that install too, and is kept with the one from before
+	echo "file://$HOME/Later" >"$XDG_CONFIG_HOME/gtk-3.0/bookmarks"
+	reset_file_manager
+	[ ! -e "$d/pcmanfm.conf" ] && [ ! -e "$d/desktop-items-1.conf" ] && [ ! -e "$XDG_CONFIG_HOME/gtk-3.0/bookmarks" ]
+	# --uninstall: yours from before are back, and nothing of the session's stays
+	printf '[ui]\nwin_width=640\n' >"$d/pcmanfm.conf"; printf '[*]\nshow_trash=1\n' >"$d/desktop-items-1.conf"
+	# A bookmark and a launcher of the same name, added since the install, stay
+	printf 'file://%s/New' "$HOME" >"$XDG_CONFIG_HOME/gtk-3.0/bookmarks"
+	printf '[Desktop Entry]\nName=New\n' >"$HOME/Desktop/game.desktop"
+	restore_user
+	cmp "$d/pcmanfm.conf" "$BATS_TEST_TMPDIR/p" && cmp "$d/desktop-items-0.conf" "$BATS_TEST_TMPDIR/d0"
+	[ "$(cat "$XDG_CONFIG_HOME/gtk-3.0/bookmarks")" = "file://$HOME/New"$'\n'"file://$HOME/Work Work"$'\n'"file://$HOME/Later" ]
+	grep -qx 'Name=New' "$HOME/Desktop/game.desktop" && grep -qx 'Name=Game' "$HOME/Desktop/game.desktop.~1~"
+	[ "$(readlink "$HOME/Desktop/work")" = "$HOME/Work" ]
+	[ ! -e "$XDG_STATE_HOME/rpios-look" ]
+	[ ! -e "$d/desktop-items-1.conf" ]
+	# Without Raspberry Pi's file manager the 'default' profile is not the session's
+	printf '[ui]\nwin_width=1200\n' >"$d/pcmanfm.conf"; rm "$XDG_CONFIG_HOME/libfm/libfm.conf"
+	_state_init; S_PI_FM=0 S_FM_PROFILE=rpd-x reset_file_manager
+	grep -qx 'win_width=1200' "$d/pcmanfm.conf"
+}
+
+@test "an install sets your own power settings for the session aside: the power-times and light-locker start entries and the swayidle lines of labwc's start file; an entry that only hides light-locker and your other entries stay; --uninstall puts them back" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	a=$XDG_CONFIG_HOME/autostart; mkdir -p "$a" "$XDG_CONFIG_HOME/labwc" "$HOME/Desktop"
+	warn() { echo "warn: $*"; }; ok() { :; }; xdg-user-dir() { return 1; }
+	printf '[Desktop Entry]\nName=Power times\nExec=xset s 300\n' >"$a/power-times.desktop"
+	printf '[Desktop Entry]\nName=Screen Locker\nExec=light-locker --lock-after-screensaver=60\n' >"$a/light-locker.desktop"
+	printf '[Desktop Entry]\nName=Mine\nExec=mine\n' >"$a/mine.desktop"
+	# A swayidle command that goes on over three lines, between two other commands
+	printf 'kanshi &\nswayidle -w \\\n\ttimeout 300 x \\\n\tresume y &\nfoot &\n' >"$XDG_CONFIG_HOME/labwc/autostart"
+	cp "$XDG_CONFIG_HOME/labwc/autostart" "$BATS_TEST_TMPDIR/as"
+	_state_init; reset_power
+	[ ! -e "$a/power-times.desktop" ] && [ ! -e "$a/light-locker.desktop" ] && [ -f "$a/mine.desktop" ]
+	# The whole command goes, not only its first line; the other commands stay
+	[ "$(cat "$XDG_CONFIG_HOME/labwc/autostart")" = 'kanshi &'$'\n''foot &' ]
+	# An entry that only hides light-locker is Debian's LXDE's own: it stays
+	printf '[Desktop Entry]\nName=Screen Locker\nHidden=true\n' >"$a/light-locker.desktop"
+	# The same command written again, and one with no options: a later install takes both, and keeps the first once
+	sed -n 2,4p "$BATS_TEST_TMPDIR/as" >>"$XDG_CONFIG_HOME/labwc/autostart"; echo swayidle >>"$XDG_CONFIG_HOME/labwc/autostart"
+	echo swayidle >>"$BATS_TEST_TMPDIR/as"
+	reset_power; grep -qx 'Hidden=true' "$a/light-locker.desktop"
+	[ "$(cat "$XDG_CONFIG_HOME/labwc/autostart")" = 'kanshi &'$'\n''foot &' ]
+	# One of the two commands is written again by hand since
+	echo swayidle >>"$XDG_CONFIG_HOME/labwc/autostart"
+	# --uninstall: the entries are back, the earlier light-locker entry beside the one there now
+	restore_user
+	grep -qx 'Exec=xset s 300' "$a/power-times.desktop" && grep -qx 'Hidden=true' "$a/light-locker.desktop"
+	grep -q 'lock-after-screensaver=60' "$a/light-locker.desktop.~1~" && [ -f "$a/mine.desktop" ]
+	# The other command is back whole, after what is there; the one written again is there once
+	[ "$(cat "$XDG_CONFIG_HOME/labwc/autostart")" = 'kanshi &'$'\n''foot &'$'\n''swayidle'$'\n'"$(sed -n 2,4p "$BATS_TEST_TMPDIR/as")" ]
+	[ ! -e "$XDG_STATE_HOME/rpios-look" ]
+}
+
+@test "the swayidle commands of a start file: each whole and once; one that the other file has already is left out, also one whose last line there ends in a backslash" {
+	local d=$BATS_TEST_TMPDIR
+	printf 'foot &\nswayidle -w \\\n' >"$d/have"
+	printf 'swayidle -w \\\n\ttimeout 3 x &\nswayidle\nswayidle\nidle &\n' >"$d/new"
+	[ "$(_swayidle_cmds "$d/have" "$d/new")" = 'swayidle -w \'$'\n\t''timeout 3 x &'$'\n''swayidle' ]
+	[ "$(_swayidle_cmds "$d/new" "$d/new")" = "" ] && [ "$(_swayidle_cmds /dev/null "$d/have")" = 'swayidle -w \' ]
+	# Two that differ only in the spaces their lines begin with are one
+	printf '  swayidle -w \\\n  timeout 3 x &\n\tswayidle\n' >"$d/have"
+	[ "$(_swayidle_cmds "$d/have" "$d/new")" = "" ] && [ "$(_swayidle_cmds /dev/null "$d/have" | wc -l)" = 3 ]
+	printf 'foot &\nswayidle -w \\\n' >"$d/have"
+	# With one file: what is left of it
+	[ "$(_swayidle_cmds "$d/new")" = 'idle &' ] && [ "$(_swayidle_cmds "$d/have")" = 'foot &' ]
+}
+
+@test "a shortcut on the desktop that cannot be moved gets a warning and stays; the install goes on" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	mkdir -p "$HOME/Desktop" "$XDG_CONFIG_HOME"
+	warn() { echo "warn: $*"; }; ok() { :; }; info() { echo "info: $*"; }; xdg-user-dir() { return 1; }
+	S_PI_FM=1 S_PROFILE=rpd-x S_FM_PROFILE=default
+	echo a >"$HOME/Desktop/stuck.desktop"; echo b >"$HOME/Desktop/free.desktop"
+	mv() { case "$*" in *stuck.desktop*) return 1 ;; esac; command mv "$@"; }
+	_state_init; run reset_file_manager
+	[ "$status" -eq 0 ]
+	[[ $output == *"warn: could not move stuck.desktop"* && $output == *"info: 1 shortcuts"* ]]
+	[ -f "$HOME/Desktop/stuck.desktop" ] && [ ! -e "$HOME/Desktop/free.desktop" ]
+}
+
 @test "the size's terminal font goes into the user's LXTerminal settings, as Raspberry Pi OS does; medium and --uninstall put the font back" {
 	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
 	SYS_ROOT=$BATS_TEST_TMPDIR/sys; mkdir -p "$HOME" "$SYS_ROOT/usr/share/lxterminal"

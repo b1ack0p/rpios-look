@@ -63,7 +63,9 @@ plus offline installation:
 | `bash rpios-look-legacy.sh --offline` | Install from `packages/`, without a network | back to the defaults |
 
 Options: `--size small|medium|large`, `--no-reboot`, `-v`/`--verbose`,
-as in the [README](README.md#modes-and-options). Logs are named
+as in the [README](README.md#modes-and-options). A plain run and `--offline`
+reset the session, the file manager, the bookmarks, the desktop's
+shortcuts and your own power settings as the README describes; `--refresh` keeps them. Logs are named
 `~/rpios-look-legacy-<mode>-<date>-<time>.log`.
 
 ## Looks per release

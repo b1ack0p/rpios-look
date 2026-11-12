@@ -29,6 +29,98 @@ Physical machines:
 | Desktop PC: Intel Core i5-3550, 32 GB, NVIDIA GeForce GT 1030 (NVIDIA's driver), SATA SSD | Debian 13 with rpios-look, X | VM host; daily use of the session; NVIDIA window dragging (picom), theme switching, lock |
 | Laptop: Intel Core i7-1355U, 32 GB, Intel Iris Xe | Debian 13 | `--download` (packages/ for the offline tests) |
 
+## 1.0.0, a plain run resets the file manager and the desktop (2026-11-12)
+
+Working tree, both scripts. A plain run (a first install and every later
+one) now also puts back the file manager's preferences, the desktop's
+preferences and the places of its icons, removes the file manager's bookmarks
+and moves the desktop's shortcuts (launchers and links) away. Files and
+folders stay. All of it is recorded first and `--uninstall` puts it back;
+`--refresh` keeps it. Debian's program that adds bookmarks of the user's
+folders at each login is not started in the Raspberry Pi Desktop session.
+
+| Run | What | Machines | Result |
+|-----|------|----------|--------|
+| REF | Raspberry Pi OS's own settings packages, Stretch to Trixie, every architecture it publishes | the VM host | The settings files are identical on amd64, i386, armhf and arm64 in every release |
+| DEF | What the scripts write, compared key by key with REF, every theme | all ten VMs | Matches; every difference is by design (see below) |
+| Desktop icons | File lists of Raspberry Pi's whole archive, every release and architecture | the VM host | No package puts a file on the desktop; `show_trash=1`, `show_mounts=1`, `show_documents=0` in every release: the Trash, and a drive while it is plugged in |
+| Unit tests | bats, full suite; shellcheck | the VM host | 187/187; shellcheck 15 and 15, unchanged |
+| RST | Reset end to end, six steps (below) | deb13-lxde (main); deb12-amd64, deb10-amd64, deb9-i386 (legacy) | Passed on all four, rc 0 in every step |
+| BM | Bookmarks after a login | deb13-lxde, deb12-amd64 | None after two logins into Raspberry Pi Desktop; Debian's five come back only after a login into Debian's LXDE |
+| AUD5 | The full round, before the audit's fixes (below): install, the session, every theme (13 and sid: also Wayland), Debian's LXDE, `--refresh`, three sizes, `--uninstall`, the state before and after | all ten VMs | Install, `--refresh`, the sizes and `--uninstall` rc 0 on all ten; every result the same as in AUD4 (below); Debian's LXDE unchanged; nothing of the look left after `--uninstall` |
+
+**DEF, the differences by design.** Panel: the updater, the power item, the
+battery on a machine without one and the old network item are left out.
+Desktop: the wallpaper's path (the same picture, in the look's folder). File
+manager: entries naming programs that are not installed are left out; the
+terminal is `lxterminal`. Session: the icon and cursor names of the
+Debian-logo variant, the window manager's starter, no second SSH agent.
+Themes: each sets its own name, icons, cursor, font and that release's
+wallpaper; the desktop's colours and the panel are the same for every theme,
+as on Raspberry Pi OS.
+
+**RST, the steps.**
+
+| Step | Result on every VM |
+|------|--------------------|
+| A. The user's own bookmarks, file manager settings, a launcher, a link, a document and a folder on the desktop | in place |
+| B. Install | Bookmarks, launcher and link gone; the document, the folder and its contents stay |
+| C. Theme, panel and file manager settings changed in the session; a bookmark and a launcher added | in place |
+| D. `--refresh` | Everything kept |
+| E. A plain run again | Theme, panel and file manager settings back to the defaults; bookmarks and the new launcher gone; files stay |
+| F. `--uninstall` | The bookmarks, shortcuts and file manager settings from before the install are back; the backup folder is gone |
+
+**Found and fixed.** On Debian 12 and 13 the five default bookmarks came
+back at the next login: Debian's LXDE starts `user-dirs-update-gtk`, which
+Raspberry Pi's archive has in no release. It is now among the start entries
+hidden in the Raspberry Pi Desktop session (both scripts); in Debian's LXDE
+it runs as before (BM).
+
+**Audit of the change, found and fixed (both scripts).** The plan before
+"Proceed" did not name the reset and nothing reported the shortcuts moved:
+the plan has a Reset entry and the run says how many shortcuts it moved and
+where. `--uninstall` deleted or overwrote bookmarks added after the install:
+it keeps them and adds the earlier ones back. On Debian 9 to 12 `--uninstall`
+put back the whole `libfm.conf`, which Debian's LXDE reads too: it undoes
+only the values the install wrote and that are still there. A shortcut whose
+name a file on the desktop has by then was lost at `--uninstall`: it comes
+back under a numbered name (`name.~1~`). A shortcut that cannot be moved
+stopped the install: it gets a warning and stays. Legacy had a branch for
+Raspberry Pi's `default` profile, which it never uses: removed.
+
+**The user's own power settings.** A plain run now also sets aside the
+user's own power settings for the session (the README's blocks A to D): the
+`power-times` and `light-locker` start entries and, in main, the `swayidle`
+lines of labwc's start file. A `light-locker` entry that only hides the
+locker and the user's other start entries stay, and so do systemd-logind's
+settings. `--uninstall` puts them back; `--refresh` keeps them.
+
+| Run | What | Machines | Result |
+|-----|------|----------|--------|
+| Unit tests | bats, full suite, on the final scripts; shellcheck | the VM host | 191/191 (four new tests in all: the two resets, the power settings, a shortcut that cannot be moved); shellcheck 15 and 15 |
+| RST2 | RST's six steps on the fixed scripts, and before `--uninstall` a bookmark added, a launcher with the name of one moved away, and a file manager value changed | deb13-lxde (main); deb12-amd64, deb10-amd64, deb9-i386 (legacy) | rc 0 in every step on all four. The plan names the reset; "2 shortcuts on the desktop were moved". After `--uninstall`: the bookmark added since and the one from before; both launchers (the earlier one as `game.desktop.~1~`), the link and the launcher of step C back; 9 to 12: `libfm.conf` with the values from before, the value changed since kept, the keys the install added gone; 13: `libfm.conf` never touched; the state folder gone |
+| RST3 | RST2 on the final scripts, with the user's `power-times`, `light-locker` and one other start entry and a `swayidle` line in labwc's start file from before, and a new `power-times` entry before `--uninstall` | the same four, then deb11-lxde and deb11-i386 (legacy) | rc 0 in every step on all six. The install sets the two power entries aside and keeps the other; main also takes the `swayidle` line and keeps the file's other line, legacy leaves the file alone; `--refresh` and the second plain run change nothing more. After `--uninstall`: both entries back (the earlier `power-times` as `power-times.desktop.~1~` beside the new one), the `swayidle` line back; the rest as RST2 |
+| BMW | Bookmarks after a login into the Wayland session | debsid-lxde | None after two logins into Raspberry Pi Desktop (Wayland); Debian's five come back after a login into Debian's LXDE |
+| AUD6 | The full round on the final scripts: install, session, health, every theme, Wayland on 13 and later, Debian's LXDE, `--refresh`, the three sizes, `--uninstall`, leftovers | all ten VMs | rc 0 in every step on all ten; the results equal AUD5's apart from process numbers, memory and log times. On deb13-lxde the test's own switch from the Wayland session to Debian's LXDE failed twice: the test restarted the display manager, and the X server started while the compositor it had just ended still held the graphics device (`drmSetMaster failed: Device or resource busy`), so the greeter came up; it happened once in six tries on a VM with nothing else changed. The test's login now stops the display manager, waits for the compositor to end, and starts it again; the rerun of deb13-lxde with that equals AUD5 |
+
+Reading the change again found three more things, fixed after AUD6: a `swayidle`
+command written over several lines lost only its first line (the whole command
+goes now, and comes back whole); the bookmarks added between two plain runs were
+removed without a copy (every plain run keeps them now, and `--uninstall` puts
+them back); and the `swayidle` lines were put back by the file manager's undo
+(now `_power_undo`).
+
+| Run | What | Machines | Result |
+|-----|------|----------|--------|
+| Unit tests | bats, full suite, on the scripts with the three fixes; shellcheck | the VM host | 191/191 (the reset and the power tests extended: a bookmark added before a second plain run, a `swayidle` command over three lines); shellcheck 15 and 15 |
+| RST4 | RST3 with a `swayidle` command over three lines between two other commands | deb13-lxde (main); deb12-amd64, deb11-lxde, deb9-i386 (legacy) | rc 0 in every step on all four. Main takes the three lines and keeps the two other commands; `--uninstall` puts the three back, after the others; legacy leaves the file alone. After `--uninstall` the bookmarks are the one added last, the one from before the install, and those the second plain run removed |
+| RST5 | RST4, with the same `swayidle` command written again and a `swayidle` line with no options before the second plain run; after two more fixes (a line with no options is taken too; a command kept already is not kept twice); unit tests 191/191, shellcheck 15 and 15 | deb13-lxde (main) | rc 0 in every step. The second plain run takes both; after `--uninstall` the start file has the two other commands, the three-line command once, and the line with no options |
+| RST6 | RST5 on the final scripts: each kept `swayidle` command comes back once (`_swayidle_cmds`), and the legacy script has no undo for a file it never changes; unit tests 191/191 (the power test extended: one of two commands written again by hand), shellcheck 15 and 15 | deb13-lxde (main); deb12-amd64, deb10-amd64, deb9-amd64 (legacy) | rc 0 in every step on all four. Main: after `--uninstall` the start file has the two other commands, the three-line command once and the line with no options; legacy leaves the file as the test wrote it; the bookmarks, shortcuts and start entries as in RST4 |
+| AUD7 | The full round again, on the final scripts, with the test's login waiting for the compositor to end | all ten VMs | rc 0 in every step on all ten; the results equal AUD5's apart from process numbers, memory and log times; Debian's LXDE came up after the Wayland session on both deb13-lxde and debsid-lxde |
+| RST7 | RST6 after one more fix in `_swayidle_cmds`: a command belongs to the file it starts in, also when that file's last line ends in a backslash (it was counted for the next file, and `--uninstall` would have added it a second time); unit tests 192/192 (one new: the helper by itself), shellcheck 15 and 15 | deb13-lxde (main) | rc 0 in every step; the result equals RST6's |
+| RST8 | RST7 after `_swayidle_cmds` takes two commands that differ only in the spaces their lines begin with for one; unit tests 192/192 (the helper's test extended), shellcheck 15 and 15 | deb13-lxde (main) | rc 0 in every step; the result equals RST7's |
+| AUD8 | The full round again, on the scripts after RST8 | deb13-lxde, debsid-lxde (started) | Stopped by hand a few minutes after its start, in the first two machines' install; no result |
+
 ## 1.0.0, LXTerminal maximized and restored (2026-11-12)
 
 A report from the real desktop: LXTerminal, maximized and then restored, does

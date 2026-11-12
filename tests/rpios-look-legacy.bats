@@ -812,6 +812,69 @@ has_string() { S=$2 perl -0777 -ne 'exit !/(?<=\0)\Q$ENV{S}\E(?=\0)/' "$1"; }
 	[ "$(wc -l <"$BATS_TEST_TMPDIR/writes")" = 2 ]
 }
 
+@test "an install puts the file manager's shared settings back to the session's: in libfm.conf only what the session sets, the bookmarks and the desktop's shortcuts go, your other settings and files stay, --uninstall gives back what was there" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	f=$XDG_CONFIG_HOME/libfm/libfm.conf; mkdir -p "${f%/*}" "$HOME/Desktop" "$XDG_CONFIG_HOME/pcmanfm/default"
+	warn() { :; }; ok() { :; }
+	S_PROFILE=LXDE-pi O_SIZE=medium; set_theme pixflat
+	echo "file://$HOME/Work" >"$HOME/.gtk-bookmarks"; mkdir "$HOME/Work"
+	xdg-user-dir() { return 1; }
+	printf '[Desktop Entry]\nName=Game\n' >"$HOME/Desktop/game.desktop"; ln -s "$HOME/Work" "$HOME/Desktop/work"
+	# No libfm.conf of yours: none is created. The side pane's bookmarks go; the folder they named stays
+	_state_init; reset_file_manager; [ ! -e "$f" ]
+	[ ! -e "$HOME/.gtk-bookmarks" ] && [ -d "$HOME/Work" ]
+	# Shortcuts on the desktop go too: Raspberry Pi OS's desktop has none
+	[ ! -e "$HOME/Desktop/game.desktop" ] && [ ! -L "$HOME/Desktop/work" ]
+	# Yours: icon sizes, single click and places changed, and a setting the session does not set
+	printf '[config]\nsingle_click=1\nconfirm_trash=0\n\n[ui]\nbig_icon_size=96\nsmall_icon_size=48\nshadow_hidden=1\n\n[places]\nplaces_trash=1\n' >"$f"
+	cp "$f" "$BATS_TEST_TMPDIR/orig"; echo mine >"$HOME/Desktop/note.txt"; echo keep >"$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf"
+	# A bookmark added since goes with a later install too, and is kept with the one from before
+	echo "file://$HOME/Later" >"$HOME/.gtk-bookmarks"
+	reset_file_manager; [ ! -e "$HOME/.gtk-bookmarks" ]
+	grep -qx 'single_click=0' "$f" && grep -qx "big_icon_size=$T_FOLDER_ICON" "$f" && grep -qx "small_icon_size=$T_SMALL_ICON" "$f" && grep -qx 'places_trash=0' "$f"
+	grep -qx 'confirm_trash=0' "$f" && grep -qx 'shadow_hidden=1' "$f"
+	[ "$(cat "$HOME/Desktop/note.txt")" = mine ] && [ "$(cat "$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf")" = keep ]
+	# --uninstall undoes in libfm.conf only the values the install wrote: one you changed since stays
+	sed -i 's/^pane_icon_size=.*/pane_icon_size=99/' "$f"; echo "file://$HOME/New" >"$HOME/.gtk-bookmarks"
+	restore_user
+	grep -qx 'pane_icon_size=99' "$f" && grep -v '^pane_icon_size=' "$f" | cmp - "$BATS_TEST_TMPDIR/orig"
+	# The bookmark from before is back beside the one added since
+	[ "$(cat "$HOME/.gtk-bookmarks")" = "file://$HOME/New"$'\n'"file://$HOME/Work"$'\n'"file://$HOME/Later" ]
+	grep -qx 'Name=Game' "$HOME/Desktop/game.desktop" && [ -L "$HOME/Desktop/work" ] && [ "$(cat "$HOME/Desktop/note.txt")" = mine ]
+}
+
+@test "an install sets your own power settings for the session aside: the power-times and light-locker start entries; an entry that only hides light-locker and your other entries stay; --uninstall puts them back" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	a=$XDG_CONFIG_HOME/autostart; mkdir -p "$a" "$XDG_CONFIG_HOME/labwc" "$HOME/Desktop"
+	warn() { echo "warn: $*"; }; ok() { :; }; xdg-user-dir() { return 1; }
+	printf '[Desktop Entry]\nName=Power times\nExec=xset s 300\n' >"$a/power-times.desktop"
+	printf '[Desktop Entry]\nName=Screen Locker\nExec=light-locker --lock-after-screensaver=60\n' >"$a/light-locker.desktop"
+	printf '[Desktop Entry]\nName=Mine\nExec=mine\n' >"$a/mine.desktop"
+	_state_init; reset_power
+	[ ! -e "$a/power-times.desktop" ] && [ ! -e "$a/light-locker.desktop" ] && [ -f "$a/mine.desktop" ]
+	# An entry that only hides light-locker is Debian's LXDE's own: it stays
+	printf '[Desktop Entry]\nName=Screen Locker\nHidden=true\n' >"$a/light-locker.desktop"
+	reset_power; grep -qx 'Hidden=true' "$a/light-locker.desktop"
+	# --uninstall: the entries are back, the earlier light-locker entry beside the one there now
+	restore_user
+	grep -qx 'Exec=xset s 300' "$a/power-times.desktop" && grep -qx 'Hidden=true' "$a/light-locker.desktop"
+	grep -q 'lock-after-screensaver=60' "$a/light-locker.desktop.~1~" && [ -f "$a/mine.desktop" ]
+	[ ! -e "$XDG_STATE_HOME/rpios-look" ]
+}
+
+@test "a shortcut on the desktop that cannot be moved gets a warning and stays; the install goes on" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	mkdir -p "$HOME/Desktop" "$XDG_CONFIG_HOME"
+	warn() { echo "warn: $*"; }; ok() { :; }; info() { echo "info: $*"; }; xdg-user-dir() { return 1; }
+	S_PROFILE=LXDE-pi O_SIZE=medium; set_theme pixflat
+	echo a >"$HOME/Desktop/stuck.desktop"; echo b >"$HOME/Desktop/free.desktop"
+	mv() { case "$*" in *stuck.desktop*) return 1 ;; esac; command mv "$@"; }
+	_state_init; run reset_file_manager
+	[ "$status" -eq 0 ]
+	[[ $output == *"warn: could not move stuck.desktop"* && $output == *"info: 1 shortcuts"* ]]
+	[ -f "$HOME/Desktop/stuck.desktop" ] && [ ! -e "$HOME/Desktop/free.desktop" ]
+}
+
 @test "the size's terminal font goes into the user's LXTerminal settings, as Raspberry Pi OS does; medium and --uninstall put the font back" {
 	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
 	SYS_ROOT=$BATS_TEST_TMPDIR/sys; mkdir -p "$HOME" "$SYS_ROOT/usr/share/lxterminal"

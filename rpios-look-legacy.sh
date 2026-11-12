@@ -3178,7 +3178,10 @@ _session_entries() {
 	fi
 	# Hide clipboard managers and other volume applets, which Raspberry Pi OS
 	# lacks; screen lockers and screensavers, as Raspberry Pi OS's session
-	# starts none (a user's own start entry starts one); the Bluetooth applet where
+	# starts none (a user's own start entry starts one); the program of
+	# Debian's LXDE that adds bookmarks of the user's folders to the file
+	# manager at each login (Raspberry Pi OS has no bookmarks of its own);
+	# the Bluetooth applet where
 	# Raspberry Pi's panel has its own plugin; nm-applet where its network
 	# plugin is used; the tray icons of wicd and ConnMan where NetworkManager
 	# runs the network, as the panel shows its own; and LXDE's authentication
@@ -3189,7 +3192,7 @@ _session_entries() {
 	# can enable them again in Desktop Session Settings.
 	local -a pats=(volumeicon pasystray pnmixer diodon clipit parcellite
 		light-locker xscreensaver xss-lock xautolock lxpolkit polkit-mate-authentication-agent
-		polkit-gnome-authentication-agent picom compton)
+		polkit-gnome-authentication-agent picom compton user-dirs-update-gtk)
 	(( S_PI_STACK )) && pats+=(blueman)
 	(( USE_NETMAN )) && pats+=(nm-applet)
 	nm_runs && pats+=(wicd-tray cmst connman-gtk)
@@ -5544,7 +5547,10 @@ restore_user() {
 		rel=${rel#file:}
 		dst=${HOME:?}/$rel
 		# Files Debian's own sessions read too: undone key by key, below
-		case $rel in */labwc/rc.xml|*/labwc/environment|*/lxterminal/lxterminal.conf) continue ;; esac
+		case $rel in
+			*/labwc/rc.xml|*/labwc/environment|*/lxterminal/lxterminal.conf|*/gtk-3.0/bookmarks|.gtk-bookmarks) continue ;;
+			*/libfm/libfm.conf) [[ ! -f $st/libfm-written ]] || continue ;;
+		esac
 		if grep -qxF "$rel" "$st/created" 2>/dev/null; then
 			rm -f -- "$dst" || { warn "could not remove $rel"; fail=1; }
 		elif [[ -e $st/files/$rel || -L $st/files/$rel ]]; then
@@ -5553,6 +5559,19 @@ restore_user() {
 	done <"$st/keys"
 	_labwc_undo
 	_term_font_undo "$st"
+	_fm_undo "$st" || { warn "could not restore the file manager's settings"; fail=1; }
+	# The desktop's shortcuts and the start entries that an install moved
+	# away (reset_file_manager, reset_power); beside a file of that name that
+	# is there now, under a numbered name
+	local n d
+	for rel in "$st/desktop"/* "$st/autostart"/*; do
+		[[ -e $rel || -L $rel ]] || continue
+		d=${XDG_CONFIG_HOME:-$HOME/.config}/autostart
+		[[ $rel != "$st/desktop"/* ]] || d=$(_desktop_dir)
+		dst=$d/${rel##*/} n=1
+		while [[ -e $dst || -L $dst ]]; do dst=$d/${rel##*/}.~$n~ n=$(( n + 1 )); done
+		{ mkdir -p -- "${dst%/*}" && mv -- "$rel" "$dst"; } || { warn "could not put back ${rel##*/}"; fail=1; }
+	done
 	if (( fail )); then
 		warn "the backup of $(id -un)'s previous settings stays in $st"
 		return 0
@@ -6143,6 +6162,119 @@ _term_font_undo() {
 	if grep -qxF "$rel" "$st/created" 2>/dev/null && { [[ ! -f $sys ]] || cmp -s -- "$f" "$sys"; }; then rm -f -- "$f"; fi
 }
 
+# Put the file manager's settings of this user back to the session's, on an
+# install (not on --refresh). Its preferences, the desktop's and the desktop
+# icons' places are in the session's own profile (reset_session_settings).
+# The file manager keeps part of its preferences in libfm.conf, which
+# Debian's LXDE reads too: there only the values the session sets go back to
+# its own, and --uninstall undoes only those. The side pane's bookmarks and the
+# desktop's shortcuts go too. All of it is recorded first, so --uninstall
+# gives back what was there. The user's other files and folders, the
+# desktop's among them, are not touched. Usage: reset_file_manager
+reset_file_manager() {
+	local f=${XDG_CONFIG_HOME:-$HOME/.config} p old add n=0
+	if [[ -f $f/libfm/libfm.conf ]]; then
+		_fm_shared_conf "$f/libfm/libfm.conf"
+		# The values as written: --uninstall undoes only those (_fm_undo)
+		cp -- "$f/libfm/libfm.conf" "$A_STATE/libfm-written"
+	fi
+	# The bookmarks of the file manager's side pane (GTK's, which the file
+	# dialogs of every session show too). On a later install those added
+	# since join the ones kept from before
+	for p in "$f/gtk-3.0/bookmarks" "$HOME/.gtk-bookmarks"; do
+		old=$A_STATE/files/${p#"$HOME"/}
+		if [[ -f $p ]] && grep -qxF "file:${p#"$HOME"/}" "$A_STATE/keys"; then
+			mkdir -p "${old%/*}" && touch "$old"
+			[[ -z $(tail -c 1 -- "$old") ]] || echo >>"$old"
+			add=$(grep -vxF -f "$old" -- "$p" || true)
+			[[ -z $add ]] || printf '%s\n' "$add" >>"$old"
+		fi
+		_track_file "$p"
+		rm -f -- "$p"
+	done
+	# Raspberry Pi OS puts no shortcut on the desktop: its Trash and drive
+	# icons are settings. Launchers and links there are moved into the state
+	# directory, and --uninstall moves them back; the desktop's other files
+	# and folders stay
+	for p in "$(_desktop_dir)"/*; do
+		[[ -L $p || ( -f $p && $p == *.desktop ) ]] || continue
+		if mkdir -p "$A_STATE/desktop" && mv --backup=numbered -- "$p" "$A_STATE/desktop/"; then
+			n=$(( n + 1 ))
+		else
+			warn "could not move ${p##*/} off the desktop; it stays"
+		fi
+	done
+	ok "The file manager and the desktop are back to the defaults"
+	(( ! n )) || info "$n shortcuts on the desktop were moved to $A_STATE/desktop; --uninstall puts them back"
+}
+
+# Set aside, on an install (not on --refresh), this user's own power settings
+# for the session, which Raspberry Pi OS does not have (the README's "Your
+# own power settings"): the start entries power-times and light-locker (one
+# that only hides light-locker is Debian's LXDE's own and stays). They are kept in
+# the state directory, and --uninstall puts them back. The lid and power
+# button settings of systemd-logind are the whole computer's and stay.
+# Usage: reset_power
+reset_power() {
+	local f=${XDG_CONFIG_HOME:-$HOME/.config} p n=0
+	for p in "$f/autostart/power-times.desktop" "$f/autostart/light-locker.desktop"; do
+		[[ -f $p ]] || continue
+		if [[ $p == */light-locker.desktop ]] && grep -qix 'Hidden=true' "$p"; then continue; fi
+		if mkdir -p "$A_STATE/autostart" && mv --backup=numbered -- "$p" "$A_STATE/autostart/"; then
+			n=$(( n + 1 ))
+		else
+			warn "could not move ${p##*/} out of your start entries; it stays"
+		fi
+	done
+	(( ! n )) || ok "Your own power settings for the session are set aside; --uninstall puts them back"
+}
+
+# Undo, at --uninstall, what an install changed in the files that other
+# sessions read too (reset_file_manager). libfm.conf: the values the install
+# wrote, where they are still there, give way to those from before; your
+# changes since stay. GTK's bookmarks: those from before the install come
+# back beside the ones added since. Usage: _fm_undo STATE-DIR
+_fm_undo() {
+	local st=$1 f=${XDG_CONFIG_HOME:-$HOME/.config} p old add rc=0
+	p=$f/libfm/libfm.conf old=$st/files/${p#"$HOME"/}
+	if [[ -f $st/libfm-written && -s $old && -f $p ]]; then
+		awk 'function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+			FNR == 1 { sec = ""; n++ }
+			/^[ \t]*\[.*\][ \t]*$/ { sec = trim($0); if (n == 3) print; next }
+			{
+				i = index($0, "="); k = sec SUBSEP trim(substr($0, 1, i - 1)); v = substr($0, i + 1)
+				if (n == 1) { if (i) { old[k] = v; has[k] = 1 }; next }
+				if (n == 2) { if (i) wr[k] = v; next }
+				# A value the install wrote and that differs from the one before
+				if (i && (k in wr) && v == wr[k] && !(has[k] && old[k] == v)) {
+					if (has[k]) print substr($0, 1, i) old[k]
+					next
+				}
+				print
+			}' "$old" "$st/libfm-written" "$p" | _write "$p" || rc=1
+	fi
+	for p in "$f/gtk-3.0/bookmarks" "$HOME/.gtk-bookmarks"; do
+		old=$st/files/${p#"$HOME"/}
+		[[ -f $old ]] || continue
+		if [[ -s $p ]]; then
+			[[ -z $(tail -c 1 -- "$p") ]] || echo >>"$p"
+			add=$(grep -vxF -f "$p" -- "$old" | awk '!seen[$0]++' || true)
+			[[ -z $add ]] || printf '%s\n' "$add" >>"$p"
+		else
+			{ mkdir -p -- "${p%/*}" && cp -a -- "$old" "$p"; } || rc=1
+		fi
+	done
+	return $rc
+}
+
+# Print the user's desktop folder.
+_desktop_dir() {
+	local d
+	d=$(xdg-user-dir DESKTOP 2>/dev/null) || d=""
+	[[ -n $d && $d != "$HOME" && $d != "$HOME/" ]] || d=${XDG_DESKTOP_DIR:-$HOME/Desktop}
+	printf '%s\n' "$d"
+}
+
 # Remove this user's settings of the Raspberry Pi Desktop session, which no
 # other session reads: theme, wallpaper, panel and window manager. The files the session changed outside them are
 # given back. A clean install and --uninstall start from the defaults.
@@ -6457,6 +6589,12 @@ print_plan() {
 		log "  Clean        $(id -un)'s Raspberry Pi Desktop settings (theme, wallpaper, panel)"
 		log "               go back to the defaults; to update and keep them: $(self_cmd) --refresh"
 	fi
+	if [[ ${O_MODE:-} != refresh ]]; then
+		log "  Reset        $(id -un)'s file manager and desktop preferences go back to the defaults;"
+		log "               the file manager's bookmarks and the desktop's shortcuts (launchers and"
+		log "               links) are removed; your own power settings for the session are set"
+		log "               aside; files and folders stay; --uninstall puts all of it back"
+	fi
 	log "  Session      Raspberry Pi Desktop (X, Openbox), on the login screen for every user"
 	log "  Packages     from $src ($H_SUITE, $H_ARCH)$([[ -n $REPO ]] || echo ", up to $(human_size "$total") to download")"
 	for p in "${FETCH_PKGS[@]}"; do _pkg_line "$p" "${PKG_VER[$p]}" "${status[$p]}"; done
@@ -6551,9 +6689,13 @@ install_mode() {
 	step "Setting up the login screen and the session for $(id -un)"
 	_state_init
 	# An install starts clean; --refresh keeps the user's settings
-	if [[ $O_MODE != refresh ]] && has_session_settings; then
-		reset_session_settings
-		ok "Your Raspberry Pi Desktop settings are back to the defaults"
+	if [[ $O_MODE != refresh ]]; then
+		if has_session_settings; then
+			reset_session_settings
+			ok "Your Raspberry Pi Desktop settings are back to the defaults"
+		fi
+		reset_file_manager
+		reset_power
 	fi
 	# The terminal's font follows the size: on an install, and on --refresh
 	# when --size is given
