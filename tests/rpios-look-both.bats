@@ -12,7 +12,7 @@ LEGACY=$BATS_TEST_DIRNAME/../rpios-look-legacy.sh
 DIFFERENT="
 	adapt_deb apt_files audio_debs _avail beside_build beside_seen bt_pin_entry build_deb
 	build_pkg choose_session cleanup cmd_pack _debian_has _dep_ok _deps_satisfiable download_pkg
-	fetch _fm_shared_conf _giveback index_candidates index_load index_names install_all install_mode
+	fetch _fm_shared_conf index_candidates index_load index_names install_all install_mode
 	keep_installed_release list load_releases login_debs _lxpanel_layout magnifier_pkg main
 	netman_debs_drop netman_decide _no_battery _openbox_keys _openbox_rc panel_drop _panel_tasks
 	parse_args pick_suite _pi_layout _pin_unfixed pi_unpack pkg_category _pkg_status preflight_tools

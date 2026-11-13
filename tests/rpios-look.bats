@@ -373,6 +373,28 @@ CSV
 	done
 }
 
+@test "the compositor's starter: only with NVIDIA's driver; picom runs while the session is shown, starts again when it comes back, and the starter ends with picom; it sleeps, reading nothing at intervals" {
+	compositor_build "$BATS_TEST_TMPDIR/out"
+	d=$BATS_TEST_TMPDIR; c=$d/compositor; mkdir -p "$d/bin"
+	sed -e "s|/sys/module/nvidia|$d/nvidia|" -e "s|/sys/class/tty/tty0/active|$d/active|" "$d/out$SHARE/compositor" >"$c"
+	python3 -m py_compile "$c"; ! grep -q 'sleep' "$c"
+	printf '#!/bin/sh\necho "$$" >>"%s/started"\nexec sleep 30\n' "$d" >"$d/bin/picom"; chmod +x "$d/bin/picom"
+	echo tty7 >"$d/active"
+	# Another driver: nothing starts
+	PATH=$d/bin:$PATH XDG_VTNR=7 python3 "$c"; [ ! -e "$d/started" ]
+	mkdir "$d/nvidia"
+	PATH=$d/bin:$PATH XDG_VTNR=7 python3 "$c" 3>&- & s=$!
+	n() { wc -l <"$d/started" 2>/dev/null || echo 0; }
+	till() { for _ in {1..50}; do [ "$(n)" = "$1" ] && return; sleep 0.1; done; false; }
+	till 1
+	# Another virtual terminal is shown, then the session's again (the kernel's report: here a signal)
+	echo tty3 >"$d/active"; kill -CHLD $s; sleep 0.3; [ "$(n)" = 1 ]
+	echo tty7 >"$d/active"; kill -CHLD $s; till 2
+	! kill -0 "$(sed -n 1p "$d/started")" 2>/dev/null
+	# picom ends: the starter ends with it
+	kill "$(sed -n 2p "$d/started")"; wait $s
+}
+
 @test "the power button, as Raspberry Pi OS's pwrkey: the Shutdown dialog, shut down on a second press, not on a repeated key event" {
 	pwrkey_build "$BATS_TEST_TMPDIR/out"
 	bin=$BATS_TEST_TMPDIR/bin log=$BATS_TEST_TMPDIR/log; mkdir -p "$bin"
@@ -516,7 +538,6 @@ CSV
 	cp "$d/pcmanfm.conf" "$BATS_TEST_TMPDIR/p"; cp "$d/desktop-items-0.conf" "$BATS_TEST_TMPDIR/d0"
 	mkdir -p "$XDG_CONFIG_HOME/gtk-3.0"; echo "file://$HOME/Work Work" >"$XDG_CONFIG_HOME/gtk-3.0/bookmarks"; mkdir "$HOME/Work"
 	# Shortcuts on the desktop and your own power settings (the README's A to D)
-	xdg-user-dir() { return 1; }
 	printf '[Desktop Entry]\nType=Application\nName=Game\nExec=game\n' >"$HOME/Desktop/game.desktop"
 	ln -s "$HOME/Work" "$HOME/Desktop/work"
 	a=$XDG_CONFIG_HOME/autostart; mkdir -p "$a" "$XDG_CONFIG_HOME/labwc"
@@ -530,9 +551,9 @@ CSV
 			&& grep -qx 'Exec=xset s 300' "$a/power-times.desktop" && grep -q 'lock-after-screensaver=60' "$a/light-locker.desktop" \
 			&& [ "$(cat "$XDG_CONFIG_HOME/labwc/autostart")" = 'kanshi &'$'\n''swayidle -w timeout 300 x &' ]
 	}
-	_state_init; _giveback "$A_STATE"; reset_file_manager
+	_state_init; reset_file_manager
 	[ ! -e "$d/pcmanfm.conf" ] && [ ! -e "$d/desktop-items-0.conf" ]
-	kept; [ ! -e "$A_STATE/desktop" ] && [ ! -e "$A_STATE/autostart" ]
+	kept
 	# What Debian's file manager keeps for its own LXDE session
 	grep -qx 'big_icon_size=96' "$XDG_CONFIG_HOME/libfm/libfm.conf"; [ "$(cat "$XDG_CONFIG_HOME/pcmanfm/LXDE/pcmanfm.conf")" = keep ]
 	# The session's file manager writes its own since; a later install resets those too
@@ -550,49 +571,6 @@ CSV
 	printf '[ui]\nwin_width=1200\n' >"$d/pcmanfm.conf"; rm "$XDG_CONFIG_HOME/libfm/libfm.conf"
 	_state_init; S_PI_FM=0 S_FM_PROFILE=rpd-x reset_file_manager
 	grep -qx 'win_width=1200' "$d/pcmanfm.conf"
-}
-
-@test "what an earlier version's plain run set aside (bookmarks, shortcuts, power settings) is given back by the next run, once, beside what is there now; --uninstall does the same" {
-	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
-	a=$XDG_CONFIG_HOME/autostart b=$XDG_CONFIG_HOME/gtk-3.0/bookmarks l=$XDG_CONFIG_HOME/labwc/autostart
-	mkdir -p "$a" "$HOME/Desktop" "$HOME/Work" "${b%/*}" "${l%/*}"
-	warn() { echo "warn: $*"; }; ok() { :; }; xdg-user-dir() { return 1; }
-	aside() {   # as the earlier version left its state directory
-		_state_init
-		mkdir -p "$A_STATE/desktop" "$A_STATE/autostart" "$A_STATE/files/.config/gtk-3.0" "$A_STATE/files/.config/labwc"
-		printf '[Desktop Entry]\nName=Game\n' >"$A_STATE/desktop/game.desktop"; ln -s "$HOME/Work" "$A_STATE/desktop/work"
-		printf '[Desktop Entry]\nExec=xset s 300\n' >"$A_STATE/autostart/power-times.desktop"
-		printf 'file://%s/Work\nfile://%s/Later\n' "$HOME" "$HOME" >"$A_STATE/files/.config/gtk-3.0/bookmarks"
-		printf 'file:.config/gtk-3.0/bookmarks\n' >>"$A_STATE/keys"; printf '.config/gtk-3.0/bookmarks\n' >>"$A_STATE/created"
-		printf 'swayidle -w \\\n\ttimeout 300 x &\nswayidle\n' >"$A_STATE/files/.config/labwc/autostart"
-	}
-	check() {
-		grep -qx 'Name=New' "$HOME/Desktop/game.desktop" && grep -qx 'Name=Game' "$HOME/Desktop/game.desktop.~1~" \
-			&& [ "$(readlink "$HOME/Desktop/work")" = "$HOME/Work" ] && grep -qx 'Exec=xset s 300' "$a/power-times.desktop" \
-			&& [ "$(cat "$b")" = "file://$HOME/New"$'\n'"file://$HOME/Work"$'\n'"file://$HOME/Later" ] \
-			&& [ "$(cat "$l")" = 'kanshi &'$'\n''swayidle'$'\n''swayidle -w \'$'\n\t''timeout 300 x &' ]
-	}
-	# Added since: a launcher of the same name, a bookmark, one of the two swayidle commands
-	since() { printf '[Desktop Entry]\nName=New\n' >"$HOME/Desktop/game.desktop"; printf 'file://%s/New' "$HOME" >"$b"; printf 'kanshi &\nswayidle\n' >"$l"; }
-	aside; since; _giveback "$A_STATE"; check
-	[ ! -e "$A_STATE/desktop" ] && [ ! -e "$A_STATE/autostart" ] && [ ! -e "$A_STATE/files/.config/gtk-3.0/bookmarks" ] && [ ! -e "$A_STATE/files/.config/labwc/autostart" ]
-	# Given back once: a second run and --uninstall add nothing and remove nothing
-	_giveback "$A_STATE"; check; restore_user; check
-	[ "$(ls "$HOME/Desktop" | wc -l)" = 3 ] && [ ! -e "$XDG_STATE_HOME/rpios-look" ]
-	# --uninstall of an install the earlier version made
-	rm -f "$HOME/Desktop"/* "$a"/* "$b" "$l"; aside; since; restore_user; check
-	[ ! -e "$XDG_STATE_HOME/rpios-look" ]
-}
-
-@test "the swayidle commands of a start file: each whole and once; one that the other file has already is left out, also one whose last line there ends in a backslash" {
-	local d=$BATS_TEST_TMPDIR
-	printf 'foot &\nswayidle -w \\\n' >"$d/have"
-	printf 'swayidle -w \\\n\ttimeout 3 x &\nswayidle\nswayidle\nidle &\n' >"$d/new"
-	[ "$(_swayidle_cmds "$d/have" "$d/new")" = 'swayidle -w \'$'\n\t''timeout 3 x &'$'\n''swayidle' ]
-	[ "$(_swayidle_cmds "$d/new" "$d/new")" = "" ] && [ "$(_swayidle_cmds /dev/null "$d/have")" = 'swayidle -w \' ]
-	# Two that differ only in the spaces their lines begin with are one
-	printf '  swayidle -w \\\n  timeout 3 x &\n\tswayidle\n' >"$d/have"
-	[ "$(_swayidle_cmds "$d/have" "$d/new")" = "" ] && [ "$(_swayidle_cmds /dev/null "$d/have" | wc -l)" = 3 ]
 }
 
 @test "the size's terminal font goes into the user's LXTerminal settings, as Raspberry Pi OS does; medium and --uninstall put the font back" {

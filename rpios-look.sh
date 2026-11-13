@@ -4511,7 +4511,9 @@ EOF
 # screen, as its GL backend fails behind the lock screen. The driver also
 # drops picom's GL images while another virtual terminal is shown (the lock
 # screen's login screen, a text console), and picom then shows a black
-# screen on return: it starts again each time the session comes back. Other
+# screen on return: it starts again each time the session comes back, which
+# the kernel reports (the starter sleeps until then; it reads nothing at
+# intervals). Other
 # drivers, and a computer without picom, get no compositor, as on Raspberry
 # Pi OS for PCs: Raspberry Pi OS 13 starts "xcompmgr -aR" (cmstart), but -R
 # is only in Raspberry Pi's Arm build, and Debian's xcompmgr, which its PC
@@ -4519,25 +4521,78 @@ EOF
 # Usage: compositor_build ROOT
 compositor_build() {
 	cat <<'EOF' | _write "$1$SHARE/compositor"
-#!/bin/sh
+#!/usr/bin/python3
 # The X session's compositor with NVIDIA's own driver (see rpios-look).
-[ -d /sys/module/nvidia ] && command -v picom >/dev/null || exit 0
-run() { exec picom --config /dev/null --backend glx --vsync; }
-[ -n "${XDG_VTNR:-}" ] && [ -r /sys/class/tty/tty0/active ] || { run; exit; }
-shown() { [ "$(cat /sys/class/tty/tty0/active 2>/dev/null)" = "tty$XDG_VTNR" ]; }
-while ! shown; do sleep 2; done
-run & pid=$!
-trap 'kill $pid 2>/dev/null; exit 0' TERM INT HUP
-# Ends with picom: with the X server, or for the session to start it again
-away=
-while kill -0 $pid 2>/dev/null; do
-	sleep 2
-	if ! shown; then away=1
-	elif [ -n "$away" ]; then
-		away=; kill $pid 2>/dev/null; wait $pid; run & pid=$!
-	fi
-done
-wait $pid
+import os
+import select
+import shutil
+import signal
+import subprocess
+import sys
+
+CMD = ["picom", "--config", "/dev/null", "--backend", "glx", "--vsync"]
+ACTIVE = "/sys/class/tty/tty0/active"
+
+
+def main():
+    if not os.path.isdir("/sys/module/nvidia") or not shutil.which(CMD[0]):
+        return
+    vt = os.environ.get("XDG_VTNR")
+    try:
+        active = open(ACTIVE)
+    except OSError:
+        active = None
+    if not vt or active is None:
+        os.execvp(CMD[0], CMD)
+
+    def shown():
+        active.seek(0)
+        return active.read().strip() == "tty" + vt
+
+    # Sleep until the kernel names another virtual terminal or picom ends:
+    # nothing is read at intervals
+    r, w = os.pipe()
+    os.set_blocking(r, False)
+    os.set_blocking(w, False)
+    signal.signal(signal.SIGCHLD, lambda *_: None)
+    signal.set_wakeup_fd(w)
+    wait = select.poll()
+    wait.register(active, select.POLLPRI | select.POLLERR)
+    wait.register(r, select.POLLIN)
+    picom = None
+
+    def stop(*_):
+        if picom is not None and picom.poll() is None:
+            picom.terminate()
+        sys.exit(0)
+
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(s, stop)
+    away = False
+    while True:
+        on = shown()
+        if picom is None:
+            if on:
+                picom = subprocess.Popen(CMD)
+        elif picom.poll() is not None:
+            # Ended: with the X server, or for the session to start it again
+            return
+        elif not on:
+            away = True
+        elif away:
+            away = False
+            picom.terminate()
+            picom.wait()
+            picom = subprocess.Popen(CMD)
+        wait.poll()
+        try:
+            os.read(r, 512)
+        except BlockingIOError:
+            pass
+
+
+if __name__ == "__main__":
+    main()
 EOF
 	chmod 0755 "$1$SHARE/compositor"
 }
@@ -5424,7 +5479,7 @@ reload_session() {
 	# and without the script's run lock (file descriptor 9).
 	setsid -f sh -c ". $SHARE/session-env; exec $SHARE/desktop" >/dev/null 2>&1 9<&- || true
 	# The compositor (NVIDIA's own driver), which starts at login otherwise
-	_running picom || pgrep -u "$(id -u)" -f "^/bin/sh $SHARE/compositor\$" >/dev/null \
+	_running picom || pgrep -u "$(id -u)" -f "^/usr/bin/python3 $SHARE/compositor\$" >/dev/null \
 		|| setsid -f "$SHARE/compositor" >/dev/null 2>&1 9<&- || true
 	# settings-keeper: started if it is not running; a running one starts
 	# again as this version, for as long as lxsession runs
@@ -5544,7 +5599,7 @@ restore_user() {
 		dst=${HOME:?}/$rel
 		# Files Debian's own sessions read too: undone key by key, below
 		case $rel in
-			*/labwc/rc.xml|*/labwc/environment|*/lxterminal/lxterminal.conf|*/gtk-3.0/bookmarks|.gtk-bookmarks) continue ;;
+			*/labwc/rc.xml|*/labwc/environment|*/lxterminal/lxterminal.conf) continue ;;
 			*/libfm/libfm.conf) [[ ! -f $st/libfm-written ]] || continue ;;
 		esac
 		if grep -qxF "$rel" "$st/created" 2>/dev/null; then
@@ -5556,7 +5611,6 @@ restore_user() {
 	_labwc_undo
 	_term_font_undo "$st"
 	_fm_undo "$st" || { warn "could not restore the file manager's settings"; fail=1; }
-	_giveback "$st" || { warn "could not put back what an earlier install set aside"; fail=1; }
 	if (( fail )); then
 		warn "the backup of $(id -un)'s previous settings stays in $st"
 		return 0
@@ -5931,77 +5985,6 @@ _fm_undo() {
 	return $rc
 }
 
-# Give back what a plain run of an earlier version took away, which this
-# one leaves alone: the file manager's bookmarks (beside those added since),
-# the desktop's shortcuts and the power-times and light-locker start entries
-# (beside a file of that name under a numbered name), and the swayidle
-# commands of labwc's start file. At the next run and at
-# --uninstall; what was given back is no longer kept. Usage: _giveback STATE-DIR
-_giveback() {
-	local st=$1 f=${XDG_CONFIG_HOME:-$HOME/.config} p old add rel d dst n rc=0
-	for p in "$f/gtk-3.0/bookmarks" "$HOME/.gtk-bookmarks"; do
-		old=$st/files/${p#"$HOME"/}
-		[[ -f $old ]] || continue
-		if [[ -s $p ]]; then
-			[[ -z $(tail -c 1 -- "$p") ]] || echo >>"$p"
-			add=$(grep -vxF -f "$p" -- "$old" | awk '!seen[$0]++' || true)
-			[[ -z $add ]] || printf '%s\n' "$add" >>"$p"
-			rm -f -- "$old"
-		elif mkdir -p -- "${p%/*}" && cp -a -- "$old" "$p"; then
-			rm -f -- "$old"
-		else
-			rc=1
-		fi
-	done
-	if _power_undo "$st"; then rm -f -- "$st/files/${f#"$HOME"/}/labwc/autostart"; else rc=1; fi
-	for rel in "$st/desktop"/* "$st/autostart"/*; do
-		[[ -e $rel || -L $rel ]] || continue
-		d=$f/autostart
-		[[ $rel != "$st/desktop"/* ]] || d=$(_desktop_dir)
-		dst=$d/${rel##*/} n=1
-		while [[ -e $dst || -L $dst ]]; do dst=$d/${rel##*/}.~$n~ n=$(( n + 1 )); done
-		{ mkdir -p -- "${dst%/*}" && mv -- "$rel" "$dst"; } || rc=1
-	done
-	rmdir -- "$st/desktop" "$st/autostart" 2>/dev/null || true
-	return $rc
-}
-
-# Print the swayidle commands of labwc's start file NEW that are not in the
-# start file HAVE, each whole: a command goes on over the lines that end in
-# a backslash; two that differ only in the spaces their lines begin with are
-# one. Usage: _swayidle_cmds HAVE NEW
-_swayidle_cmds() {
-	awk 'function end() { if (b != "" && !(k in seen)) { seen[k] = 1; if (src != ARGV[1]) printf "%s", b }; b = k = ""; more = 0 }
-		FNR == 1 { end() }
-		more || /^[ \t]*swayidle([ \t&]|$)/ { if (b == "") src = FILENAME; b = b $0 "\n"; l = $0; sub(/^[ \t]+/, "", l); k = k l "\n"; more = /\\$/; if (!more) end(); next }
-		END { end() }' "$@"
-}
-
-# Put back the swayidle commands that an earlier version took out of
-# labwc's start file (_giveback): after what is there now, each one unless
-# it is there already. Usage: _power_undo STATE-DIR
-_power_undo() {
-	local st=$1 p=${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart old add
-	old=$st/files/${p#"$HOME"/}
-	[[ -f $old ]] || return 0
-	if [[ -s $p ]]; then
-		add=$(_swayidle_cmds "$p" "$old")
-		[[ -n $add ]] || return 0
-		[[ -z $(tail -c 1 -- "$p") ]] || echo >>"$p"
-		printf '%s\n' "$add" >>"$p"
-	else
-		mkdir -p -- "${p%/*}" && cp -a -- "$old" "$p"
-	fi
-}
-
-# Print the user's desktop folder.
-_desktop_dir() {
-	local d
-	d=$(xdg-user-dir DESKTOP 2>/dev/null) || d=""
-	[[ -n $d && $d != "$HOME" && $d != "$HOME/" ]] || d=${XDG_DESKTOP_DIR:-$HOME/Desktop}
-	printf '%s\n' "$d"
-}
-
 # Remove this user's settings of the Raspberry Pi Desktop session, which no
 # other session reads: theme, wallpaper, panel and window manager. The files the session changed outside them are
 # given back. A clean install and --uninstall start from the defaults.
@@ -6348,13 +6331,10 @@ print_plan() {
 	done
 	step "Plan"
 	log "  Looks        every theme; the session uses ${T_DESC%% —*} (change it with: $APP_NAME-set --theme NAME)"
-	if has_session_settings; then
-		log "  Clean        $(id -un)'s Raspberry Pi Desktop settings (theme, wallpaper, panel)"
-		log "               go back to the defaults; to update and keep them: $(self_cmd) --refresh"
-	fi
 	if [[ ${O_MODE:-} != refresh ]]; then
-		log "  Reset        $(id -un)'s file manager and desktop preferences go back to the defaults,"
-		log "               as Raspberry Pi OS's own reset; bookmarks, shortcuts, files and folders stay"
+		log "  Reset        $(id -un)'s Raspberry Pi Desktop settings go back to the defaults (theme, wallpaper,"
+		log "               panel, windows, file manager, desktop), as Raspberry Pi OS's own reset; bookmarks,"
+		log "               shortcuts, files and folders stay; to update and keep them: $(self_cmd) --refresh"
 	fi
 	log "  Session      Raspberry Pi Desktop (X, Openbox), on the login screen for every user"
 	(( ! WAYLAND )) || log "               Raspberry Pi Desktop (Wayland, labwc) beside it, to pick on the login screen"
@@ -6452,7 +6432,6 @@ install_mode() {
 	apt_lists_sync "$src"
 	step "Setting up the login screen and the session for $(id -un)"
 	_state_init
-	_giveback "$A_STATE" || warn "could not put back all that an earlier install set aside; it stays in $A_STATE"
 	# An install starts clean; --refresh keeps the user's settings
 	if [[ $O_MODE != refresh ]]; then
 		if has_session_settings; then
