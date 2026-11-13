@@ -3046,11 +3046,14 @@ _session_profile() {
 		# LXDE's authentication agent, as in Raspberry Pi OS's X session
 		printf '[Session]\nwindow_manager=%s/openbox\ndisable_autostart=no\npolkit/command=lxpolkit\n' "$SHARE"
 		printf 'clipboard/command=lxclipboard\nxsettings_manager/command=build-in\nproxy_manager/command=build-in\n'
-		# No keyring/command: Raspberry Pi OS's ssh-agent there would be a
-		# second SSH agent, whose socket nothing uses. The session has
-		# Debian's, as Debian's LXDE does: the X session's (Xsession) or the
-		# user's systemd one, which sets SSH_AUTH_SOCK
-		printf 'quit_manager/command=lxsession-logout\n'
+		# An empty keyring/command: without the key lxsession starts its own
+		# default, "ssh-agent -s" (as Raspberry Pi OS's file names it), a
+		# second SSH agent whose socket nothing uses and which outlives the
+		# session: logind then keeps the session open, so the user's services
+		# (sound among them) never stop at logout. The session has Debian's
+		# agent: the X session's (Xsession) or the user's systemd one, which
+		# sets SSH_AUTH_SOCK
+		printf 'keyring/command=\nquit_manager/command=lxsession-logout\n'
 		printf 'quit_manager/image=/usr/share/lxde/images/logout-banner.png\nquit_manager/layout=top\n'
 		# The lock command as Raspberry Pi OS and Debian's LXDE name it
 		printf 'lock_manager/command=lxlock\nterminal_manager/command=%s\nlauncher_manager/command=%s\n' "$(_term_cmd)" "$ctl"

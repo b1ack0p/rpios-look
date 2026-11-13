@@ -1179,7 +1179,8 @@ LOG
 	_session_profile "$BATS_TEST_TMPDIR/xdg"
 	f=$BATS_TEST_TMPDIR/xdg/lxsession/rpd-x/desktop.conf
 	grep -qx 'polkit/command=lxpolkit' "$f" && grep -qx 'quit_manager/command=lxsession-logout' "$f"
-	run ! grep -q '^keyring/' "$f"
+	# Empty, not left out: lxsession's own default is a second agent (ssh-agent -s) that outlives the session
+	[ "$(grep '^keyring/' "$f")" = 'keyring/command=' ]
 	_session_programs "$BATS_TEST_TMPDIR/root"
 	start=$BATS_TEST_TMPDIR/root$SHARE/start
 	# No SSH agent is ended at logout: Debian's ends by itself
