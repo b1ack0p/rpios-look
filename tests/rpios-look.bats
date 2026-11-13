@@ -1485,7 +1485,7 @@ LOG
 	mkdir -p "$SYS_ROOT/usr/share/themes/PiXtrix_l/openbox-3"
 	echo 'border.radius: 0' >"$SYS_ROOT/usr/share/themes/PiXtrix_l/openbox-3/themerc"
 	: >"$SYS_ROOT/usr/share/themes/PiXtrix_l/openbox-3/max_hover_toggled.xbm"
-	mk_rc() { printf '<?xml version="1.0"?>\n<openbox_config>\n  <theme>\n    <name>x</name>\n  </theme>\n</openbox_config>\n' >"$rc"; }
+	mk_rc() { printf '<?xml version="1.0"?>\n<openbox_config>\n  <theme>\n    <name>x</name>\n  </theme>\n  <mouse>\n    <doubleClickTime>200</doubleClickTime>\n  </mouse>\n</openbox_config>\n' >"$rc"; }
 	# Medium: the theme itself, no scrollbar rules, 12-pixel borders
 	O_SIZE=medium set_theme pixtrix
 	[ "$T_OB" = PiXtrix ]
@@ -1493,6 +1493,7 @@ LOG
 	[ "$T_SCROLL" = 0 ]
 	mk_rc; _openbox_rc "$rc"
 	grep -q '<name>PiXtrix</name>' "$rc"; grep -q '<invHandleWidth>10<' "$rc"
+	[ "$(grep -c '<doubleClickTime>' "$rc")" = 1 ]; grep -q '<doubleClickTime>400</doubleClickTime>' "$rc"
 	_session_themes "$d"
 	run ! grep -q '^scrollbar' "$d/themes/PiXtrix/gtk-3.0/gtk.css"
 	# Large and Larger: <theme>_l, 20-pixel borders, 17-pixel scrollbars

@@ -2426,6 +2426,9 @@ _openbox_rc() {
 	# Windows redraw while being resized, as in Debian's session (Raspberry
 	# Pi OS leaves them blank until the mouse is released)
 	_xml_child "$file" resize drawContents yes
+	# A double click on a title bar within 400 ms, as GTK's programs count
+	# one (Debian's and Raspberry Pi OS's file: 200 ms, which is often missed)
+	_xml_child "$file" mouse doubleClickTime 400
 }
 
 # Bind the Openbox keys of Raspberry Pi OS (rpd-rc.xml) whose program is
@@ -3739,9 +3742,9 @@ PI_THEMES="pixflat pixnoir pixtrix pixonyx pix"
 usage() {
 	cat <<'USAGE'
 Usage: rpios-look-set [OPTION]...
-The look of the Raspberry Pi Desktop session, for you only. It changes the
-running session at once and is kept for your next logins; other sessions
-and other users are not changed.
+The look of the Raspberry Pi Desktop sessions (X and Wayland), for you
+only. It changes the running session at once and is kept for your next
+logins in both; other sessions and other users are not changed.
 
   --theme NAME         pixflat, pixnoir, pixtrix, pixonyx or pix, with
                        everything Raspberry Pi OS gives it: icons, cursor,
@@ -3759,8 +3762,9 @@ and other users are not changed.
                        screen; the one you pick there is remembered too)
   -h, --help           this text
 
-In the Wayland session, --theme, --reset and --show work on that session's
-own look; PiX is a theme of the X session only.
+--theme and --reset set one look for both sessions, as Raspberry Pi OS
+does. PiX is a theme of the X session only: the Wayland session keeps its
+theme beside it.
 
 Examples: rpios-look-set --theme pixonyx
           rpios-look-set --animations off
@@ -3952,10 +3956,13 @@ write_desktop() {
 	done
 }
 
-# The Wayland session (labwc), which keeps a look of its own: its own
+# The Wayland session (labwc) keeps its look in files of its own: its own
 # GSettings database (DCONF_PROFILE, see start-wayland), labwc's window
 # theme in the user's labwc file, as Raspberry Pi OS's Appearance Settings
-# keeps it there, and the cursor in labwc's environment file
+# keeps it there, and the cursor in labwc's environment file. A theme or a
+# reset is written for both sessions (x_store, wl_store), as Raspberry Pi
+# OS's Appearance Settings writes one look for both; the session that runs
+# is the one that applies it.
 wlrc=$config/labwc/rc.xml wlenv=$config/labwc/environment wl_sys=$SHARE/xdg/labwc/rc.xml
 wl_session() { [[ ${XDG_SESSION_DESKTOP:-} == "$WLSESSION" || ( -n ${WAYLAND_DISPLAY:-} && ${DESKTOP_SESSION:-} == rpd-labwc ) ]]; }
 wl_gs() { DCONF_PROFILE=$SHARE/dconf/profile-wayland gsettings get org.gnome.desktop.interface "$1" 2>/dev/null | tr -d "'"; }
@@ -4020,12 +4027,14 @@ wl_cursor() {
 	[[ -n ${1:-} ]] || return 0
 	mkdir -p "${wlenv%/*}" && printf 'XCURSOR_THEME=%s\n' "$1" >>"$wlenv"
 }
-wl_main() {
+# Write the Wayland session's look: the reset or the theme. PiX is a theme
+# of the X session only: the Wayland session keeps its own beside it.
+wl_store() {
 	local gs=() s
-	# Animations are the X session's (Openbox): said also beside a theme
-	if [[ -n $anim ]]; then
-		echo "rpios-look-set: --animations applies to the X session (Openbox)" >&2
-		[[ -n $theme ]] || (( reset )) || exit 2
+	[[ -f $wl_sys && -f $SHARE/dconf/profile-wayland ]] || return 0
+	if [[ $gtk == PiX ]]; then
+		echo "PiX is an X theme (Raspbian Stretch): the Wayland session keeps its theme."
+		return 0
 	fi
 	if (( reset )); then
 		gs=(gtk-theme icon-theme cursor-theme font-name color-scheme)
@@ -4041,15 +4050,25 @@ wl_main() {
 		s=$(wl_recorded "$wlenv" | sed -n 's/^XCURSOR_THEME=//p' | tail -n 1)
 		wl_cursor
 		if [[ -n $s ]] && ! grep -qs '^XCURSOR_THEME=' "$wlenv"; then mkdir -p "${wlenv%/*}" && printf 'XCURSOR_THEME=%s\n' "$s" >>"$wlenv"; fi
-		reset_desktop
 	elif [[ -n $theme ]]; then
 		wl_rc_theme "$wm_theme" "$ob_font" "$ob_weight"
 		wl_cursor "$icons"
-		write_desktop
 		s=light; (( ! dark )) || s=dark
 		gs=("gtk-theme='$gtk'" "icon-theme='$icons'" "cursor-theme='$icons'" "font-name='$font'" "color-scheme='prefer-$s'")
 	fi
 	(( ! ${#gs[@]} )) || GS_PROFILE=$SHARE/dconf/profile-wayland set_gsettings "${gs[@]}"
+}
+wl_main() {
+	# Animations are the X session's (Openbox): said also beside a theme
+	if [[ -n $anim ]]; then
+		echo "rpios-look-set: --animations applies to the X session (Openbox)" >&2
+		[[ -n $theme ]] || (( reset )) || exit 2
+		anim=""
+	fi
+	wl_store
+	# The X session's look with it; a failure there leaves this session's
+	( x_store; (( ! ${#gs[@]} )) || set_gsettings "${gs[@]}" ) \
+		|| echo "rpios-look-set: the X session's look could not be written" >&2
 	DCONF_PROFILE=$SHARE/dconf/profile-wayland "$SHARE/xsettings" >/dev/null 2>&1 || true
 	sh -c ". $SHARE/session-env && export DCONF_PROFILE=$SHARE/dconf/profile-wayland && gtk_weight \"\$(gsettings get org.gnome.desktop.interface font-name | tr -d \"'\")\"" >/dev/null 2>&1 || true
 	if running labwc; then labwc --reconfigure >/dev/null 2>&1 || true; fi
@@ -4127,53 +4146,62 @@ if [[ -n $theme ]]; then
 	[[ -f $wall ]] || { printf 'rpios-look-set: the wallpaper %s is not installed; the desktop keeps its own\n' "$wall" >&2; wall=""; }
 fi
 
-if wl_session; then wl_main; exit 0; fi
-
 old_theme=$(get "$lxs" "$lxs_sys" GTK sNet/ThemeName) old_icons=$(get "$lxs" "$lxs_sys" GTK sNet/IconThemeName)
 old_cursor=$(get "$lxs" "$lxs_sys" GTK sGtk/CursorThemeName)/$(get "$lxs" "$lxs_sys" GTK iGtk/CursorThemeSize)
 old_anim=$(ini_get "$lxs" GTK iGtk/EnableAnimations)
-# The changes to desktop.conf's [GTK] (lx), the Openbox file (sed
-# expressions, ob) and GSettings (gs), collected so that each is written once
-lx=() ob=() gs=()
-if (( reset )); then
-	for k in sNet/ThemeName sNet/IconThemeName sGtk/CursorThemeName iGtk/CursorThemeSize sGtk/FontName sGtk/ColorScheme; do
-		lx+=("$k=$(ini_get "$lxs_sys" GTK "$k")")
-	done
-	lx+=(iGtk/EnableAnimations)
-	reset_desktop
-	gs=(gtk-theme icon-theme cursor-theme font-name color-scheme)
-	# Openbox follows the session's settings again, as after a reset in
-	# Raspberry Pi OS's Appearance Settings: without the user's file
-	rm -f -- "$obrc" || die "cannot remove $obrc"
-elif [[ -n $theme ]]; then
-	# The theme's look, with its own colours (a dark panel for a dark
-	# theme), else Raspberry Pi OS's
-	lx+=("sNet/ThemeName=$gtk" "sNet/IconThemeName=$icons" "sGtk/CursorThemeName=$icons"
-		"iGtk/CursorThemeSize=$CURSOR_SIZE" "sGtk/FontName=$font"
-		"sGtk/ColorScheme=$(theme_scheme "$gtk" || printf '%s\n' "$COLOR_SCHEME")")
-	set_openbox_theme "$wm_theme" "$gtk"
-	set_openbox_font "$ob_font" "$ob_weight"
-	write_desktop
-	# As XSETTINGS has them; light or dark as Raspberry Pi OS's Appearance
-	# Settings sets it
-	s=light; (( ! dark )) || s=dark
-	gs=("gtk-theme='$gtk'" "icon-theme='$icons'" "cursor-theme='$icons'" "font-name='$font'" "color-scheme='prefer-$s'")
-fi
-# Animations: GTK's, which lxsession passes on, and Openbox's outline when a
-# window is minimized or restored
-if [[ -n $anim ]]; then
-	case $anim in
-		off) lx+=(iGtk/EnableAnimations=0); a=no ;;
-		on) lx+=(iGtk/EnableAnimations=1); a=yes ;;
-		default) lx+=(iGtk/EnableAnimations)
-			a=$(sed -n 's|.*<animateIconify>\([^<]*\)</animateIconify>.*|\1|p' "$ob_sys" | head -n1) ;;
-	esac
-	ob+=(-e "s|<animateIconify>[^<]*</animateIconify>|<animateIconify>${a:-yes}</animateIconify>|")
-fi
-(( ! ${#lx[@]} )) || gtk_edit "${lx[@]}"
+# Write the X session's look: the changes to desktop.conf's [GTK] (lx) and
+# the Openbox file (sed expressions, ob), collected so that each is written
+# once; its GSettings (gs) are left for the caller, which knows the D-Bus
+x_store() {
+	local k s a
+	lx=() ob=() gs=()
+	if (( reset )); then
+		for k in sNet/ThemeName sNet/IconThemeName sGtk/CursorThemeName iGtk/CursorThemeSize sGtk/FontName sGtk/ColorScheme; do
+			lx+=("$k=$(ini_get "$lxs_sys" GTK "$k")")
+		done
+		lx+=(iGtk/EnableAnimations)
+		gs=(gtk-theme icon-theme cursor-theme font-name color-scheme)
+		# Openbox follows the session's settings again, as after a reset in
+		# Raspberry Pi OS's Appearance Settings: without the user's file
+		rm -f -- "$obrc" || die "cannot remove $obrc"
+	elif [[ -n $theme ]]; then
+		# The theme's look, with its own colours (a dark panel for a dark
+		# theme), else Raspberry Pi OS's
+		lx+=("sNet/ThemeName=$gtk" "sNet/IconThemeName=$icons" "sGtk/CursorThemeName=$icons"
+			"iGtk/CursorThemeSize=$CURSOR_SIZE" "sGtk/FontName=$font"
+			"sGtk/ColorScheme=$(theme_scheme "$gtk" || printf '%s\n' "$COLOR_SCHEME")")
+		set_openbox_theme "$wm_theme" "$gtk"
+		set_openbox_font "$ob_font" "$ob_weight"
+		# As XSETTINGS has them; light or dark as Raspberry Pi OS's Appearance
+		# Settings sets it
+		s=light; (( ! dark )) || s=dark
+		gs=("gtk-theme='$gtk'" "icon-theme='$icons'" "cursor-theme='$icons'" "font-name='$font'" "color-scheme='prefer-$s'")
+	fi
+	# Animations: GTK's, which lxsession passes on, and Openbox's outline when
+	# a window is minimized or restored
+	if [[ -n $anim ]]; then
+		case $anim in
+			off) lx+=(iGtk/EnableAnimations=0); a=no ;;
+			on) lx+=(iGtk/EnableAnimations=1); a=yes ;;
+			default) lx+=(iGtk/EnableAnimations)
+				a=$(sed -n 's|.*<animateIconify>\([^<]*\)</animateIconify>.*|\1|p' "$ob_sys" | head -n1) ;;
+		esac
+		ob+=(-e "s|<animateIconify>[^<]*</animateIconify>|<animateIconify>${a:-yes}</animateIconify>|")
+	fi
+	(( ! ${#lx[@]} )) || gtk_edit "${lx[@]}"
+	(( ! ${#ob[@]} )) || edit "$obrc" <(ob_start) sed "${ob[@]}"
+}
+# The Wayland session's look with the X session's; a failure there leaves
+# this session's, which is still applied
+other_store() { ( wl_store ) || echo "rpios-look-set: the Wayland session's look could not be written" >&2; }
+# The desktop (wallpaper, colours, font), which both sessions share
+if (( reset )); then reset_desktop; elif [[ -n $theme ]]; then write_desktop; fi
+
+if wl_session; then wl_main; exit 0; fi
+
+x_store
 # GTK 3's text weight follows the font (gtk_weight); a theme change reloads it
 sh -c ". $SHARE/session-env && gtk_weight" >/dev/null 2>&1 || true
-(( ! ${#ob[@]} )) || edit "$obrc" <(ob_start) sed "${ob[@]}"
 new_theme=$(ini_get "$lxs" GTK sNet/ThemeName)
 
 # A running X session: lxsession passes the theme, icons, cursor, font and
@@ -4181,6 +4209,7 @@ new_theme=$(ini_get "$lxs" GTK sNet/ThemeName)
 p=$(session_pid)
 if [[ -z $p ]]; then
 	(( ! ${#gs[@]} )) || set_gsettings "${gs[@]}"
+	other_store
 	echo "Saved; the Raspberry Pi Desktop session uses it from your next login."
 	show
 	exit 0
@@ -4188,6 +4217,7 @@ fi
 attach "$p"
 # Through the session's D-Bus, so that open GTK 4 programs follow at once
 (( ! ${#gs[@]} )) || set_gsettings "${gs[@]}"
+other_store
 if [[ -n $old_anim && -z $(ini_get "$lxs" GTK iGtk/EnableAnimations) ]]; then
 	# lxsession keeps the last value of a removed key: set GTK's default (1)
 	# briefly, then remove the key

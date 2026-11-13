@@ -172,6 +172,8 @@ later for your release is added by `--refresh`.
 
 `rpios-look-set` changes the Raspberry Pi Desktop session for you only. It
 needs no sudo, applies within about a second and is kept for later logins.
+On Debian 13 and later a theme or a reset is set for both sessions, X and
+Wayland, as Raspberry Pi OS's Appearance Settings does.
 
 | Command | What it does |
 |---|---|
@@ -195,7 +197,8 @@ wallpaper, as Raspberry Pi OS gives them, also in the session's GSettings,
 which GTK 4 and other programs read. A dark theme (`pixonyx`, `pixnoir`) sets
 the dark style of GTK 4 and libadwaita programs, and a light one the light
 style, as Raspberry Pi OS's Appearance Settings does. These are kept in the
-session's own settings, so other sessions are not changed. A theme with
+Raspberry Pi Desktop sessions' own settings, so Debian's sessions are not
+changed. A theme with
 new icons restarts the panel for a moment; the network and running programs
 are not affected.
 
@@ -248,10 +251,10 @@ installing or before you pick one.
   works on every PC. If labwc cannot start at all, you are back on the login
   screen: pick Raspberry Pi Desktop (X).
 - **Themes:** PiXtrix, PiXonyx, PiXflat and PiXnoir. PiX is an X theme
-  (Raspbian Stretch) and stays in the X session. The Wayland session keeps a
-  look of its own: `rpios-look-set --theme` run there changes it and not the
-  X session's, and the other way round. The wallpaper and desktop icons are
-  shared, as on Raspberry Pi OS. Your window theme goes to
+  (Raspbian Stretch) and stays in the X session: set there, the Wayland
+  session keeps its theme. Every other theme, and `--reset`, is set for both
+  sessions at once, from either, as on Raspberry Pi OS; the wallpaper and
+  desktop icons are shared too. Your window theme goes to
   `~/.config/labwc/rc.xml` and the cursor to `~/.config/labwc/environment`,
   as Raspberry Pi OS's Appearance Settings keeps them. Debian's own labwc
   session reads these files too: before the first change the script records
@@ -777,6 +780,8 @@ lxsession settings start a second one, which nothing uses).
 
 - **Resizing a window:** contents redraw while dragging, as in Debian's LXDE;
   Raspberry Pi OS: blank until the mouse is released.
+- **Double click on a title bar (X session):** counted within 400 ms, as
+  GTK's programs count one; Raspberry Pi OS and Debian's LXDE: 200 ms.
 - **Menu button and login logo:** Debian logo; Raspberry Pi OS: Raspberry Pi
   logo.
 - **Login screen:** Debian's LightDM greeter in Raspberry Pi OS's style;

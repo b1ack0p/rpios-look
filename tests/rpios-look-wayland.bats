@@ -450,6 +450,9 @@ make_wl_set() {
 	printf '[GTK]\nsNet/ThemeName=PiXtrix\n' >"$share/xdg/lxsession/rpd-x/desktop.conf"
 	printf '[*]\nwallpaper=/w.jpg\n' >"$share/xdg/pcmanfm/rpd-x/desktop-items-0.conf"
 	: >"$share/dconf/profile"; : >"$share/dconf/profile-wayland"
+	mkdir -p "$share/xdg/openbox"
+	printf '%s\n' '<openbox_config xmlns="http://openbox.org/3.4/rc">' '  <theme>' '    <name>PiXtrix</name>' '    <roundCorners>no</roundCorners>' \
+		'    <font place="ActiveWindow">' '      <name>Nunito Sans</name>' '    </font>' '  </theme>' '</openbox_config>' >"$share/xdg/openbox/$OB_FILE"
 	export HOME=$BATS_TEST_TMPDIR/home XDG_DATA_HOME=$BATS_TEST_TMPDIR/home/data XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/config
 	mkdir -p "$HOME"
 	for t in PiXtrix PiXonyx PiX PiXflat PiXnoir; do mkdir -p "$XDG_DATA_HOME/themes/$t/gtk-3.0" "$XDG_DATA_HOME/icons/$t-Debian"
@@ -485,7 +488,7 @@ make_wl_set() {
 	[ ! -s "$BATS_TEST_TMPDIR/dconf.log" ]
 }
 
-@test "rpios-look-set in the Wayland session: --theme writes labwc's theme block, the cursor and the session's own GSettings; the X files are untouched" {
+@test "rpios-look-set in the Wayland session: --theme writes labwc's theme block, the cursor and the session's own GSettings, and the X session's look with it" {
 	make_wl_set
 	c=$XDG_CONFIG_HOME
 	# Your own labwc settings
@@ -507,9 +510,11 @@ make_wl_set() {
 	grep -q "^$share/dconf/profile-wayland load /org/gnome/desktop/interface/" "$BATS_TEST_TMPDIR/dconf.log"
 	grep -qx "gtk-theme='PiXonyx'" "$BATS_TEST_TMPDIR/dconf.log"
 	grep -qx "color-scheme='prefer-dark'" "$BATS_TEST_TMPDIR/dconf.log"
-	run ! grep -q "^$share/dconf/profile " "$BATS_TEST_TMPDIR/dconf.log"
-	[ ! -e "$c/lxsession" ]
-	[ ! -e "$c/openbox" ]
+	# One look for both sessions: the X session's files and GSettings too
+	grep -q "^$share/dconf/profile load /org/gnome/desktop/interface/" "$BATS_TEST_TMPDIR/dconf.log"
+	grep -qx 'sNet/ThemeName=PiXonyx' "$c/lxsession/rpd-x/desktop.conf"
+	[ "$(rc_theme "$c/openbox/$OB_FILE")" = PiXonyx ]
+	grep -qx 'wallpaper=.*' "$c/pcmanfm/rpd-x/desktop-items-0.conf"
 	# Again: one theme block, one cursor line
 	RUN --theme pixtrix >/dev/null
 	[ "$(grep -c '<theme>' "$c/labwc/rc.xml")" = 1 ]
@@ -524,9 +529,45 @@ make_wl_set() {
 	run ! grep -q XCURSOR_THEME "$c/labwc/environment"
 	grep -qx 'XKB_DEFAULT_LAYOUT=fr' "$c/labwc/environment"
 	grep -q "^$share/dconf/profile-wayland reset /org/gnome/desktop/interface/gtk-theme" "$BATS_TEST_TMPDIR/dconf.log"
+	grep -q "^$share/dconf/profile reset /org/gnome/desktop/interface/gtk-theme" "$BATS_TEST_TMPDIR/dconf.log"
+	grep -qx 'sNet/ThemeName=PiXtrix' "$c/lxsession/rpd-x/desktop.conf"
+	[ ! -e "$c/openbox/$OB_FILE" ]
 	# --animations is the X session's
 	run RUN --animations off
 	[ "$status" = 2 ]
+}
+
+@test "rpios-look-set in the X session: --theme and --reset write the Wayland session's look too; PiX leaves it its theme" {
+	make_wl_set
+	c=$XDG_CONFIG_HOME
+	XRUN() { PATH="$bin:$PATH" XDG_SESSION_DESKTOP=rpios-look WAYLAND_DISPLAY="" DBUS_SESSION_BUS_ADDRESS=unix:path=/x bash "$BATS_TEST_TMPDIR/set" "$@"; }
+	run XRUN --theme pixonyx
+	[ "$status" = 0 ]
+	grep -qx 'sNet/ThemeName=PiXonyx' "$c/lxsession/rpd-x/desktop.conf"
+	[ "$(rc_theme "$c/labwc/rc.xml")" = PiXonyx ]
+	set_theme pixonyx
+	grep -qx "XCURSOR_THEME=$T_ICONS" "$c/labwc/environment"
+	grep -q "^$share/dconf/profile-wayland load /org/gnome/desktop/interface/" "$BATS_TEST_TMPDIR/dconf.log"
+	grep -q "^$share/dconf/profile load /org/gnome/desktop/interface/" "$BATS_TEST_TMPDIR/dconf.log"
+	# PiX: the X session's only
+	: >"$BATS_TEST_TMPDIR/dconf.log"
+	run XRUN --theme pix
+	[ "$status" = 0 ]
+	[[ $output == *"PiX is an X theme (Raspbian Stretch): the Wayland session keeps its theme."* ]]
+	grep -qx 'sNet/ThemeName=PiX' "$c/lxsession/rpd-x/desktop.conf"
+	[ "$(rc_theme "$c/labwc/rc.xml")" = PiXonyx ]
+	run ! grep -q "^$share/dconf/profile-wayland " "$BATS_TEST_TMPDIR/dconf.log"
+	# --reset: both
+	run XRUN --reset
+	[ "$status" = 0 ]
+	[ ! -e "$c/labwc/rc.xml" ]
+	grep -q "^$share/dconf/profile-wayland reset /org/gnome/desktop/interface/gtk-theme" "$BATS_TEST_TMPDIR/dconf.log"
+	# --animations alone: the Wayland session's files stay as they are
+	: >"$BATS_TEST_TMPDIR/dconf.log"
+	run XRUN --animations off
+	[ "$status" = 0 ]
+	[ ! -e "$c/labwc" ] || [ ! -e "$c/labwc/rc.xml" ]
+	[ ! -s "$BATS_TEST_TMPDIR/dconf.log" ]
 }
 
 @test "rpios-look-set in the Wayland session: Large and Larger write the large window theme" {

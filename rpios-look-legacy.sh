@@ -2646,6 +2646,9 @@ _openbox_rc() {
 	_xml_child "$file" desktops number 1
 	# Windows redraw while being resized, as in Debian's Openbox settings
 	_xml_child "$file" resize drawContents yes
+	# A double click on a title bar within 400 ms, as GTK's programs count
+	# one (Debian's and Raspberry Pi OS's file: 200 ms, which is often missed)
+	_xml_child "$file" mouse doubleClickTime 400
 }
 
 # Bind the Openbox keys of Raspberry Pi OS (lxde-pi-rc.xml) whose program is
