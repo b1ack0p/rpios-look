@@ -670,8 +670,8 @@ has_string() { S=$2 perl -0777 -ne 'exit !/(?<=\0)\Q$ENV{S}\E(?=\0)/' "$1"; }
 	echo tty3 >"$d/active"; kill -CHLD $s; sleep 0.3; [ "$(n)" = 1 ]
 	echo tty7 >"$d/active"; kill -CHLD $s; till 2
 	! kill -0 "$(sed -n 1p "$d/started")" 2>/dev/null
-	# picom ends: the starter ends with it
-	kill "$(sed -n 2p "$d/started")"; wait $s
+	# picom ends: the starter ends with it, with picom's status, as lxsession starts it again only after an exit that is not clean
+	kill "$(sed -n 2p "$d/started")"; rc=0; wait $s || rc=$?; [ "$rc" = 143 ]
 }
 
 @test "the power button, as Raspberry Pi OS's pwrkey: the Shutdown dialog, shut down on a second press, not on a repeated key event" {
@@ -866,6 +866,90 @@ has_string() { S=$2 perl -0777 -ne 'exit !/(?<=\0)\Q$ENV{S}\E(?=\0)/' "$1"; }
 	kept; [ "$(ls "$HOME/Desktop" | wc -l)" = 3 ] && [ "$(ls "$a" | wc -l)" = 2 ] && [ ! -e "$XDG_STATE_HOME/rpios-look" ]
 }
 
+@test "--uninstall undoes in libfm.conf only what the session sets: a setting of your own changed between two plain runs stays" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	f=$XDG_CONFIG_HOME/libfm/libfm.conf; mkdir -p "${f%/*}"
+	warn() { :; }; ok() { :; }
+	S_PI_FM=0 S_PROFILE=LXDE-pi S_FM_PROFILE=LXDE-pi O_SIZE=medium; set_theme pixflat
+	printf '[config]\nsingle_click=1\nterminal=xterm\n' >"$f"
+	_state_init; reset_file_manager
+	# Only the session's keys are recorded as written
+	run ! grep -q '^terminal=' "$A_STATE/libfm-written"; grep -qx 'single_click=0' "$A_STATE/libfm-written"
+	run ! grep -q 'libfm-written' "$A_STATE/keys"
+	# Yours since, in Debian's LXDE: a changed key and a new one
+	sed -i 's/^terminal=.*/terminal=lxterminal/' "$f"; printf 'archiver=xarchiver\n' >>"$f"
+	reset_file_manager; restore_user
+	grep -qx 'terminal=lxterminal' "$f" && grep -qx 'archiver=xarchiver' "$f" && grep -qx 'single_click=1' "$f"
+}
+
+@test "~/.dmrc: --uninstall takes back only the session the look set; a language chosen since stays, and a file the look made goes" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state; mkdir -p "$HOME"
+	warn() { :; }; ok() { :; }
+	printf '[Desktop]\nSession=LXDE\n' >"$HOME/.dmrc"
+	_state_init; _ini_set "$HOME/.dmrc" Desktop Session "$SESSION_ID"
+	printf 'Language=fr_FR.utf8\n' >>"$HOME/.dmrc"
+	restore_user
+	[ "$(cat "$HOME/.dmrc")" = '[Desktop]'$'\n''Session=LXDE'$'\n''Language=fr_FR.utf8' ]
+	# A session you chose since stays
+	_state_init; _ini_set "$HOME/.dmrc" Desktop Session "$SESSION_ID"; sed -i 's/^Session=.*/Session=xfce/' "$HOME/.dmrc"
+	restore_user; grep -qx 'Session=xfce' "$HOME/.dmrc"
+	# A file the look made, with nothing else in it
+	rm "$HOME/.dmrc"; _state_init; _ini_set "$HOME/.dmrc" Desktop Session "$SESSION_ID"
+	restore_user; [ ! -e "$HOME/.dmrc" ]
+}
+
+@test "what APT can install from Debian: not from a source that is pinned off, not what is only installed, not Raspberry Pi's archive" {
+	apt-cache() {
+		[[ $1 == policy ]] || return 0
+		case $2 in
+			both) printf '%s\n' 'both:' '  Installed: 2.0' '  Candidate: 2.0' '  Version table:' ' *** 2.0 500' \
+				'        500 http://deb.debian.org/debian trixie/main amd64 Packages' '        100 /var/lib/dpkg/status' \
+				'     3.0 -1' '         -1 http://archive.ubuntu.com/ubuntu plucky/main amd64 Packages' ;;
+			off) printf '%s\n' 'off:' '  Installed: (none)' '  Candidate: (none)' '  Version table:' '     5.0 -1' \
+				'         -1 http://archive.ubuntu.com/ubuntu plucky/universe amd64 Packages' ;;
+			mine) printf '%s\n' 'mine:' '  Installed: 1.0+rpt1' '  Candidate: 1.0+rpt1' '  Version table:' ' *** 1.0+rpt1 100' \
+				'        100 /var/lib/dpkg/status' "         -1 ${RPI_ARCHIVE} trixie/main amd64 Packages" ;;
+		esac
+	}
+	[ "$(apt_versions both)" = 2.0 ] && [ -z "$(apt_versions off)" ] && [ -z "$(apt_versions mine)" ] && [ -z "$(apt_versions none)" ]
+	# One that is installed counts as known; one of the look's own that only Raspberry Pi has stays a dependency to fetch
+	installed_version() { [[ $1 != mine ]] || echo 1.0+rpt1; }
+	_apt_known mine && ! _apt_known off
+	_look_own() { [[ $1 == mine ]]; }
+	declare -A IN_SET=(); DEP_INDEX=""
+	! _dep_ok mine && _dep_ok both
+}
+
+@test "--uninstall of the file manager's shared settings: an empty file from before comes back empty, without the sections the install added" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	f=$XDG_CONFIG_HOME/libfm/libfm.conf; mkdir -p "${f%/*}"; : >"$f"
+	warn() { :; }; ok() { :; }
+	S_PI_FM=0 S_PROFILE=LXDE-pi S_FM_PROFILE=LXDE-pi O_SIZE=medium; set_theme pixflat
+	_state_init; reset_file_manager
+	grep -qx 'single_click=0' "$f"
+	# Yours since: a key in a section the install added, and one in a section of your own
+	printf 'mine=1\n\n[own]\nk=v\n' >>"$f"
+	restore_user
+	run ! grep -q 'single_click\|\[config\]\|\[ui\]' "$f"
+	grep -qx 'mine=1' "$f" && grep -qx '\[own\]' "$f" && grep -qx 'k=v' "$f"
+}
+
+@test "a settings folder outside the home folder is recorded and restored too; a link that the install removes comes back as a link" {
+	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/cfg XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
+	mkdir -p "$HOME" "$XDG_CONFIG_HOME/some" "$XDG_CONFIG_HOME/pcmanfm/default" "$BATS_TEST_TMPDIR/dot"
+	warn() { :; }; ok() { :; }
+	f=$XDG_CONFIG_HOME/some/settings.conf; printf '[general]\nfontname=Mine 9\n' >"$f"
+	echo dotfile >"$BATS_TEST_TMPDIR/dot/pcmanfm.conf"; ln -s "$BATS_TEST_TMPDIR/dot/pcmanfm.conf" "$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf"
+	_state_init
+	_track_file "$f"; echo changed >"$f"
+	_track_file "$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf" link; rm -f "$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf"
+	grep -qxF "file:$f" "$A_STATE/keys"
+	restore_user
+	[ "$(sed -n 2p "$f")" = 'fontname=Mine 9' ]
+	[ "$(readlink "$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf")" = "$BATS_TEST_TMPDIR/dot/pcmanfm.conf" ] && [ "$(cat "$BATS_TEST_TMPDIR/dot/pcmanfm.conf")" = dotfile ]
+	[ ! -e "$XDG_STATE_HOME/rpios-look" ]
+}
+
 @test "the size's terminal font goes into the user's LXTerminal settings, as Raspberry Pi OS does; medium and --uninstall put the font back" {
 	HOME=$BATS_TEST_TMPDIR/home XDG_CONFIG_HOME=$BATS_TEST_TMPDIR/home/.config XDG_STATE_HOME=$BATS_TEST_TMPDIR/home/.local/state
 	SYS_ROOT=$BATS_TEST_TMPDIR/sys; mkdir -p "$HOME" "$SYS_ROOT/usr/share/lxterminal"
@@ -922,7 +1006,9 @@ has_string() { S=$2 perl -0777 -ne 'exit !/(?<=\0)\Q$ENV{S}\E(?=\0)/' "$1"; }
 	# rpios-look-set recorded them as made by it
 	st=$HOME/.local/state/rpios-look; mkdir -p "$st"
 	printf 'file:.config/labwc/rc.xml\nfile:.config/labwc/environment\n' >"$st/keys"
-	has_session_settings
+	# The mark of the Wayland session, which made kanshi's empty file
+	: >"$st/kanshi-created"
+	XDG_STATE_HOME=$HOME/.local/state has_session_settings
 	XDG_STATE_HOME=$HOME/.local/state reset_session_settings
 	[ ! -e "$f/wf-panel-pi" ] && [ ! -e "$f/dconf/rpioslookwayland" ] && [ ! -e "$f/kanshi/config" ]
 	run ! grep -q PiXtrix "$f/labwc/rc.xml"; grep -q 'W-t' "$f/labwc/rc.xml"

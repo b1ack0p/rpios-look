@@ -320,7 +320,8 @@ rc_theme() { sed -n '/<theme>/,/<\/theme>/ { /<font /,/<\/font>/!s|.*<name>\([^<
 	run ! grep -q 'Xauthority\|xauth ' "$r$SHARE/xwayland"
 	run ! grep -q 'refuse\|exit 1' "$s"
 	grep -q 'DCONF_PROFILE=$share/dconf/profile-wayland' "$s"
-	grep -qx 'export DESKTOP_SESSION=rpd-labwc' "$s"
+	# The session's name is set once, in labwc's environment file, as on Raspberry Pi OS
+	run ! grep -q 'DESKTOP_SESSION' "$s"
 	# The renderer line, run against a test /dev/dri
 	line=$(grep WLR_RENDERER "$s")
 	[ "$(grep -c WLR_RENDERER "$s")" = 1 ]
@@ -340,14 +341,16 @@ rc_theme() { sed -n '/<theme>/,/<\/theme>/ { /<font /,/<\/font>/!s|.*<name>\([^<
 	r=$BATS_TEST_TMPDIR/root WORKDIR=$BATS_TEST_TMPDIR
 	set_theme pixtrix
 	_wl_programs "$r"
-	line=$(grep 'kanshi/config' "$r$SHARE/start-wayland")
-	c=$BATS_TEST_TMPDIR/config
-	config=$c sh -c "$line"
+	line=$(sed -n '/^if \[ ! -e "\$config\/kanshi\/config" \]; then$/,/^fi$/p' "$r$SHARE/start-wayland")
+	c=$BATS_TEST_TMPDIR/config s=$BATS_TEST_TMPDIR/state
+	config=$c XDG_STATE_HOME=$s sh -c "$line"
 	[ -f "$c/kanshi/config" ]
 	[ ! -s "$c/kanshi/config" ]
-	echo 'profile { output * enable }' >"$c/kanshi/config"
-	config=$c sh -c "$line"
-	grep -q profile "$c/kanshi/config"
+	# With its mark, so that only a file of the session's making is removed later
+	[ -e "$s/rpios-look/kanshi-created" ]
+	echo 'profile { output * enable }' >"$c/kanshi/config"; rm "$s/rpios-look/kanshi-created"
+	config=$c XDG_STATE_HOME=$s sh -c "$line"
+	grep -q profile "$c/kanshi/config" && [ ! -e "$s/rpios-look/kanshi-created" ]
 }
 
 @test "squeek: the on-screen keyboard starts only with squeekboard and a touch screen" {
@@ -532,9 +535,10 @@ make_wl_set() {
 	grep -q "^$share/dconf/profile reset /org/gnome/desktop/interface/gtk-theme" "$BATS_TEST_TMPDIR/dconf.log"
 	grep -qx 'sNet/ThemeName=PiXtrix' "$c/lxsession/rpd-x/desktop.conf"
 	[ ! -e "$c/openbox/$OB_FILE" ]
-	# --animations is the X session's
+	# --animations is the X session's: said, and stored for it
 	run RUN --animations off
-	[ "$status" = 2 ]
+	[ "$status" = 0 ] && [[ $output == *"applies to the X session"* ]]
+	grep -qx 'iGtk/EnableAnimations=0' "$c/lxsession/rpd-x/desktop.conf"
 }
 
 @test "rpios-look-set in the X session: --theme and --reset write the Wayland session's look too; PiX leaves it its theme" {
@@ -697,7 +701,7 @@ user_rc() {
 
 @test "reset_session_settings: kanshi's empty file goes, yours stays; the Wayland dconf database and the panel's folder go" {
 	wl_home
-	: >"$c/kanshi/config"
+	: >"$c/kanshi/config"; : >"$XDG_STATE_HOME/rpios-look/kanshi-created"
 	mkdir -p "$c/dconf" "$c/wf-panel-pi"
 	: >"$c/dconf/rpioslookwayland"; : >"$c/dconf/user"
 	echo '[panel]' >"$c/wf-panel-pi/wf-panel-pi.ini"
@@ -715,16 +719,20 @@ user_rc() {
 
 @test "reset_session_settings: the empty kanshi file of a Wayland login is removed even without other settings" {
 	wl_home
-	# start-wayland created it at the first Wayland login; nothing else
-	: >"$c/kanshi/config"
+	# start-wayland created it at the first Wayland login, with its mark; nothing else
+	: >"$c/kanshi/config"; : >"$XDG_STATE_HOME/rpios-look/kanshi-created"
 	reset_session_settings
-	[ ! -e "$c/kanshi/config" ]
+	[ ! -e "$c/kanshi/config" ] && [ ! -e "$XDG_STATE_HOME/rpios-look/kanshi-created" ]
+	# An empty file of your own (no mark) is not the session's
+	mkdir -p "$c/kanshi"; : >"$c/kanshi/config"; rm -f "$XDG_STATE_HOME/rpios-look/keys"
+	run ! has_session_settings
+	reset_session_settings; [ -e "$c/kanshi/config" ]
 }
 
 @test "uninstall: the session-ID regexes accept rpios-look and rpios-look-wayland, not rpios-lookalike" {
 	body=$(sed -n '/^uninstall() {$/,/^}$/p' "$SCRIPT")
-	# The AccountsService list, its per-key check and LightDM's dmrc records
-	[ "$(grep -c "(\$SESSION_ID|\$WL_SESSION_ID)\\\\\\$" <<<"$body")" = 3 ]
+	# The AccountsService list, its per-key check, the lines removed from a file the install made, and LightDM's dmrc records
+	[ "$(grep -c "(\$SESSION_ID|\$WL_SESSION_ID)\\\\\\$" <<<"$body")" = 4 ]
 	grep -q "grep -lE '^X?Session=(\$SESSION_ID|\$WL_SESSION_ID)\\\\\$' /var/lib/AccountsService/users/" <<<"$body"
 	grep -q "grep -qE \"^\$m=(\$SESSION_ID|\$WL_SESSION_ID)\\\\\$\"" <<<"$body"
 	grep -q "grep -lE '^Session=(\$SESSION_ID|\$WL_SESSION_ID)\\\\\$' /var/cache/lightdm/dmrc/" <<<"$body"
@@ -840,4 +848,45 @@ user_rc() {
 	[ "$status" = 0 ] && [ "$(rc_theme "$c/labwc/rc.xml")" = Mine ] && [ "$(grep -c '<theme>' "$c/labwc/rc.xml")" = 1 ]
 	grep -q 'command="foot"' "$c/labwc/rc.xml"
 	grep -qx 'XCURSOR_THEME=MyCursor' "$c/labwc/environment" && grep -qx 'XKB_DEFAULT_LAYOUT=fr' "$c/labwc/environment"
+	# The record is forgotten: a theme of your own set since is the one the next --reset gives back
+	run ! grep -q "labwc/" "$st/keys"; [ ! -e "$st/files/$rel/rc.xml" ]
+	sed -i 's|<name>Mine</name>|<name>Newer</name>|' "$c/labwc/rc.xml"
+	run RUN --theme pixtrix; [ "$(rc_theme "$c/labwc/rc.xml")" = PiXtrix ]
+	run RUN --reset; [ "$(rc_theme "$c/labwc/rc.xml")" = Newer ]
+}
+
+@test "labwc's environment file whose last line lacks its end: the cursor goes on a line of its own, and --reset leaves the file as it was" {
+	make_wl_set
+	c=$XDG_CONFIG_HOME; mkdir -p "$c/labwc"
+	printf 'XKB_DEFAULT_LAYOUT=de' >"$c/labwc/environment"
+	run RUN --theme pixonyx
+	[ "$status" = 0 ]
+	grep -qx 'XKB_DEFAULT_LAYOUT=de' "$c/labwc/environment" && grep -q '^XCURSOR_THEME=PiX' "$c/labwc/environment"
+	run RUN --reset
+	[ "$(cat "$c/labwc/environment")" = 'XKB_DEFAULT_LAYOUT=de' ]
+	# A root element written as one empty element is opened, not left beside a second one
+	printf '<?xml version="1.0"?>\n<labwc_config/>\n' >"$c/labwc/rc.xml"
+	run RUN --theme pixtrix
+	[ "$(rc_theme "$c/labwc/rc.xml")" = PiXtrix ] && python3 -c 'import sys, xml.dom.minidom as m; m.parse(sys.argv[1])' "$c/labwc/rc.xml"
+	run ! grep -q 'openbox_config' "$c/labwc/rc.xml"
+}
+
+@test "labwc's own root element (labwc_config) stays: the theme block goes before its end, and the file is still one document" {
+	make_wl_set
+	c=$XDG_CONFIG_HOME; mkdir -p "$c/labwc"
+	printf '%s\n' '<?xml version="1.0"?>' '<labwc_config>' '  <keyboard>' '    <keybind key="W-t"><action name="Execute" command="foot" /></keybind>' '  </keyboard>' '</labwc_config>' >"$c/labwc/rc.xml"
+	run RUN --theme pixonyx
+	[ "$status" = 0 ] && [ "$(rc_theme "$c/labwc/rc.xml")" = PiXonyx ]
+	run ! grep -q 'openbox_config' "$c/labwc/rc.xml"
+	[ "$(grep -c '</labwc_config>' "$c/labwc/rc.xml")" = 1 ] && [ "$(tail -n 1 "$c/labwc/rc.xml")" = '</labwc_config>' ]
+	python3 -c 'import sys, xml.dom.minidom as m; m.parse(sys.argv[1])' "$c/labwc/rc.xml"
+	# --reset: as it was, less nothing of yours
+	run RUN --reset
+	[ "$status" = 0 ] && grep -q 'command="foot"' "$c/labwc/rc.xml"
+	run ! grep -q '<theme>' "$c/labwc/rc.xml"
+	python3 -c 'import sys, xml.dom.minidom as m; m.parse(sys.argv[1])' "$c/labwc/rc.xml"
+	# The install's own undo too, and a file with nothing but the root goes
+	_labwc_put "$c/labwc/rc.xml" '<theme><name>PiXflat</name></theme>'
+	[ "$(grep -c '</labwc_config>' "$c/labwc/rc.xml")" = 1 ] && ! _labwc_bare "$c/labwc/rc.xml"
+	printf '<?xml version="1.0"?>\n<labwc_config>\n</labwc_config>\n' >"$c/labwc/bare.xml"; _labwc_bare "$c/labwc/bare.xml"
 }

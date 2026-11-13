@@ -13,14 +13,14 @@ DIFFERENT="
 	adapt_deb apt_files audio_debs _avail beside_build beside_seen bt_pin_entry build_deb
 	build_pkg choose_session cleanup cmd_pack _debian_has _dep_ok _deps_satisfiable download_pkg
 	fetch _fm_shared_conf index_candidates index_load index_names install_all install_mode
-	keep_installed_release list load_releases login_debs _lxpanel_layout magnifier_pkg main
+	keep_installed_release list load_releases login_debs look_record _lxpanel_layout magnifier_pkg main
 	netman_debs_drop netman_decide _no_battery _openbox_keys _openbox_rc panel_drop _panel_tasks
 	parse_args pick_suite _pi_layout _pin_unfixed pi_unpack pkg_category _pkg_status preflight_tools
 	_print_look print_plan qt_debs refresh_check _release_csv release_load release_ok reload_session
 	require_own_install reset_file_manager resolve_all resolve_pkg rpi_arches rpi_new_looks rpi_pkgs rpi_populated
 	self_cmd session_build _session_command _session_dconf _session_entries _session_files
 	_session_icons _session_menu _session_profile _session_programs _session_themes session_vars
-	set_theme size_ok start_log summary theme_debs tray_debs uninstall usage version_newer
+	set_theme setup_keyring size_ok start_log summary theme_debs tray_debs uninstall usage version_newer
 	wicd_restore with_rpi_deps
 "
 

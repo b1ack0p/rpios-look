@@ -64,8 +64,8 @@ plus offline installation:
 
 Options: `--size small|medium|large`, `--no-reboot`, `-v`/`--verbose`,
 as in the [README](README.md#modes-and-options). A plain run and `--offline`
-reset the session, the file manager, the bookmarks, the desktop's
-shortcuts and your own power settings as the README describes; `--refresh` keeps them. Logs are named
+reset the session's settings and the file manager's, as the README
+describes; `--refresh` keeps them. Logs are named
 `~/rpios-look-legacy-<mode>-<date>-<time>.log`.
 
 ## Looks per release
@@ -160,8 +160,8 @@ Two fixes restore what Debian does by default on older laptops:
   wicd. If wicd was set up before the Wi-Fi card worked, its setting
   `wireless_interface = None` is set to the card. wicd restarts, which can
   briefly drop a connection it manages. `--uninstall` puts `None` back if the
-  value is still the one the script set. The network manager is never
-  replaced.
+  value is still the one the script set and the Wi-Fi interface is not in
+  use. The network manager is never replaced.
 
 `--uninstall` removes the network and Bluetooth tools the install added, so
 that your network setup from before the install is back after the restart,
