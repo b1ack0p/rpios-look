@@ -108,35 +108,35 @@ Every run writes a log to your home folder, for example
 
 **What a plain run resets.** `bash rpios-look.sh`, on a first install and on
 every later run, puts the session of the user who runs it back to Raspberry
-Pi OS's defaults. `--refresh` keeps all of it.
+Pi OS's defaults, as the Defaults page of Raspberry Pi OS's Appearance
+Settings does. `--refresh` keeps all of it.
 
 | Reset to the defaults | Kept |
 |---|---|
-| Theme, icons, cursor, fonts, wallpaper, size preset | Your files and folders, those on the desktop included |
-| Panel: items, order, spacers, position, size, icon size | Your other start entries |
-| Window settings and your own keys | Default applications |
-| File manager preferences, desktop preferences and where desktop icons sit | The terminal's settings other than its font |
-| The file manager's bookmarks | Screen layout; the lid, power button and sleep key settings ([E](#e-lid-power-button-and-sleep-key-whole-computer)) |
-| Shortcuts on the desktop (launchers and links): Raspberry Pi OS's desktop shows only the Trash and the drives | Other users' settings |
-| [Your own power settings](#your-own-power-settings) for the session (A to D): the `power-times` and `light-locker` start entries and the `swayidle` line | |
+| Theme, icons, cursor, fonts, wallpaper, size preset | Your files, folders and shortcuts on the desktop |
+| Panel: items, order, spacers, position, size, icon size | The file manager's bookmarks |
+| Window settings and your own keys | Your start entries, [your own power settings](#your-own-power-settings) among them |
+| File manager preferences, desktop preferences and where desktop icons sit | Default applications |
+| | The terminal's settings other than its font |
+| | Screen layout; the lid, power button and sleep key settings ([E](#e-lid-power-button-and-sleep-key-whole-computer)) |
+| | Other users' settings |
 
-The bookmarks are GTK's, so file dialogs and Debian's own sessions lose them
-too. On Debian 12 and later, Debian's LXDE adds bookmarks of Documents, Music,
+Raspberry Pi OS deletes whole settings files; here a file that Debian's own
+sessions read too is never deleted. On Debian 9 to 12 the file manager keeps
+part of its preferences in such a file (`~/.config/libfm/libfm.conf`): there
+only the values the look sets (icon sizes, thumbnails, single or double
+click, the trash, the side pane's places) go back to the defaults. In labwc's
+settings only the window theme and the cursor that `rpios-look-set` wrote are
+undone. The run names the reset in its plan, before it asks to proceed. The
+file manager settings that were there before the first install are recorded,
+and `--uninstall` puts them back; in `libfm.conf` it undoes only the values
+the look wrote, so what you changed in that file since stays. Your desktop,
+bookmarks and start entries are never changed, so `--uninstall` leaves them
+as you left them.
+
+On Debian 12 and later, Debian's LXDE adds bookmarks of Documents, Music,
 Pictures, Videos and Downloads at each login; the Raspberry Pi Desktop session
-does not, as Raspberry Pi OS has none, so those five come back only after a
-login into Debian's LXDE. The run names the reset in its plan, before it asks
-to proceed. The file manager settings that were there before the first
-install, and the bookmarks and shortcuts that any plain run removed, are
-recorded, and `--uninstall` puts them back:
-the bookmarks beside those you added since, and a shortcut under a numbered
-name (`name.~1~`) where a file of its name is on the desktop by then. On
-Debian 9 to 12 the file manager keeps part of its preferences in a file that
-Debian's LXDE reads too (`~/.config/libfm/libfm.conf`); there only the values
-the look sets (icon sizes, thumbnails, single or double click, the trash, the
-side pane's places) go back to the defaults, and `--uninstall` undoes only
-those, so what you changed in that file since stays. Your own power settings
-are set aside, not deleted: `--uninstall` puts them back. A `light-locker`
-start entry that only hides the locker is Debian's LXDE's own and stays.
+does not, as Raspberry Pi OS has none.
 
 ## Looks per release
 
@@ -348,9 +348,8 @@ has none. Debian's LXDE session keeps its own settings.
 ### Your own power settings
 
 The look has no power settings of its own. Debian's own tools set the times
-below, on every release from 9 on. `--refresh` keeps what you set here; a
-plain run sets A to D aside, as part of
-[what it resets](#modes-and-options), and `--uninstall` puts them back. Copy a block into a terminal, change the numbers, then log out
+below, on every release from 9 on. The script never changes what you set
+here. Copy a block into a terminal, change the numbers, then log out
 and in again. All times are in **seconds** (300 = 5 minutes, 600 = 10,
 1800 = 30, 3600 = 1 hour).
 

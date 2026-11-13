@@ -5556,19 +5556,7 @@ restore_user() {
 	_labwc_undo
 	_term_font_undo "$st"
 	_fm_undo "$st" || { warn "could not restore the file manager's settings"; fail=1; }
-	_power_undo "$st" || { warn "could not restore labwc's start file"; fail=1; }
-	# The desktop's shortcuts and the start entries that an install moved
-	# away (reset_file_manager, reset_power); beside a file of that name that
-	# is there now, under a numbered name
-	local n d
-	for rel in "$st/desktop"/* "$st/autostart"/*; do
-		[[ -e $rel || -L $rel ]] || continue
-		d=${XDG_CONFIG_HOME:-$HOME/.config}/autostart
-		[[ $rel != "$st/desktop"/* ]] || d=$(_desktop_dir)
-		dst=$d/${rel##*/} n=1
-		while [[ -e $dst || -L $dst ]]; do dst=$d/${rel##*/}.~$n~ n=$(( n + 1 )); done
-		{ mkdir -p -- "${dst%/*}" && mv -- "$rel" "$dst"; } || { warn "could not put back ${rel##*/}"; fail=1; }
-	done
+	_giveback "$st" || { warn "could not put back what an earlier install set aside"; fail=1; }
 	if (( fail )); then
 		warn "the backup of $(id -un)'s previous settings stays in $st"
 		return 0
@@ -5896,12 +5884,12 @@ _term_font_undo() {
 # profile, which Debian's file manager reads only outside LXDE: those files
 # go. Otherwise the session's file manager keeps part of its preferences in
 # libfm.conf, which Debian's LXDE reads too: there only the values the
-# session sets go back to its own. The side pane's bookmarks and the
-# desktop's shortcuts go too. All of it is recorded first, so --uninstall
-# gives back what was there. The user's other files and folders, the
-# desktop's among them, are not touched. Usage: reset_file_manager
+# session sets go back to its own. All of it is recorded first, so --uninstall
+# gives back what was there. As Raspberry Pi OS's own reset (Appearance
+# Settings, Defaults), it leaves the bookmarks, the desktop's shortcuts,
+# files and folders, and the start entries. Usage: reset_file_manager
 reset_file_manager() {
-	local f=${XDG_CONFIG_HOME:-$HOME/.config} p old add n=0
+	local f=${XDG_CONFIG_HOME:-$HOME/.config} p
 	if (( ${S_PI_FM:-0} )) && [[ ${S_FM_PROFILE:-$S_PROFILE} == default ]]; then
 		# The desktop's file of each monitor, also of one not there yet: one
 		# that the session writes later is then not taken for the user's own
@@ -5914,79 +5902,15 @@ reset_file_manager() {
 		# The values as written: --uninstall undoes only those (_fm_undo)
 		cp -- "$f/libfm/libfm.conf" "$A_STATE/libfm-written"
 	fi
-	# The bookmarks of the file manager's side pane (GTK's, which the file
-	# dialogs of every session show too). On a later install those added
-	# since join the ones kept from before
-	for p in "$f/gtk-3.0/bookmarks" "$HOME/.gtk-bookmarks"; do
-		old=$A_STATE/files/${p#"$HOME"/}
-		if [[ -f $p ]] && grep -qxF "file:${p#"$HOME"/}" "$A_STATE/keys"; then
-			mkdir -p "${old%/*}" && touch "$old"
-			[[ -z $(tail -c 1 -- "$old") ]] || echo >>"$old"
-			add=$(grep -vxF -f "$old" -- "$p" || true)
-			[[ -z $add ]] || printf '%s\n' "$add" >>"$old"
-		fi
-		_track_file "$p"
-		rm -f -- "$p"
-	done
-	# Raspberry Pi OS puts no shortcut on the desktop: its Trash and drive
-	# icons are settings. Launchers and links there are moved into the state
-	# directory, and --uninstall moves them back; the desktop's other files
-	# and folders stay
-	for p in "$(_desktop_dir)"/*; do
-		[[ -L $p || ( -f $p && $p == *.desktop ) ]] || continue
-		if mkdir -p "$A_STATE/desktop" && mv --backup=numbered -- "$p" "$A_STATE/desktop/"; then
-			n=$(( n + 1 ))
-		else
-			warn "could not move ${p##*/} off the desktop; it stays"
-		fi
-	done
 	ok "The file manager and the desktop are back to the defaults"
-	(( ! n )) || info "$n shortcuts on the desktop were moved to $A_STATE/desktop; --uninstall puts them back"
 }
 
-# Set aside, on an install (not on --refresh), this user's own power settings
-# for the session, which Raspberry Pi OS does not have (the README's "Your
-# own power settings"): the start entries power-times and light-locker (one
-# that only hides light-locker is Debian's LXDE's own and stays) and the
-# swayidle commands in labwc's start file, each with the lines it goes on
-# over. They are kept in the state directory, and --uninstall puts them
-# back. The lid and power button settings of systemd-logind are the whole
-# computer's and stay.
-# Usage: reset_power
-reset_power() {
-	local f=${XDG_CONFIG_HOME:-$HOME/.config} p n=0 old new
-	for p in "$f/autostart/power-times.desktop" "$f/autostart/light-locker.desktop"; do
-		[[ -f $p ]] || continue
-		if [[ $p == */light-locker.desktop ]] && grep -qix 'Hidden=true' "$p"; then continue; fi
-		if mkdir -p "$A_STATE/autostart" && mv --backup=numbered -- "$p" "$A_STATE/autostart/"; then
-			n=$(( n + 1 ))
-		else
-			warn "could not move ${p##*/} out of your start entries; it stays"
-		fi
-	done
-	# The Wayland session's idle line in labwc's start file, which Debian's
-	# labwc session runs too: only the swayidle commands go, with the lines
-	# that one goes on over (a line that ends in a backslash)
-	p=$f/labwc/autostart old=$A_STATE/files/${p#"$HOME"/}
-	if [[ -f $p && -n $(_swayidle_cmds /dev/null "$p") ]]; then
-		[[ -f $old ]] || { mkdir -p "${old%/*}" && : >"$old"; }
-		# One kept already, from an earlier install, is not kept twice
-		new=$(_swayidle_cmds "$old" "$p")
-		[[ -z $new ]] || printf '%s\n' "$new" >>"$old"
-		_swayidle_cmds "$p" | _write "$p"
-		[[ -s $p ]] || rm -f -- "$p"
-		n=$(( n + 1 ))
-	fi
-	(( ! n )) || ok "Your own power settings for the session are set aside; --uninstall puts them back"
-}
-
-# Undo, at --uninstall, what an install changed in the files that other
+# Undo, at --uninstall, what an install changed in a file that other
 # sessions read too (reset_file_manager). libfm.conf: the values the install
 # wrote, where they are still there, give way to those from before; your
-# changes since stay. GTK's bookmarks: those from before the install come
-# back beside the ones added since. Usage: _fm_undo STATE-DIR
+# changes since stay. Usage: _fm_undo STATE-DIR
 _fm_undo() {
-	local st=$1 f=${XDG_CONFIG_HOME:-$HOME/.config} p old add rc=0
+	local st=$1 f=${XDG_CONFIG_HOME:-$HOME/.config} p old rc=0
 	p=$f/libfm/libfm.conf old=$st/files/${p#"$HOME"/}
 	if [[ -f $st/libfm-written && -s $old && -f $p ]]; then
 		awk 'function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
@@ -6004,6 +5928,17 @@ _fm_undo() {
 				print
 			}' "$old" "$st/libfm-written" "$p" | _write "$p" || rc=1
 	fi
+	return $rc
+}
+
+# Give back what a plain run of an earlier version took away, which this
+# one leaves alone: the file manager's bookmarks (beside those added since),
+# the desktop's shortcuts and the power-times and light-locker start entries
+# (beside a file of that name under a numbered name), and the swayidle
+# commands of labwc's start file. At the next run and at
+# --uninstall; what was given back is no longer kept. Usage: _giveback STATE-DIR
+_giveback() {
+	local st=$1 f=${XDG_CONFIG_HOME:-$HOME/.config} p old add rel d dst n rc=0
 	for p in "$f/gtk-3.0/bookmarks" "$HOME/.gtk-bookmarks"; do
 		old=$st/files/${p#"$HOME"/}
 		[[ -f $old ]] || continue
@@ -6011,28 +5946,39 @@ _fm_undo() {
 			[[ -z $(tail -c 1 -- "$p") ]] || echo >>"$p"
 			add=$(grep -vxF -f "$p" -- "$old" | awk '!seen[$0]++' || true)
 			[[ -z $add ]] || printf '%s\n' "$add" >>"$p"
+			rm -f -- "$old"
+		elif mkdir -p -- "${p%/*}" && cp -a -- "$old" "$p"; then
+			rm -f -- "$old"
 		else
-			{ mkdir -p -- "${p%/*}" && cp -a -- "$old" "$p"; } || rc=1
+			rc=1
 		fi
 	done
+	if _power_undo "$st"; then rm -f -- "$st/files/${f#"$HOME"/}/labwc/autostart"; else rc=1; fi
+	for rel in "$st/desktop"/* "$st/autostart"/*; do
+		[[ -e $rel || -L $rel ]] || continue
+		d=$f/autostart
+		[[ $rel != "$st/desktop"/* ]] || d=$(_desktop_dir)
+		dst=$d/${rel##*/} n=1
+		while [[ -e $dst || -L $dst ]]; do dst=$d/${rel##*/}.~$n~ n=$(( n + 1 )); done
+		{ mkdir -p -- "${dst%/*}" && mv -- "$rel" "$dst"; } || rc=1
+	done
+	rmdir -- "$st/desktop" "$st/autostart" 2>/dev/null || true
 	return $rc
 }
 
 # Print the swayidle commands of labwc's start file NEW that are not in the
 # start file HAVE, each whole: a command goes on over the lines that end in
 # a backslash; two that differ only in the spaces their lines begin with are
-# one. With one file, print that file without its swayidle commands.
-# Usage: _swayidle_cmds HAVE NEW | _swayidle_cmds FILE
+# one. Usage: _swayidle_cmds HAVE NEW
 _swayidle_cmds() {
-	awk -v rest=$(( $# == 1 )) 'function end() { if (b != "" && !(k in seen)) { seen[k] = 1; if (src != ARGV[1]) printf "%s", b }; b = k = ""; more = 0 }
+	awk 'function end() { if (b != "" && !(k in seen)) { seen[k] = 1; if (src != ARGV[1]) printf "%s", b }; b = k = ""; more = 0 }
 		FNR == 1 { end() }
 		more || /^[ \t]*swayidle([ \t&]|$)/ { if (b == "") src = FILENAME; b = b $0 "\n"; l = $0; sub(/^[ \t]+/, "", l); k = k l "\n"; more = /\\$/; if (!more) end(); next }
-		rest
 		END { end() }' "$@"
 }
 
-# Put back, at --uninstall, the swayidle commands that an install took out of
-# labwc's start file (reset_power): after what is there now, each one unless
+# Put back the swayidle commands that an earlier version took out of
+# labwc's start file (_giveback): after what is there now, each one unless
 # it is there already. Usage: _power_undo STATE-DIR
 _power_undo() {
 	local st=$1 p=${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart old add
@@ -6407,10 +6353,8 @@ print_plan() {
 		log "               go back to the defaults; to update and keep them: $(self_cmd) --refresh"
 	fi
 	if [[ ${O_MODE:-} != refresh ]]; then
-		log "  Reset        $(id -un)'s file manager and desktop preferences go back to the defaults;"
-		log "               the file manager's bookmarks and the desktop's shortcuts (launchers and"
-		log "               links) are removed; your own power settings for the session are set"
-		log "               aside; files and folders stay; --uninstall puts all of it back"
+		log "  Reset        $(id -un)'s file manager and desktop preferences go back to the defaults,"
+		log "               as Raspberry Pi OS's own reset; bookmarks, shortcuts, files and folders stay"
 	fi
 	log "  Session      Raspberry Pi Desktop (X, Openbox), on the login screen for every user"
 	(( ! WAYLAND )) || log "               Raspberry Pi Desktop (Wayland, labwc) beside it, to pick on the login screen"
@@ -6508,6 +6452,7 @@ install_mode() {
 	apt_lists_sync "$src"
 	step "Setting up the login screen and the session for $(id -un)"
 	_state_init
+	_giveback "$A_STATE" || warn "could not put back all that an earlier install set aside; it stays in $A_STATE"
 	# An install starts clean; --refresh keeps the user's settings
 	if [[ $O_MODE != refresh ]]; then
 		if has_session_settings; then
@@ -6515,7 +6460,6 @@ install_mode() {
 			ok "Your Raspberry Pi Desktop settings are back to the defaults"
 		fi
 		reset_file_manager
-		reset_power
 	fi
 	# The terminal's font follows the size: on an install, and on --refresh
 	# when --size is given
