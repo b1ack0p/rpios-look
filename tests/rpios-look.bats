@@ -238,11 +238,14 @@ CSV
 	[ "$status" -eq 0 ] && [[ $output == *"not installed on this computer: nothing to uninstall"* && $output != *LOGGED* && $output != *UNINSTALLED* ]]
 	# Another user uninstalled the look first: this user's own backups are still put back, without log or restart
 	mkdir -p "$XDG_STATE_HOME/rpios-look/files/.config/pcmanfm/default" "$XDG_CONFIG_HOME/lxsession/rpd-x"
+	mkdir -p "$XDG_CACHE_HOME/lxsession/rpd-x" "$XDG_CACHE_HOME/lxsession/LXDE"; echo log >"$XDG_CACHE_HOME/lxsession/rpd-x/run.log"
 	echo mine >"$XDG_STATE_HOME/rpios-look/files/.config/pcmanfm/default/pcmanfm.conf"
 	printf 'file:.config/pcmanfm/default/pcmanfm.conf\n' >"$XDG_STATE_HOME/rpios-look/keys"
 	run main --uninstall
 	[ "$status" -eq 0 ] && [[ $output == *"your own settings are put back"* && $output != *LOGGED* && $output != *UNINSTALLED* ]]
 	[ "$(cat "$XDG_CONFIG_HOME/pcmanfm/default/pcmanfm.conf")" = mine ] && [ ! -e "$XDG_STATE_HOME/rpios-look" ] && [ ! -e "$XDG_CONFIG_HOME/lxsession/rpd-x" ]
+	# lxsession's log of the session goes; Debian's LXDE's stays
+	[ ! -e "$XDG_CACHE_HOME/lxsession/rpd-x" ] && [ -d "$XDG_CACHE_HOME/lxsession/LXDE" ]
 	# Installed: a record in SYS_DIR, or the generated package
 	unset -f look_installed; source <(sed -n '/^look_installed()/p' "$BATS_TEST_DIRNAME/../rpios-look.sh")
 	ls() { :; }; installed_version() { :; }

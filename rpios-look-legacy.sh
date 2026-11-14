@@ -6498,9 +6498,11 @@ user_undo() {
 	restore_user
 	forget_dmrc
 	reset_session_settings
-	# The saved release table, and the session's menu and font layers where
-	# the system gives no runtime folder
-	rm -rf -- "${c:?}/$APP_NAME" "${c:?}/$APP_NAME-menu" "${c:?}/$APP_NAME-gtk"
+	# The saved release table, the session's menu and font layers where the
+	# system gives no runtime folder, and lxsession's log of the session
+	rm -rf -- "${c:?}/$APP_NAME" "${c:?}/$APP_NAME-menu" "${c:?}/$APP_NAME-gtk" \
+		"${c:?}/lxsession/rpd-x" "${c:?}/lxsession/LXDE-pi"
+	rmdir -- "$c/lxsession" 2>/dev/null || true
 }
 
 # --uninstall: undo what the script did. For everyone: the session, the login
@@ -6508,7 +6510,7 @@ user_undo() {
 # running it: the settings it changed. Packages that were installed before, or
 # that other software now needs, stay.
 uninstall() {
-	local p f u m v prev kind was=0 live=0
+	local p f u m v prev kind was=0 live=0 told=""
 	local -a pkgs=() keep=()
 	[[ -z $(installed_version "$APP_PKG") ]] || live=1
 	# The look itself, or only the record of packages an earlier uninstall kept
@@ -6557,11 +6559,13 @@ uninstall() {
 			[[ -z $v ]] || prev=$v
 		done
 		if [[ -n $prev ]]; then ok "${f##*/} logs in to $prev again"; else ok "${f##*/} logs in to the login screen's default session again"; fi
+		told+=" ${f##*/} "
 	done
 	# LightDM's own record of the users' session choice, used without AccountsService
 	for f in $(sudo sh -c "grep -lE '^Session=($SESSION_ID|$WL_SESSION_ID)\$' /var/cache/lightdm/dmrc/*.dmrc" 2>/dev/null); do
 		as_root rm -f -- "$f"
-		ok "$(basename "$f" .dmrc) logs in to the login screen's default session again"
+		# Said once for a user, whichever of the two records named the session
+		[[ $told == *" $(basename "$f" .dmrc) "* ]] || ok "$(basename "$f" .dmrc) logs in to the login screen's default session again"
 	done
 
 	# This user's files: those this script backed up, and the session's own
